@@ -47,6 +47,20 @@ def test_import_requires_auth(client):
     assert r.status_code == 401
 
 
+def test_import_links_gateway(client):
+    payload = {
+        "servers": [
+            {"hostname": "web-01", "ip": "10.0.1.10", "ssh_user": "deploy", "gateway_alias": "bastion"},
+            {"hostname": "bastion", "ip": "10.0.0.1", "ssh_user": "ops"},
+        ]
+    }
+    client.post("/api/servers/import", json=payload, headers=AUTH)
+    rows = {r["hostname"]: r for r in client.get("/api/servers").json()}
+    assert rows["bastion"]["role"] == "gateway"
+    assert rows["web-01"]["gateway_id"] == rows["bastion"]["id"]
+    assert rows["web-01"]["access_method"] == "via_gateway"
+
+
 def test_connection_test_updates_status(client):
     client.post("/api/servers/import", json={"servers": [{"hostname": "s1", "ssh_user": "a"}]}, headers=AUTH)
     sid = client.get("/api/servers").json()[0]["id"]

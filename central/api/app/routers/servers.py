@@ -64,5 +64,18 @@ def import_servers(payload: ImportPayload, db: Session = Depends(get_db)) -> dic
         row.credential_alias = item.credential_alias
         row.access_control = item.access_control
         row.access_method = "via_gateway" if item.gateway_alias else "direct"
+    db.flush()
+
+    # 2차 패스: ProxyJump 별칭 → gateway_id 연결 + 그 gw 는 role=gateway 로 표시
+    by_alias = {s.hostname: s for s in db.query(Server).all()}
+    for item in payload.servers:
+        if not item.gateway_alias:
+            continue
+        gw = by_alias.get(item.gateway_alias)
+        target = by_alias.get(item.hostname)
+        if gw is not None and target is not None:
+            gw.role = "gateway"
+            target.gateway_id = gw.id
+
     db.commit()
     return {"imported_new": created, "total": len(payload.servers)}

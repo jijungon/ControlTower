@@ -60,6 +60,9 @@ export default function Servers() {
           </tbody>
         </table>
 
+        {!servers && !err && (
+          <div className="placeholder" style={{ padding: '28px 16px' }}>불러오는 중…</div>
+        )}
         {servers && servers.length === 0 && (
           <div className="placeholder" style={{ padding: '28px 16px' }}>
             아직 임포트된 서버가 없습니다 — 러너로 임포트하세요:{' '}

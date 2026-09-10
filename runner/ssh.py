@@ -1,4 +1,9 @@
-"""SSH 접속 — 두 경로 지원.
+"""SSH 접속 (asyncssh, nested) — **Phase 0 미사용**.
+
+지금 접속 테스트는 conn.py(시스템 ssh + ~/.ssh/config)가 담당한다. 이 asyncssh 기반
+프로그래매틱 nested-ssh 는 향후(수집기 병렬화 등)용으로 보존한다.
+
+두 경로 지원.
 
   * direct       : 러너 로컬 키로 대상에 직접 접속
   * via_gateway  : gw 에 접속(로컬 gw 키) 후, gw 위에서 gw 가 보유한 키로

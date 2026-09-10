@@ -13,8 +13,8 @@ import os
 import time
 
 from .api import CentralAPI
-from .conn import test_ssh
 from .config import RunnerConfig
+from .conn import test_ssh
 from .sshconf import parse_ssh_config
 
 

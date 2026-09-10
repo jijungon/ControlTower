@@ -5,12 +5,11 @@ import os
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test_ctower.db")
 os.environ.setdefault("CT_API_TOKEN", "dev-runner-token")
 
-import pytest
-from fastapi.testclient import TestClient
-
 import app.models  # noqa: F401  테이블 등록
+import pytest
 from app.db import Base, engine
-from app.main import app as fastapi_app   # 이름 충돌 방지: import app.* 뒤에 인스턴스 바인딩
+from app.main import app as fastapi_app  # 이름 충돌 방지: import app.* 뒤에 인스턴스 바인딩
+from fastapi.testclient import TestClient
 
 
 @pytest.fixture(autouse=True)

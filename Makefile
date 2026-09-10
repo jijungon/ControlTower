@@ -4,14 +4,16 @@ VENV := .venv
 PY   := $(VENV)/bin/python
 PIP  := $(VENV)/bin/pip
 
-.PHONY: help setup dev web test runner clean
+.PHONY: help setup dev web import runner test lint clean
 
 help:
-	@echo "make setup   - venv 생성 + 의존성 설치 + .env 준비"
-	@echo "make dev     - 중앙 API 로컬 실행 (SQLite, hot-reload, :8000)"
+	@echo "make setup   - venv + 의존성 + .env (최초 1회)"
+	@echo "make dev     - 중앙 API 로컬 실행 (SQLite, :8000)"
 	@echo "make web     - 프론트 로컬 실행 (Vite, :5173)"
+	@echo "make import  - ~/.ssh/config 를 인벤토리에 임포트 (읽기 전용)"
+	@echo "make runner  - 등록 서버 SSH 연결 테스트 → 상태 갱신"
 	@echo "make test    - 전체 테스트 (pytest)"
-	@echo "make runner  - 러너 연결 테스트 (로컬 .env + 키스토어 필요)"
+	@echo "make lint    - 코드 린트 (ruff)"
 	@echo "make clean   - 캐시·로컬 DB 정리"
 
 setup:
@@ -30,8 +32,14 @@ web:
 test:
 	$(PY) -m pytest -q
 
+import:
+	$(PY) -m runner.cli import
+
 runner:
 	$(PY) -m runner.cli test
+
+lint:
+	$(VENV)/bin/ruff check .
 
 clean:
 	rm -rf .pytest_cache **/__pycache__ *.db central/api/*.db
