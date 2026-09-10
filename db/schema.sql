@@ -53,9 +53,7 @@ CREATE TABLE servers (
     gateway_id       INTEGER REFERENCES servers(id),
     -- 러너가 키를 resolve 할 별칭. 중앙은 실제 키를 저장하지 않음.
     credential_alias TEXT REFERENCES credential_refs(alias),
-    -- 특수 접속 경로 판단용 플래그
-    via_dbsafe       INTEGER NOT NULL DEFAULT 0,      -- dbsafe(DB 접근제어) 경유 필요 여부
-    cloud            TEXT,                            -- ncloud 등 클라우드 배스천 경유 (NULL=일반)
+    access_control   TEXT,                            -- 특수 접속 경로: dbsafe·ncloud 등 (NULL=일반)
     group_id         INTEGER REFERENCES server_groups(id),
     status           TEXT NOT NULL DEFAULT 'unknown',   -- unknown | online | offline
     last_checked_at  TEXT,

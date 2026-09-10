@@ -42,8 +42,7 @@ class Server(Base):
     access_method: Mapped[str] = mapped_column(String, default="direct")      # direct | via_gateway
     gateway_id: Mapped[int | None] = mapped_column(ForeignKey("servers.id"), nullable=True)
     credential_alias: Mapped[str | None] = mapped_column(String, nullable=True)
-    via_dbsafe: Mapped[int] = mapped_column(Integer, default=0)         # dbsafe 경유 필요
-    cloud: Mapped[str | None] = mapped_column(String, nullable=True)    # ncloud 등 (NULL=일반)
+    access_control: Mapped[str | None] = mapped_column(String, nullable=True)  # dbsafe·ncloud 등 (NULL=일반)
     group_id: Mapped[int | None] = mapped_column(ForeignKey("server_groups.id"), nullable=True)
     status: Mapped[str] = mapped_column(String, default="unknown")            # unknown | online | offline
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
