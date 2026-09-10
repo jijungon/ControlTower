@@ -23,6 +23,8 @@ def list_servers(db: Session = Depends(get_db)) -> list[dict]:
             "access_method": s.access_method,
             "gateway_id": s.gateway_id,
             "credential_alias": s.credential_alias,
+            "via_dbsafe": bool(s.via_dbsafe),
+            "cloud": s.cloud,
             "status": s.status,
         }
         for s in rows
