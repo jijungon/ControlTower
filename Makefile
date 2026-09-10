@@ -4,11 +4,12 @@ VENV := .venv
 PY   := $(VENV)/bin/python
 PIP  := $(VENV)/bin/pip
 
-.PHONY: help setup dev test runner clean
+.PHONY: help setup dev web test runner clean
 
 help:
 	@echo "make setup   - venv 생성 + 의존성 설치 + .env 준비"
 	@echo "make dev     - 중앙 API 로컬 실행 (SQLite, hot-reload, :8000)"
+	@echo "make web     - 프론트 로컬 실행 (Vite, :5173)"
 	@echo "make test    - 전체 테스트 (pytest)"
 	@echo "make runner  - 러너 연결 테스트 (로컬 .env + 키스토어 필요)"
 	@echo "make clean   - 캐시·로컬 DB 정리"
@@ -22,6 +23,9 @@ setup:
 
 dev:
 	cd central/api && ../../$(VENV)/bin/uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+
+web:
+	cd central/web && npm install && npm run dev
 
 test:
 	$(PY) -m pytest -q

@@ -1,5 +1,13 @@
-# 프론트(React) 빌드 산출물을 nginx로 서빙. 실제 React 스캐폴드는 추후.
-# 지금은 placeholder 로 컨테이너·compose 배선만 확인.
+# build stage — Vite 빌드
+FROM node:20-alpine AS build
+WORKDIR /app
+COPY package.json ./
+RUN npm install
+COPY . .
+RUN npm run build
+
+# serve stage — nginx 로 정적 서빙 (+ /api 프록시)
 FROM nginx:alpine
-COPY placeholder.html /usr/share/nginx/html/index.html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 80
