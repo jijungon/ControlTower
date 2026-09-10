@@ -28,7 +28,7 @@ services:
       CT_SECRET: ${CT_SECRET:?set CT_SECRET in .env}
       CT_API_TOKEN: ${CT_API_TOKEN:?set CT_API_TOKEN in .env}
     ports:
-      - "127.0.0.1:8000:8000"   # 사내망 전용 — 외부 노출 금지, 필요 시 리버스 프록시 뒤에
+      - "127.0.0.1:${API_PORT:-8000}:8000"   # 사내망 전용 — 외부 노출 금지, 필요 시 리버스 프록시 뒤에
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
       interval: 10s
@@ -42,7 +42,7 @@ services:
       api:
         condition: service_healthy
     ports:
-      - "127.0.0.1:8080:80"
+      - "127.0.0.1:${WEB_PORT:-8090}:80"   # 8080 은 흔히 점유됨 → 기본 8090, .env 로 조정
     restart: unless-stopped
 
 volumes:
