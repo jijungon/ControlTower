@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from ..auth import require_runner
 from ..db import get_db
 from ..models import ConnectionTest
 
@@ -22,7 +23,7 @@ class TestBatch(BaseModel):
     results: list[TestResult]
 
 
-@router.post("/connection-tests")
+@router.post("/connection-tests", dependencies=[Depends(require_runner)])
 def post_connection_tests(batch: TestBatch, db: Session = Depends(get_db)) -> dict:
     for r in batch.results:
         db.add(

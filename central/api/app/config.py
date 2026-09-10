@@ -15,6 +15,7 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./controltower.db"   # DATABASE_URL
     ct_secret: str = "dev-secret-change-me"              # CT_SECRET
+    ct_api_token: str = "dev-runner-token"              # CT_API_TOKEN — 러너↔중앙 공유 토큰
 
 
 settings = Settings()
