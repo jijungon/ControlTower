@@ -46,6 +46,8 @@
 - **러너(local)**: 키를 가진 로컬에서 실행. gw를 nested ssh로 통과해 수집·배포, 결과만 중앙에 업로드.
 - **코드**: GitHub [`jijungon/ControlTower`](https://github.com/jijungon/ControlTower). 주 개발은 로컬(SQLite).
 
+> **단일 머신 기준** — 지금은 **로컬 1대가 dev·stg·prod 전부**다. 중앙·러너를 같은 머신에서 돌린다(`docker compose up -d` = 로컬 상시 운영, `make dev` = 코딩 중). '사내 VM'은 나중에 팀이 공유할 때 **분리하는 옵션**일 뿐이고, 지금 구조 그대로 그 VM에 올리면 된다. 한 머신이라 "중앙 무키"는 보안 이득이 없지만(키가 어차피 같은 머신), 그대로 둬도 무해하고 VM 분리 경로를 열어둔다.
+
 ## 어떻게 (How)
 
 - **agentless** — 대상 서버·gw에 설치물 없음. 이미 있는 SSH만 사용.
@@ -76,7 +78,7 @@ make dev       # 중앙 API 로컬 실행 (SQLite, hot-reload) → http://127.0.
 make test      # 전체 테스트
 ```
 
-전체 스택을 컨테이너로: `docker compose up -d --build`. 자세한 개발 흐름은 [docs/DEV.md](docs/DEV.md).
+전체 스택을 컨테이너로: `docker compose up -d --build` — 로컬에서 이게 곧 **상시 운영(=prod)**이다. `make dev` 는 코딩 중 hot-reload용. 자세한 개발 흐름은 [docs/DEV.md](docs/DEV.md).
 
 ## 저장소 구조
 
