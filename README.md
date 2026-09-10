@@ -1,5 +1,7 @@
 # Control Tower
 
+[![CI](https://github.com/jijungon/ControlTower/actions/workflows/ci.yml/badge.svg)](https://github.com/jijungon/ControlTower/actions/workflows/ci.yml)
+
 여러 서버·빌드에 흩어진 **접속키·버전·설정(conf)·업데이트·배포 현황**을 한 곳에서
 **수집 → 비교 → 배포**하는 사내 관리 도구. (가칭 Control Tower)
 
