@@ -1,0 +1,37 @@
+# Control Tower — 중앙 서비스 (사내 VM에서 실행)
+# 러너는 로컬 네이티브 CLI라 여기에 없음 (로컬 ~/.ssh 키 접근 필요). runner/ 참고.
+# 실행: cp .env.example .env  →  값 채우고  →  docker compose up -d --build
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${DB_NAME:-controltower}
+      POSTGRES_USER: ${DB_USER:-ctower}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    # 스키마는 API가 기동 시 생성(개발). 운영은 Alembic 권장 — db/README.md 참고.
+
+  api:
+    build: ./central/api
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgresql+psycopg://${DB_USER:-ctower}:${DB_PASSWORD}@db:5432/${DB_NAME:-controltower}
+      CT_SECRET: ${CT_SECRET:?set CT_SECRET in .env}
+    ports:
+      - "127.0.0.1:8000:8000"   # 사내망 전용 — 외부 노출 금지, 필요 시 리버스 프록시 뒤에
+    restart: unless-stopped
+
+  web:
+    build: ./central/web
+    depends_on:
+      - api
+    ports:
+      - "127.0.0.1:8080:80"
+    restart: unless-stopped
+
+volumes:
+  pgdata:

@@ -1,0 +1,3 @@
+[tool.pytest.ini_options]
+testpaths = ["central/api/tests", "runner/tests"]
+pythonpath = ["central/api", "."]
