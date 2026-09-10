@@ -45,4 +45,9 @@
 
   /* 유일한 그림자 — 제품/강조 표면용 (UI 크롬엔 안 씀) */
   --shadow-product: 0 5px 30px rgba(0, 0, 0, 0.22);
+
+  /* 상태 색 — 대시보드용(채도 낮게 tinted). 배지·매트릭스 셀에만 절제해서 사용 */
+  --ok: #1d8a4e;     --ok-bg: #e8f5ee;
+  --warn: #8a6d00;   --warn-bg: #faf1d8;
+  --danger: #b3261e; --danger-bg: #fbe9e7;
 }
