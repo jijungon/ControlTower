@@ -1,66 +1,89 @@
-"""러너 CLI 엔트리포인트.
+"""러너 CLI (Phase 0).
 
-Phase 0:  ct-runner test   — 전 서버 SSH 연결 테스트 후 결과를 중앙에 업로드.
-실행:     python -m runner.cli test
-필요 env: CT_CENTRAL_URL, CT_API_TOKEN  (키스토어: ~/.controltower/keystore.toml)
+  python -m runner.cli import   # ~/.ssh/config 파싱 → 중앙 인벤토리에 임포트
+  python -m runner.cli test     # 등록 서버에 SSH 연결 테스트 → 결과 업로드
+
+env: CT_CENTRAL_URL(기본 :8000) · CT_API_TOKEN(기본 dev-runner-token) · CT_SSH_CONFIG(기본 ~/.ssh/config)
+접속 테스트는 시스템 ssh 가 ~/.ssh/config(ProxyJump·키)를 그대로 사용한다.
 """
 from __future__ import annotations
 
 import argparse
-import asyncio
+import os
+import time
 
 from .api import CentralAPI
 from .config import RunnerConfig
-from .keystore import KeyStore
-from .ssh import Server, SSHRunner
+from .conn import test_ssh
+from .sshconf import parse_ssh_config
 
 
-def _to_server(d: dict, by_id: dict[int, dict]) -> Server:
-    gw = None
-    if d.get("access_method") == "via_gateway" and d.get("gateway_id"):
-        gw = _to_server(by_id[d["gateway_id"]], by_id)
-    return Server(
-        id=d["id"],
-        hostname=d["hostname"],
-        ssh_port=d.get("ssh_port", 22),
-        ssh_user=d["ssh_user"],
-        access_method=d.get("access_method", "direct"),
-        credential_alias=d.get("credential_alias"),
-        gateway=gw,
-    )
-
-
-async def cmd_test(cfg: RunnerConfig) -> None:
+def cmd_import(cfg: RunnerConfig, dry_run: bool = False) -> None:
+    hosts = parse_ssh_config(cfg.ssh_config)
+    servers = [
+        {
+            "hostname": h.alias,
+            "ip": h.hostname,
+            "ssh_user": h.user or "",
+            "ssh_port": h.port,
+            "gateway_alias": h.proxy_jump,
+            "credential_alias": os.path.basename(h.identity_file) if h.identity_file else None,
+        }
+        for h in hosts
+    ]
+    if dry_run:
+        print(f"[dry-run] {len(servers)}개 호스트 (전송 안 함) — {cfg.ssh_config}:")
+        for s in servers:
+            print(f"  - {s['hostname']}  {s['ip'] or ''}  {s['ssh_user']}  key={s['credential_alias'] or '-'}")
+        return
     api = CentralAPI(cfg.central_url, cfg.api_token)
-    ks = KeyStore(cfg.keystore_path)
-    ssh = SSHRunner(ks, cfg.connect_timeout, cfg.max_concurrency_per_gateway)
     try:
-        servers = await api.list_servers()
-        by_id = {s["id"]: s for s in servers}
-        targets = [s for s in servers if s.get("role") != "gateway"]
-        results = await asyncio.gather(
-            *(ssh.test_connection(_to_server(s, by_id)) for s in targets)
-        )
-        ok = sum(1 for r in results if r["ok"])
-        print(f"연결 테스트: {ok}/{len(results)} OK")
-        for r in results:
-            if not r["ok"]:
-                print(f"  ✗ server {r['server_id']}: {r['error']}")
-        await api.post_connection_tests(results)
+        res = api.import_servers(servers)
+        print(f"임포트: 신규 {res['imported_new']} / 총 {res['total']}개 ({cfg.ssh_config})")
     finally:
-        await api.aclose()
+        api.close()
+
+
+def cmd_test(cfg: RunnerConfig) -> None:
+    api = CentralAPI(cfg.central_url, cfg.api_token)
+    try:
+        servers = api.list_servers()
+        results = []
+        for s in servers:
+            t0 = time.monotonic()
+            ok, err = test_ssh(s["hostname"], cfg.connect_timeout)
+            results.append(
+                {
+                    "server_id": s["id"],
+                    "ok": ok,
+                    "latency_ms": int((time.monotonic() - t0) * 1000),
+                    "error": None if ok else err,
+                }
+            )
+        ok_n = sum(1 for r in results if r["ok"])
+        print(f"연결 테스트: {ok_n}/{len(results)} OK")
+        for s, r in zip(servers, results):
+            if not r["ok"]:
+                print(f"  ✗ {s['hostname']}: {r['error']}")
+        if results:
+            api.post_connection_tests(results)
+    finally:
+        api.close()
 
 
 def main() -> None:
     p = argparse.ArgumentParser(prog="ct-runner", description="Control Tower 러너")
     sub = p.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("test", help="전 서버 SSH 연결 테스트 (Phase 0)")
-    # TODO(Phase 1): sub.add_parser("collect", ...)  버전·conf·인증서 수집
+    imp = sub.add_parser("import", help="~/.ssh/config → 중앙 인벤토리 임포트")
+    imp.add_argument("--dry-run", action="store_true", help="파싱 결과만 출력(전송 안 함)")
+    sub.add_parser("test", help="등록 서버 SSH 연결 테스트")
     args = p.parse_args()
 
     cfg = RunnerConfig.load()
-    if args.cmd == "test":
-        asyncio.run(cmd_test(cfg))
+    if args.cmd == "import":
+        cmd_import(cfg, dry_run=args.dry_run)
+    elif args.cmd == "test":
+        cmd_test(cfg)
 
 
 if __name__ == "__main__":

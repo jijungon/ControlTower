@@ -1,34 +1,17 @@
 import { useEffect, useState } from 'react'
-import { fetchServers } from '../api'
-
-type Row = {
-  server: string
-  ip: string
-  user: string
-  access: string | null // vpn/접근제어: dbsafe·ncloud 등
-  keyFile: string
-  fp: string
-}
-
-// 예시 데이터 (실데이터는 Phase 0 의 ~/.ssh/config 임포트로 채워짐)
-const MOCK: Row[] = [
-  { server: 'web-01', ip: '10.89.2.67', user: 'deploy', access: 'ncloud', keyFile: 'gw_prod_ed25519', fp: 'SHA256:aB3d…9f' },
-  { server: 'db-01', ip: '10.89.3.10', user: 'dbadmin', access: 'dbsafe', keyFile: 'db_ed25519', fp: 'SHA256:c7X1…e2' },
-  { server: 'build-01', ip: '144.24.73.187', user: 'ci', access: null, keyFile: 'build_ed25519', fp: 'SHA256:0kP9…4a' },
-]
+import { fetchServers, type Server } from '../api'
 
 export default function Servers() {
   const [q, setQ] = useState('')
-  const [apiCount, setApiCount] = useState<number | null>(null)
+  const [servers, setServers] = useState<Server[] | null>(null)
+  const [err, setErr] = useState(false)
 
   useEffect(() => {
-    fetchServers()
-      .then((s) => setApiCount(s.length))
-      .catch(() => setApiCount(null))
+    fetchServers().then(setServers).catch(() => setErr(true))
   }, [])
 
-  const rows = MOCK.filter((r) =>
-    `${r.server} ${r.ip} ${r.user}`.toLowerCase().includes(q.toLowerCase()),
+  const rows = (servers ?? []).filter((s) =>
+    `${s.hostname} ${s.ip ?? ''} ${s.ssh_user}`.toLowerCase().includes(q.toLowerCase()),
   )
 
   return (
@@ -36,8 +19,7 @@ export default function Servers() {
       <div className="page-head">
         <h1 className="page-title">서버 · 접속키 인벤토리</h1>
         <p className="page-sub">
-          ~/.ssh/config 기준 · 서버가 무슨 키로 접속되나
-          {apiCount !== null ? ` · API 등록 ${apiCount}대` : ' · (예시 데이터)'}
+          ~/.ssh/config 기준 · 서버가 무슨 키로 접속되나{servers ? ` · ${servers.length}대` : ''}
         </p>
       </div>
 
@@ -48,7 +30,6 @@ export default function Servers() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-        <button className="pill">서버 추가</button>
       </div>
 
       <div className="card">
@@ -63,19 +44,42 @@ export default function Servers() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={r.server}>
-                <td>{r.server}</td>
-                <td className="mono">{r.ip}</td>
-                <td>{r.user}</td>
-                <td>{r.access ? <span className="tag">{r.access}</span> : <span className="muted">—</span>}</td>
+            {rows.map((s) => (
+              <tr key={s.id}>
                 <td>
-                  <span className="mono">{r.keyFile}</span> <span className="fp">{r.fp}</span>
+                  <span
+                    className={`dot dot--${s.status}`}
+                    title={s.last_checked_at ? `${s.status} · 확인 ${s.last_checked_at}` : s.status}
+                  />
+                  {s.hostname}
+                </td>
+                <td className="mono">{s.ip ?? '—'}</td>
+                <td>{s.ssh_user}</td>
+                <td>
+                  {s.access_control ? <span className="tag">{s.access_control}</span> : <span className="muted">—</span>}
+                </td>
+                <td>
+                  {s.credential_alias ? <span className="mono">{s.credential_alias}</span> : <span className="muted">—</span>}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+
+        {!servers && !err && (
+          <div className="placeholder" style={{ padding: '28px 16px' }}>불러오는 중…</div>
+        )}
+        {servers && servers.length === 0 && (
+          <div className="placeholder" style={{ padding: '28px 16px' }}>
+            아직 임포트된 서버가 없습니다 — 러너로 임포트하세요:{' '}
+            <span className="mono">python -m runner.cli import</span>
+          </div>
+        )}
+        {err && (
+          <div className="placeholder" style={{ padding: '28px 16px' }}>
+            API에 연결하지 못했습니다 — <span className="mono">make dev</span> 로 중앙 API를 띄우세요.
+          </div>
+        )}
       </div>
     </div>
   )

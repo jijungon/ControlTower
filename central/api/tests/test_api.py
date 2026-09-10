@@ -1,5 +1,7 @@
 """Phase 0 API 스모크 테스트."""
 
+AUTH = {"Authorization": "Bearer dev-runner-token"}  # settings.ct_api_token 기본값
+
 
 def test_health(client):
     r = client.get("/health")
@@ -15,12 +17,16 @@ def test_list_servers_empty(client):
 
 def test_post_connection_tests(client):
     payload = {"results": [{"server_id": 1, "ok": True, "latency_ms": 12}]}
-    r = client.post("/api/connection-tests", json=payload)
+    r = client.post("/api/connection-tests", json=payload, headers=AUTH)
     assert r.status_code == 200
     assert r.json()["accepted"] == 1
 
 
 def test_post_connection_tests_validation(client):
-    # ok 는 필수 — 없으면 422
-    r = client.post("/api/connection-tests", json={"results": [{"server_id": 1}]})
+    r = client.post("/api/connection-tests", json={"results": [{"server_id": 1}]}, headers=AUTH)
     assert r.status_code == 422
+
+
+def test_connection_tests_requires_auth(client):
+    r = client.post("/api/connection-tests", json={"results": []})
+    assert r.status_code == 401

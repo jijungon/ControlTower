@@ -64,4 +64,19 @@ pytest central/api/tests  # API 만
 3. **PR/MR 생성 → CI 가 `pytest` 실행(머지 게이트)** → 리뷰 → `main` 머지
 4. `git worktree remove` 로 정리
 
-> CI 설정 파일(`.github/workflows/ci.yml` 또는 `.gitlab-ci.yml`)은 원격 플랫폼(GitHub/GitLab) 확정 후 추가.
+> CI: GitHub Actions(`.github/workflows/ci.yml`)가 push(main)·모든 PR 에서 `pytest` 실행.
+
+## 4. Phase 0 사용법 (러너 인벤토리)
+
+**`~/.ssh/config` 는 읽기 전용**으로만 쓴다 — 이 도구는 절대 수정·역동기화하지 않는다.
+
+```bash
+make dev                              # 중앙 API (:8000)
+python -m runner.cli import --dry-run # 미리보기(전송 안 함)
+make import                           # ~/.ssh/config → 인벤토리
+make runner                           # 등록 서버 SSH 연결 테스트 → 상태 갱신
+make web                              # 프론트에서 서버·상태 확인 (:5173)
+```
+
+- `.env` 필수값: `CT_API_TOKEN`(러너↔중앙 공유). ssh config 가 기본 경로가 아니면 `CT_SSH_CONFIG`.
+- 접속 테스트는 시스템 ssh 가 `~/.ssh/config`(ProxyJump·키)를 그대로 사용한다(별도 키스토어 불필요).

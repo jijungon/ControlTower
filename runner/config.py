@@ -1,4 +1,4 @@
-"""러너 설정 — 중앙 API 주소·토큰·로컬 키스토어 경로."""
+"""러너 설정 — 환경변수 + .env 에서 주입."""
 from __future__ import annotations
 
 import os
@@ -9,20 +9,20 @@ from dotenv import load_dotenv
 
 @dataclass
 class RunnerConfig:
-    central_url: str                        # 중앙 API 베이스 URL (사내망)
-    api_token: str                          # 러너 인증 토큰
-    keystore_path: str                      # 로컬 키 매핑(alias -> 키). 중앙엔 없음.
+    central_url: str            # 중앙 API (사내망)
+    api_token: str              # 러너↔중앙 공유 토큰 (CT_API_TOKEN)
+    ssh_config: str             # ~/.ssh/config 경로
+    keystore_path: str          # (예비) alias→키. Phase 0 은 시스템 ssh 사용
     runner_name: str = "local-runner"
-    max_concurrency_per_gateway: int = 5    # gw별 동시 접속 상한(대규모·15 gw 대비)
-    connect_timeout: int = 10
+    connect_timeout: int = 8
 
     @classmethod
     def load(cls) -> "RunnerConfig":
-        load_dotenv()  # 현재 디렉토리의 .env 를 os.environ 에 주입 (없으면 무시)
-        # TODO: ~/.controltower/runner.toml 로드 지원. 지금은 env 폴백.
+        load_dotenv()  # 현재 디렉토리의 .env 주입 (없으면 무시)
         return cls(
-            central_url=os.environ["CT_CENTRAL_URL"],
-            api_token=os.environ["CT_API_TOKEN"],
+            central_url=os.environ.get("CT_CENTRAL_URL", "http://127.0.0.1:8000"),
+            api_token=os.environ.get("CT_API_TOKEN", "dev-runner-token"),
+            ssh_config=os.environ.get("CT_SSH_CONFIG", "~/.ssh/config"),
             keystore_path=os.environ.get(
                 "CT_KEYSTORE", os.path.expanduser("~/.controltower/keystore.toml")
             ),

@@ -1,4 +1,7 @@
-"""자격증명 별칭(alias) -> 로컬 키 경로 매핑.
+"""자격증명 별칭(alias) -> 로컬 키 경로 매핑. **Phase 0 미사용**.
+
+지금 접속은 시스템 ssh + ~/.ssh/config 를 쓴다(별도 키스토어 불필요). 이 로컬 키스토어는
+향후 asyncssh(ssh.py) 프로그래매틱 경로용으로 보존한다.
 
 키/비밀번호의 실체는 러너(local)에만 존재한다. 중앙 DB에는 alias 만 있다.
 keystore.toml 예시는 keystore.example.toml 참고.

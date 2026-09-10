@@ -45,6 +45,7 @@ class Server(Base):
     access_control: Mapped[str | None] = mapped_column(String, nullable=True)  # dbsafe·ncloud 등 (NULL=일반)
     group_id: Mapped[int | None] = mapped_column(ForeignKey("server_groups.id"), nullable=True)
     status: Mapped[str] = mapped_column(String, default="unknown")            # unknown | online | offline
+    last_checked_at: Mapped[str | None] = mapped_column(String, nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 

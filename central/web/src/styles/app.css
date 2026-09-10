@@ -104,6 +104,12 @@ table.grid { width: 100%; border-collapse: collapse; font-size: 15px; }
 .badge--danger { background: var(--danger-bg); color: var(--danger); }
 .badge--muted { background: var(--surface-pearl); color: var(--ink-muted-48); border-color: var(--hairline); }
 
+/* 상태 점 (서버 온라인/오프라인) */
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; vertical-align: middle; }
+.dot--online { background: var(--ok); }
+.dot--offline { background: var(--danger); }
+.dot--unknown { background: var(--ink-muted-48); }
+
 /* version matrix cells */
 .ver { font-family: var(--font-mono); font-size: 13px; }
 .ver--eol { color: var(--danger); }
