@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      # 시크릿은 GitHub repo Settings → Secrets and variables → Actions 에 등록한다.
+      # git 에는 절대 올리지 않는다(.gitignore 로 .env·키 제외). 미설정 시 CI 더미로 폴백
+      # (현재 테스트는 SQLite라 실제 비밀이 필요 없음 — 배선 패턴만 확립).
+      CT_SECRET: ${{ secrets.CT_SECRET || 'ci-dummy-secret' }}
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD || 'ci-dummy-pw' }}
+      DATABASE_URL: sqlite:///./ci.db
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements-dev.txt
+            central/api/requirements.txt
+
+      - name: Install deps
+        run: |
+          python -m pip install -U pip
+          pip install -r requirements-dev.txt -r central/api/requirements.txt
+
+      - name: Run tests
+        run: pytest -q
