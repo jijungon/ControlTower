@@ -1,3 +1,3 @@
 # 개발/테스트 의존성
 pytest>=8
-httpx>=0.27
+httpx>=0.27,<0.28      # starlette TestClient 호환 (0.28+ 는 깨짐)
