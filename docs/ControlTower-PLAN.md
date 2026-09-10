@@ -12,7 +12,7 @@
 
 | 기능 | 핵심 |
 |---|---|
-| 서버·접속키 인벤토리 | **`~/.ssh/config` 기준** — config에 등록된 서버만 관리(호스트·gw·user·접속 키 매핑). + 로컬 키/`.pem` 파일 인벤토리(`~/.ssh/`의 aws-key, `~/Downloads/*.pem` 등 — 파일명·지문만, 무저장). "이 서버는 뭘로 들어가나 / 이 키 쓰는 서버는?" 양방향 |
+| 서버·접속키 인벤토리<br>(= **pem 관리**: 서버가 무슨 키로 접속되나) | **`~/.ssh/config` 기준** — config에 등록된 서버만 관리(호스트·gw·user·접속 키 매핑). + 로컬 키/`.pem` 파일 인벤토리(`~/.ssh/`의 aws-key, `~/Downloads/*.pem` 등 — 파일명·지문만, 무저장). "이 서버는 뭘로 들어가나 / 이 키 쓰는 서버는?" 양방향 |
 | 빌드 버전 관리 | repo·center·config(GitLab)에서 **빌드에 쓰는 버전** 관리 — node·java·docker(builder) + 레포 선언본(node·nest·java). 대상×버전 매트릭스, EOL 매칭 |
 | 빌드 설치 항목 | 빌드 시 설치하는 항목(Dockerfile `RUN apt/npm`, CI install 스텝) 관리. ※ **서버 내부 설치 패키지 인벤토리는 나중에** |
 | conf 관리 | Git 기반 중앙 기준본(이력·롤백), 서버 실제본 수집·diff, 템플릿 변수로 그룹 일괄 적용. 대상 타입 `file`부터(→나중 kong·consul-kv) |
