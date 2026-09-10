@@ -47,7 +47,7 @@
 - 스택: 중앙 FastAPI + React + SQLite(→PostgreSQL) / 러너 Python CLI(asyncssh), 러너 인증은 API 토큰
 - 보안: 중앙 키 무보관(유출 시 피해=메타데이터 한정), RBAC(admin/operator/viewer), 감사 로그 append-only
 - **배포**: 중앙 서비스는 **Docker 컨테이너로 패키징** → `docker compose`(웹 + API + DB)로 실행. 러너는 로컬 CLI(로컬 `~/.ssh` 키 접근 필요)
-- **단일 머신 현실**: 지금은 **로컬 1대 = dev·stg·prod**. 중앙·러너 모두 로컬에서 돌리고 `docker compose up -d` 가 곧 상시 운영. '사내 VM' 분리는 팀 공유 시 옵션(지금 구조 그대로 이관 가능). 한 머신이라 중앙 무키는 보안 이득이 없지만 무해하며 VM 분리 경로를 열어둠. 중앙/러너 split 자체는 유지(상시 대시보드 vs 온디맨드 수집으로 역할이 다름)
+- **단일 머신은 test 단계뿐**: 지금(개발·test)은 **로컬 1대 = dev·stg·prod** 겸용(`docker compose up -d` = 로컬 상시). 다만 **실제 운영 목표는 중앙(VM) + 러너 분리**이고 거기서 중앙 무키가 진짜 보안이 됨 → 중앙 무키·중앙/러너 split을 **처음부터 유지**(상시 대시보드 vs 온디맨드 수집, test↔real 구조 일치). 지금 구조 그대로 VM 이관 가능
 
 ## 기술 선택 노트 (2026-09-10)
 

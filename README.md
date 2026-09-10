@@ -46,7 +46,7 @@
 - **러너(local)**: 키를 가진 로컬에서 실행. gw를 nested ssh로 통과해 수집·배포, 결과만 중앙에 업로드.
 - **코드**: GitHub [`jijungon/ControlTower`](https://github.com/jijungon/ControlTower). 주 개발은 로컬(SQLite).
 
-> **단일 머신 기준** — 지금은 **로컬 1대가 dev·stg·prod 전부**다. 중앙·러너를 같은 머신에서 돌린다(`docker compose up -d` = 로컬 상시 운영, `make dev` = 코딩 중). '사내 VM'은 나중에 팀이 공유할 때 **분리하는 옵션**일 뿐이고, 지금 구조 그대로 그 VM에 올리면 된다. 한 머신이라 "중앙 무키"는 보안 이득이 없지만(키가 어차피 같은 머신), 그대로 둬도 무해하고 VM 분리 경로를 열어둔다.
+> **단일 머신은 지금(test·개발) 단계뿐** — 현재는 **로컬 1대가 dev·stg·prod를 겸한다**(`docker compose up -d` = 로컬 상시 운영, `make dev` = 코딩용). 다만 **실제 운영 목표는 중앙(사내 VM) + 러너 분리**이고, 거기서 "중앙 무키"가 진짜 보안이 된다. 그래서 중앙 무키·중앙/러너 split을 **처음부터 지켜** test와 real 구조를 일치시킨다 — 지금 구조 그대로 VM에 이관하면 끝.
 
 ## 어떻게 (How)
 
