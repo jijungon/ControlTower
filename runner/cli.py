@@ -18,7 +18,7 @@ from .config import RunnerConfig
 from .sshconf import parse_ssh_config
 
 
-def cmd_import(cfg: RunnerConfig) -> None:
+def cmd_import(cfg: RunnerConfig, dry_run: bool = False) -> None:
     hosts = parse_ssh_config(cfg.ssh_config)
     servers = [
         {
@@ -31,6 +31,11 @@ def cmd_import(cfg: RunnerConfig) -> None:
         }
         for h in hosts
     ]
+    if dry_run:
+        print(f"[dry-run] {len(servers)}개 호스트 (전송 안 함) — {cfg.ssh_config}:")
+        for s in servers:
+            print(f"  - {s['hostname']}  {s['ip'] or ''}  {s['ssh_user']}  key={s['credential_alias'] or '-'}")
+        return
     api = CentralAPI(cfg.central_url, cfg.api_token)
     try:
         res = api.import_servers(servers)
@@ -69,13 +74,14 @@ def cmd_test(cfg: RunnerConfig) -> None:
 def main() -> None:
     p = argparse.ArgumentParser(prog="ct-runner", description="Control Tower 러너")
     sub = p.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("import", help="~/.ssh/config → 중앙 인벤토리 임포트")
+    imp = sub.add_parser("import", help="~/.ssh/config → 중앙 인벤토리 임포트")
+    imp.add_argument("--dry-run", action="store_true", help="파싱 결과만 출력(전송 안 함)")
     sub.add_parser("test", help="등록 서버 SSH 연결 테스트")
     args = p.parse_args()
 
     cfg = RunnerConfig.load()
     if args.cmd == "import":
-        cmd_import(cfg)
+        cmd_import(cfg, dry_run=args.dry_run)
     elif args.cmd == "test":
         cmd_test(cfg)
 

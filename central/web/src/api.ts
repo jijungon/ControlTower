@@ -6,6 +6,7 @@ export type Server = {
   access_control?: string | null
   credential_alias?: string | null
   status: string
+  last_checked_at?: string | null
 }
 
 export async function fetchServers(): Promise<Server[]> {

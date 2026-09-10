@@ -1,4 +1,8 @@
-"""~/.ssh/config 파서 — Host 별 접속 정보 추출 (와일드카드 Host 제외)."""
+"""~/.ssh/config 파서 — Host 별 접속 정보 추출 (와일드카드 Host 제외).
+
+**읽기 전용**: 이 도구(러너·중앙)는 ~/.ssh/config 를 절대 수정하지 않는다.
+임포트는 단방향(config → 중앙)이며, 중앙에서 서버를 편집해도 로컬 ssh config 로 역동기화하지 않는다.
+"""
 from __future__ import annotations
 
 import os
@@ -32,7 +36,7 @@ def parse_ssh_config(path: str) -> list[SSHHost]:
         return []
     hosts: list[SSHHost] = []
     cur: SSHHost | None = None
-    with open(path, encoding="utf-8", errors="ignore") as f:
+    with open(path, "r", encoding="utf-8", errors="ignore") as f:  # 읽기 전용(수정 안 함)
         for raw in f:
             line = raw.strip()
             if not line or line.startswith("#"):

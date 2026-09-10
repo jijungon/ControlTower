@@ -46,7 +46,7 @@ export default function Servers() {
           <tbody>
             {rows.map((s) => (
               <tr key={s.id}>
-                <td>{s.hostname}</td>
+                <td><span className={`dot dot--${s.status}`} title={s.status} />{s.hostname}</td>
                 <td className="mono">{s.ip ?? '—'}</td>
                 <td>{s.ssh_user}</td>
                 <td>

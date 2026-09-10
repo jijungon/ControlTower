@@ -39,6 +39,7 @@ def _dump(s: Server) -> dict:
         "credential_alias": s.credential_alias,
         "access_control": s.access_control,
         "status": s.status,
+        "last_checked_at": s.last_checked_at,
     }
 
 
