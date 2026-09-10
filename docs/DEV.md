@@ -1,5 +1,19 @@
 # 개발 워크플로우 — worktree(기능 단위) + 테스트 + PR
 
+## 0. 로컬 개발 (Docker 없이 — 주 개발 모드)
+
+기본은 **SQLite** 라 Docker/Postgres 없이 바로 돈다. `Makefile` 로 감싼다(venv 명시 → pyenv PATH 충돌 회피).
+
+```bash
+make setup     # venv + 의존성 + .env 준비 (최초 1회)
+make dev       # 중앙 API 로컬 실행 (SQLite, hot-reload) → http://127.0.0.1:8000/health
+make test      # 전체 테스트
+```
+
+- 로컬 DB = `controltower.db`(SQLite, gitignore). Postgres 로 붙이고 싶으면 `docker compose up -d db` 후 `.env` 의 `DATABASE_URL` 만 교체.
+- 전체 스택(db+api+web)을 컨테이너로 보려면 `docker compose up -d --build`. 평소 개발은 `make dev` 로 충분.
+
+
 ## 1. 브랜치 · worktree
 
 **기능 하나 = 브랜치 하나 = worktree 하나.** `main` 은 항상 초록(테스트 통과).
