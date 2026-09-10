@@ -1,13 +1,12 @@
-"""DB 연결 — DATABASE_URL 로 Postgres(운영) 또는 SQLite(로컬) 선택."""
+"""DB 연결 — 설정은 config(.env/환경변수)에서 주입."""
 from __future__ import annotations
-
-import os
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-# 기본은 로컬 SQLite. compose 에서는 postgresql+psycopg://... 주입.
-DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./controltower.db")
+from .config import settings
+
+DATABASE_URL = settings.database_url
 
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 engine = create_engine(DATABASE_URL, connect_args=connect_args, future=True)

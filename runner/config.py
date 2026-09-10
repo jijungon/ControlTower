@@ -4,6 +4,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from dotenv import load_dotenv
+
 
 @dataclass
 class RunnerConfig:
@@ -16,6 +18,7 @@ class RunnerConfig:
 
     @classmethod
     def load(cls) -> "RunnerConfig":
+        load_dotenv()  # 현재 디렉토리의 .env 를 os.environ 에 주입 (없으면 무시)
         # TODO: ~/.controltower/runner.toml 로드 지원. 지금은 env 폴백.
         return cls(
             central_url=os.environ["CT_CENTRAL_URL"],
