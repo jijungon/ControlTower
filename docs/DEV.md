@@ -55,6 +55,7 @@ pytest central/api/tests  # API 만
 
 - **백엔드(FastAPI)**: `TestClient` + 임시 SQLite. 외부 의존·DB 컨테이너 불필요.
 - **러너**: SSH·GitLab 은 목(mock). ssh-config 파서·키스토어는 단위 테스트.
+- **러너 E2E**: `runner/tests/test_e2e.py` — 라이브 API(uvicorn 서브프로세스) + 가짜 ssh(PATH 스텁)로 `import/test/conf` 전 경로를 실제 CLI→HTTP→DB 까지 자동 검증. CI 게이트에 포함.
 - worktree 마다 자체 `.venv` 를 두면 브랜치 간 의존성 충돌이 없다.
 
 ## 3. PR 플로우
