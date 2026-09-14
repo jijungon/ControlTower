@@ -35,13 +35,15 @@ from .versions import PROBES, parse_version
 REPO_VERSION_FILES = (".nvmrc", "package.json", "pom.xml")
 
 
-def _select(servers: list, group: str | None, host: str | None) -> list:
-    """수집/점검 대상 좁히기 — --group(그룹명) / --host(별칭). 없으면 전체."""
+def _select(servers: list, group: str | None, host: str | None, online: bool = False) -> list:
+    """수집/점검 대상 좁히기 — --group(그룹명) / --host(별칭) / --online(접속된 것만). 없으면 전체."""
     out = servers
     if group:
         out = [s for s in out if s.get("group") == group]
     if host:
         out = [s for s in out if s.get("hostname") == host]
+    if online:
+        out = [s for s in out if s.get("status") == "online"]
     return out
 
 
@@ -71,10 +73,10 @@ def cmd_import(cfg: RunnerConfig, dry_run: bool = False) -> None:
         api.close()
 
 
-def cmd_test(cfg: RunnerConfig, group: str | None = None, host: str | None = None) -> None:
+def cmd_test(cfg: RunnerConfig, group: str | None = None, host: str | None = None, online: bool = False) -> None:
     api = CentralAPI(cfg.central_url, cfg.api_token)
     try:
-        servers = _select(api.list_servers(), group, host)
+        servers = _select(api.list_servers(), group, host, online)
         results = []
         for s in servers:
             t0 = time.monotonic()
@@ -98,10 +100,10 @@ def cmd_test(cfg: RunnerConfig, group: str | None = None, host: str | None = Non
         api.close()
 
 
-def cmd_conf(cfg: RunnerConfig, group: str | None = None, host: str | None = None) -> None:
+def cmd_conf(cfg: RunnerConfig, group: str | None = None, host: str | None = None, online: bool = False) -> None:
     api = CentralAPI(cfg.central_url, cfg.api_token)
     try:
-        servers = _select(api.list_servers(), group, host)
+        servers = _select(api.list_servers(), group, host, online)
         paths = api.list_conf_targets()
         if not paths:
             print("관리 대상 conf 경로가 없습니다 — 먼저 추가: POST /api/conf/targets {path}")
@@ -117,10 +119,10 @@ def cmd_conf(cfg: RunnerConfig, group: str | None = None, host: str | None = Non
         api.close()
 
 
-def cmd_updates(cfg: RunnerConfig, group: str | None = None, host: str | None = None) -> None:
+def cmd_updates(cfg: RunnerConfig, group: str | None = None, host: str | None = None, online: bool = False) -> None:
     api = CentralAPI(cfg.central_url, cfg.api_token)
     try:
-        servers = _select(api.list_servers(), group, host)
+        servers = _select(api.list_servers(), group, host, online)
         snaps = []
         for s in servers:
             out, err = list_upgrades(s["hostname"], cfg.connect_timeout)
@@ -137,10 +139,10 @@ def cmd_updates(cfg: RunnerConfig, group: str | None = None, host: str | None = 
         api.close()
 
 
-def cmd_versions(cfg: RunnerConfig, group: str | None = None, host: str | None = None) -> None:
+def cmd_versions(cfg: RunnerConfig, group: str | None = None, host: str | None = None, online: bool = False) -> None:
     api = CentralAPI(cfg.central_url, cfg.api_token)
     try:
-        servers = _select(api.list_servers(), group, host)
+        servers = _select(api.list_servers(), group, host, online)
         snaps = []
         for s in servers:
             for tool, command in PROBES.items():
@@ -252,10 +254,10 @@ def cmd_apply(cfg: RunnerConfig, dry_run: bool = False, rollback_id: int | None 
         api.close()
 
 
-def cmd_probe(cfg: RunnerConfig, group: str | None = None, host: str | None = None) -> None:
+def cmd_probe(cfg: RunnerConfig, group: str | None = None, host: str | None = None, online: bool = False) -> None:
     api = CentralAPI(cfg.central_url, cfg.api_token)
     try:
-        servers = _select(api.list_servers(), group, host)
+        servers = _select(api.list_servers(), group, host, online)
         if not servers:
             print("대상 서버가 없습니다(필터 확인).")
             return
@@ -316,6 +318,7 @@ def main() -> None:
     def _flt(pp):  # 대상 좁히기 필터(공통)
         pp.add_argument("--group", help="이 그룹만 대상")
         pp.add_argument("--host", help="이 호스트(별칭)만 대상")
+        pp.add_argument("--online", action="store_true", help="접속된(online) 서버만 대상")
         return pp
     _flt(sub.add_parser("test", help="등록 서버 SSH 연결 테스트"))
     _flt(sub.add_parser("conf", help="관리 경로 conf 수집 → 드리프트 비교"))
@@ -336,15 +339,15 @@ def main() -> None:
     if args.cmd == "import":
         cmd_import(cfg, dry_run=args.dry_run)
     elif args.cmd == "test":
-        cmd_test(cfg, args.group, args.host)
+        cmd_test(cfg, args.group, args.host, args.online)
     elif args.cmd == "conf":
-        cmd_conf(cfg, args.group, args.host)
+        cmd_conf(cfg, args.group, args.host, args.online)
     elif args.cmd == "updates":
-        cmd_updates(cfg, args.group, args.host)
+        cmd_updates(cfg, args.group, args.host, args.online)
     elif args.cmd == "versions":
-        cmd_versions(cfg, args.group, args.host)
+        cmd_versions(cfg, args.group, args.host, args.online)
     elif args.cmd == "probe":
-        cmd_probe(cfg, args.group, args.host)
+        cmd_probe(cfg, args.group, args.host, args.online)
     elif args.cmd == "versions-repo":
         cmd_versions_repo(cfg)
     elif args.cmd == "cicd":
