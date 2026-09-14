@@ -35,7 +35,7 @@ def list_targets(db: Session = Depends(get_db)) -> list[dict]:
     return [{"service": t.service, "project": t.project} for t in rows]
 
 
-@router.post("/targets", dependencies=[Depends(require_runner)])
+@router.post("/targets")  # 대상 등록은 UI(설정) 액션 — open. 상태 업로드(/status)만 러너 토큰.
 def add_target(body: TargetIn, db: Session = Depends(get_db)) -> dict:
     row = db.query(CicdTarget).filter(CicdTarget.service == body.service).first()
     if row is None:

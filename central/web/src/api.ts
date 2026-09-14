@@ -176,3 +176,17 @@ export async function fetchCicd(): Promise<CicdRow[]> {
   if (!res.ok) throw new Error(`GET /api/cicd ${res.status}`)
   return res.json()
 }
+
+export const addCicdTarget = (service: string, project: string) =>
+  postJsonServer('/api/cicd/targets', { service, project })
+
+export type RepoTarget = { repo: string; project: string }
+
+export async function fetchRepoTargets(): Promise<RepoTarget[]> {
+  const res = await fetch('/api/versions/repo-targets')
+  if (!res.ok) throw new Error(`GET /api/versions/repo-targets ${res.status}`)
+  return res.json()
+}
+
+export const addRepoTarget = (repo: string, project: string) =>
+  postJsonServer('/api/versions/repo-targets', { repo, project })

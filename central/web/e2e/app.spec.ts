@@ -140,6 +140,15 @@ test('CI/CD 탭에 파이프라인 상태가 보인다', async ({ page }) => {
   await expect(page.getByText('성공')).toBeVisible()
 })
 
+test('CI/CD 탭에서 서비스(대상) 추가', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'CI/CD' }).click()
+  await page.getByPlaceholder('서비스 이름').fill('billing')
+  await page.getByPlaceholder('GitLab 프로젝트 (group/repo 또는 id)').fill('group/billing')
+  await page.getByRole('button', { name: '서비스 추가' }).click()
+  await expect(page.getByText('billing', { exact: true })).toBeVisible() // 새 대상 행(상태 없음)
+})
+
 test('설정 탭 conf 적용: 계획 → 승인 (서버 쓰기 없음)', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: '설정' }).click()

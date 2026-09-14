@@ -3,8 +3,9 @@
 AUTH = {"Authorization": "Bearer dev-runner-token"}
 
 
-def test_repo_writes_require_auth(client):
-    assert client.post("/api/versions/repo-targets", json={"repo": "a", "project": "g/a"}).status_code == 401
+def test_repo_snapshots_require_auth_targets_open(client):
+    # 대상 등록은 UI 액션(open), 스냅샷 업로드는 러너 토큰 필요
+    assert client.post("/api/versions/repo-targets", json={"repo": "a", "project": "g/a"}).status_code == 200
     assert client.post("/api/versions/repo-snapshots", json={"snapshots": []}).status_code == 401
 
 
