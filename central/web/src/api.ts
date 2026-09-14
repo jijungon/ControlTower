@@ -31,3 +31,21 @@ export async function fetchConf(): Promise<ConfRow[]> {
   if (!res.ok) throw new Error(`GET /api/conf ${res.status}`)
   return res.json()
 }
+
+export type UpdatePkg = { name: string; from: string; to: string; security: boolean }
+
+export type UpdateRow = {
+  server_id: number
+  hostname: string
+  pending: number
+  security: number
+  packages: UpdatePkg[]
+  error?: string
+  collected_at?: string | null
+}
+
+export async function fetchUpdates(): Promise<UpdateRow[]> {
+  const res = await fetch('/api/updates')
+  if (!res.ok) throw new Error(`GET /api/updates ${res.status}`)
+  return res.json()
+}

@@ -37,6 +37,22 @@ test.beforeAll(async () => {
   const adopt = await api.post('/api/conf/baselines/adopt', { data: { path: CONF_PATH, server_id: id('web-01') } })
   expect(adopt.ok(), await adopt.text()).toBeTruthy()
 
+  // 업데이트(apt) 실데이터 시드: web-01 은 대기 2건(보안 1), web-02 는 0건
+  await api.post('/api/updates/snapshots', {
+    data: {
+      snapshots: [
+        {
+          server_id: id('web-01'),
+          packages: [
+            { name: 'openssl', from: '3.0.2', to: '3.0.13', security: true },
+            { name: 'nginx', from: '1.18.0', to: '1.24.0', security: false },
+          ],
+        },
+        { server_id: id('web-02'), packages: [] },
+      ],
+    },
+  })
+
   await api.dispose()
 })
 

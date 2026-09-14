@@ -140,3 +140,14 @@ CREATE TABLE conf_snapshots (
     UNIQUE (server_id, path)
 );
 CREATE INDEX idx_conf_snap_server ON conf_snapshots(server_id);
+
+-- 업데이트 관리 (Phase 2) -----------------------------------------------------
+CREATE TABLE update_snapshots (
+    id           INTEGER PRIMARY KEY,
+    server_id    INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    packages     TEXT,                        -- JSON: [{name,from,to,security}]
+    error        TEXT,                        -- 수집 실패(접속/권한 등)
+    collected_at TEXT,
+    UNIQUE (server_id)
+);
+CREATE INDEX idx_update_snap_server ON update_snapshots(server_id);

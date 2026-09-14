@@ -97,3 +97,16 @@ class ConfSnapshot(Base):
     sha256: Mapped[str | None] = mapped_column(String, nullable=True)
     error: Mapped[str | None] = mapped_column(String, nullable=True)   # 읽기 실패(없음/권한 등)
     collected_at: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+# ── 업데이트 관리 (Phase 2) ──────────────────────────────────────────
+
+class UpdateSnapshot(Base):
+    """서버별 대기 중인 OS 패치(apt upgradable). server_id 당 최신 하나로 upsert."""
+    __tablename__ = "update_snapshots"
+    __table_args__ = (UniqueConstraint("server_id", name="uq_update_snapshot"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    server_id: Mapped[int] = mapped_column(ForeignKey("servers.id"))
+    packages: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON: [{name,from,to,security}]
+    error: Mapped[str | None] = mapped_column(String, nullable=True)   # 수집 실패(접속/권한 등)
+    collected_at: Mapped[str | None] = mapped_column(String, nullable=True)

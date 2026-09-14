@@ -2,6 +2,8 @@
 
   python -m runner.cli import   # ~/.ssh/config 파싱 → 중앙 인벤토리에 임포트
   python -m runner.cli test     # 등록 서버에 SSH 연결 테스트 → 결과 업로드
+  python -m runner.cli conf     # 관리 경로 conf 수집 → 드리프트 비교
+  python -m runner.cli updates  # 서버별 대기 OS 패치(apt) 수집
 
 env: CT_CENTRAL_URL(기본 :8000) · CT_API_TOKEN(기본 dev-runner-token) · CT_SSH_CONFIG(기본 ~/.ssh/config)
 접속 테스트는 시스템 ssh 가 ~/.ssh/config(ProxyJump·키)를 그대로 사용한다.
@@ -13,8 +15,9 @@ import os
 import time
 
 from .api import CentralAPI
+from .apt import parse_upgradable
 from .config import RunnerConfig
-from .conn import read_file, test_ssh
+from .conn import list_upgrades, read_file, test_ssh
 from .sshconf import parse_ssh_config
 
 
@@ -90,6 +93,26 @@ def cmd_conf(cfg: RunnerConfig) -> None:
         api.close()
 
 
+def cmd_updates(cfg: RunnerConfig) -> None:
+    api = CentralAPI(cfg.central_url, cfg.api_token)
+    try:
+        servers = api.list_servers()
+        snaps = []
+        for s in servers:
+            out, err = list_upgrades(s["hostname"], cfg.connect_timeout)
+            pkgs = parse_upgradable(out) if out is not None else None
+            snaps.append({"server_id": s["id"], "packages": pkgs, "error": err})
+        res = api.upload_update_snapshots(snaps)
+        pending = sum(len(x["packages"]) for x in snaps if x["packages"])
+        security = sum(1 for x in snaps if x["packages"] for p in x["packages"] if p["security"])
+        print(f"업데이트 수집: {res['accepted']}대 · 대기 {pending}건(보안 {security}) ")
+        for s, x in zip(servers, snaps):
+            if x["error"]:
+                print(f"  ✗ {s['hostname']}: {x['error']}")
+    finally:
+        api.close()
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="ct-runner", description="Control Tower 러너")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -97,6 +120,7 @@ def main() -> None:
     imp.add_argument("--dry-run", action="store_true", help="파싱 결과만 출력(전송 안 함)")
     sub.add_parser("test", help="등록 서버 SSH 연결 테스트")
     sub.add_parser("conf", help="관리 경로 conf 수집 → 드리프트 비교")
+    sub.add_parser("updates", help="서버별 대기 OS 패치(apt) 수집")
     args = p.parse_args()
 
     cfg = RunnerConfig.load()
@@ -106,6 +130,8 @@ def main() -> None:
         cmd_test(cfg)
     elif args.cmd == "conf":
         cmd_conf(cfg)
+    elif args.cmd == "updates":
+        cmd_updates(cfg)
 
 
 if __name__ == "__main__":
