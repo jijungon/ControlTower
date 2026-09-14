@@ -31,6 +31,13 @@ jobs:
           python -m pip install -U pip
           pip install -r requirements-dev.txt -r central/api/requirements.txt
 
+      - name: Alembic 마이그레이션 점검 (빈 DB → head)
+        working-directory: central/api
+        env:
+          DATABASE_URL: sqlite:///./ci_migrate.db
+          PYTHONPATH: .
+        run: alembic upgrade head
+
       - name: Run tests
         run: pytest -q
 
