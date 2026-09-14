@@ -123,6 +123,13 @@ def test_runner_e2e(api, tmp_path):
         "web-02::true": {"rc": 255, "stderr": "ssh: connect to host 10.0.0.2: Connection refused"},
         f"web-01::cat -- {path}": {"rc": 0, "stdout": "gzip on;\nworker_processes 4;\n"},
         f"web-02::cat -- {path}": {"rc": 0, "stdout": "worker_processes 4;\n"},  # gzip 누락
+        "web-01::apt list --upgradable": {
+            "rc": 0,
+            "stdout": "Listing...\n"
+            "openssl/jammy-security 3.0.13 amd64 [upgradable from: 3.0.2]\n"
+            "vim/jammy-updates 8.2.5 amd64 [upgradable from: 8.2.3]\n",
+        },
+        "web-02::apt list --upgradable": {"rc": 0, "stdout": "Listing...\n"},
     }))
 
     c = httpx.Client(base_url=api, headers={"Authorization": f"Bearer {TOKEN}"}, timeout=10)
@@ -152,3 +159,11 @@ def test_runner_e2e(api, tmp_path):
     conf = {row["hostname"]: row["status"] for row in c.get("/api/conf").json()}
     assert conf["web-01"] == "synced"
     assert conf["web-02"] == "drift"
+
+    # 4) updates: apt 목록 수집 → 서버별 대기/보안 개수
+    r = _run_runner(["updates"], api, ssh_config, fixtures, fake_bin)
+    assert r.returncode == 0, r.stderr
+    ups = {row["hostname"]: row for row in c.get("/api/updates").json()}
+    assert ups["web-01"]["pending"] == 2
+    assert ups["web-01"]["security"] == 1   # openssl(-security) 만 보안
+    assert ups["web-02"]["pending"] == 0

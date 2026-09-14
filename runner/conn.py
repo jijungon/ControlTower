@@ -56,3 +56,33 @@ def read_file(alias: str, path: str, timeout: int = 8) -> tuple[str | None, str 
         return None, "timeout"
     except FileNotFoundError:
         return None, "ssh not found"
+
+
+def list_upgrades(alias: str, timeout: int = 8) -> tuple[str | None, str | None]:
+    """대기 중인 apt 업그레이드 목록을 읽는다(`apt list --upgradable`). (stdout, error).
+
+    읽기 전용 조회다 — 서버를 변경하지 않는다(설치·업그레이드 안 함).
+    apt 는 stderr 로 "unstable CLI" 경고를 내지만 rc 0·stdout 목록은 유효하다.
+    """
+    try:
+        r = subprocess.run(
+            [
+                "ssh",
+                "-o", "BatchMode=yes",
+                "-o", f"ConnectTimeout={timeout}",
+                "-o", "StrictHostKeyChecking=accept-new",
+                alias,
+                "apt", "list", "--upgradable",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=timeout + 20,
+        )
+        if r.returncode == 0:
+            return r.stdout, None
+        err = r.stderr.strip()
+        return None, (err.splitlines()[-1] if err else f"exit {r.returncode}")
+    except subprocess.TimeoutExpired:
+        return None, "timeout"
+    except FileNotFoundError:
+        return None, "ssh not found"

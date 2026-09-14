@@ -1,43 +1,31 @@
-import { Fragment, useState } from 'react'
-
-type Pkg = { name: string; from: string; to: string; security: boolean }
-type Row = { server: string; checked: string; packages: Pkg[] }
-
-// 예시 데이터 (실데이터는 수집기 붙은 뒤)
-const ROWS: Row[] = [
-  {
-    server: 'web-01',
-    checked: '10분 전',
-    packages: [
-      { name: 'openssl', from: '3.0.2', to: '3.0.13', security: true },
-      { name: 'libssl3', from: '3.0.2', to: '3.0.13', security: true },
-      { name: 'nginx', from: '1.18.0', to: '1.24.0', security: true },
-      { name: 'curl', from: '7.81.0', to: '7.88.1', security: false },
-      { name: 'libc6', from: '2.35', to: '2.35-0ubuntu3.8', security: false },
-      { name: 'tar', from: '1.34', to: '1.34+dfsg-1.2', security: false },
-      { name: 'vim', from: '8.2.3995', to: '8.2.5172', security: false },
-      { name: 'tzdata', from: '2023c', to: '2024a', security: false },
-    ],
-  },
-  {
-    server: 'db-01',
-    checked: '10분 전',
-    packages: [
-      { name: 'openssl', from: '3.0.2', to: '3.0.13', security: true },
-      { name: 'sudo', from: '1.9.9', to: '1.9.15', security: true },
-    ],
-  },
-  { server: 'build-01', checked: '10분 전', packages: [] },
-]
+import { Fragment, useEffect, useState } from 'react'
+import { fetchUpdates, type UpdateRow } from '../api'
 
 export default function Updates() {
-  const [open, setOpen] = useState<string | null>('web-01')
+  const [rows, setRows] = useState<UpdateRow[] | null>(null)
+  const [err, setErr] = useState(false)
+  const [open, setOpen] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetchUpdates()
+      .then((r) => {
+        setRows(r)
+        const first = r.find((x) => x.pending > 0)
+        if (first) setOpen(first.hostname)
+      })
+      .catch(() => setErr(true))
+  }, [])
+
+  const totalSecurity = (rows ?? []).reduce((a, r) => a + r.security, 0)
 
   return (
     <div>
       <div className="page-head">
         <h1 className="page-title">업데이트</h1>
-        <p className="page-sub">서버별 대기 중인 OS 패치(apt) · 서버를 누르면 항목 표시 (예시 데이터)</p>
+        <p className="page-sub">
+          서버별 대기 중인 OS 패치(apt) · 서버를 누르면 항목 표시
+          {rows ? ` · 보안 ${totalSecurity}건` : ''}
+        </p>
       </div>
 
       <div className="card">
@@ -51,25 +39,31 @@ export default function Updates() {
             </tr>
           </thead>
           <tbody>
-            {ROWS.map((r) => {
-              const pending = r.packages.length
-              const security = r.packages.filter((p) => p.security).length
-              const isOpen = open === r.server
+            {(rows ?? []).map((r) => {
+              const isOpen = open === r.hostname
               return (
-                <Fragment key={r.server}>
-                  <tr className="clickable" onClick={() => setOpen(isOpen ? null : r.server)}>
+                <Fragment key={r.server_id}>
+                  <tr className="clickable" onClick={() => setOpen(isOpen ? null : r.hostname)}>
                     <td>
-                      <span className="caret">{pending > 0 ? (isOpen ? '▾' : '▸') : ''}</span>
-                      {r.server}
+                      <span className="caret">{r.pending > 0 ? (isOpen ? '▾' : '▸') : ''}</span>
+                      {r.hostname}
                     </td>
-                    <td>{pending}</td>
-                    <td>{security > 0 ? <span className="badge badge--danger">{security}</span> : <span className="muted">0</span>}</td>
-                    <td className="muted">{r.checked}</td>
+                    <td>{r.error ? <span className="badge badge--danger">수집 실패</span> : r.pending}</td>
+                    <td>
+                      {r.security > 0 ? (
+                        <span className="badge badge--danger">{r.security}</span>
+                      ) : (
+                        <span className="muted">0</span>
+                      )}
+                    </td>
+                    <td className="muted">{r.collected_at ?? '—'}</td>
                   </tr>
                   {isOpen && (
                     <tr className="detail-row">
                       <td colSpan={4}>
-                        {pending === 0 ? (
+                        {r.error ? (
+                          <div className="muted">수집 실패 — {r.error}</div>
+                        ) : r.pending === 0 ? (
                           <div className="muted">대기 중인 업데이트 없음</div>
                         ) : (
                           <table className="subgrid">
@@ -85,7 +79,13 @@ export default function Updates() {
                                 <tr key={p.name}>
                                   <td className="mono">{p.name}</td>
                                   <td className="mono">{p.from} → {p.to}</td>
-                                  <td>{p.security ? <span className="badge badge--danger">보안</span> : <span className="muted">일반</span>}</td>
+                                  <td>
+                                    {p.security ? (
+                                      <span className="badge badge--danger">보안</span>
+                                    ) : (
+                                      <span className="muted">일반</span>
+                                    )}
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>
@@ -99,6 +99,21 @@ export default function Updates() {
             })}
           </tbody>
         </table>
+
+        {!rows && !err && (
+          <div className="placeholder" style={{ padding: '28px 16px' }}>불러오는 중…</div>
+        )}
+        {rows && rows.length === 0 && (
+          <div className="placeholder" style={{ padding: '28px 16px' }}>
+            아직 수집된 업데이트가 없습니다 — 러너로 수집하세요:{' '}
+            <span className="mono">python -m runner.cli updates</span>
+          </div>
+        )}
+        {err && (
+          <div className="placeholder" style={{ padding: '28px 16px' }}>
+            API 연결 실패 — <span className="mono">make dev</span> 로 중앙 API를 띄우세요.
+          </div>
+        )}
       </div>
     </div>
   )

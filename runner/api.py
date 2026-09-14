@@ -38,5 +38,10 @@ class CentralAPI:
         r.raise_for_status()
         return r.json()
 
+    def upload_update_snapshots(self, snapshots: list[dict[str, Any]]) -> dict[str, Any]:
+        r = self._client.post("/api/updates/snapshots", json={"snapshots": snapshots})
+        r.raise_for_status()
+        return r.json()
+
     def close(self) -> None:
         self._client.close()
