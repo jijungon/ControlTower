@@ -125,6 +125,25 @@ class ToolSnapshot(Base):
     collected_at: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
+class VersionTarget(Base):
+    """버전 선언본을 읽을 repo ↔ GitLab 프로젝트 매핑."""
+    __tablename__ = "version_targets"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    repo: Mapped[str] = mapped_column(String, unique=True)             # 표시 이름
+    project: Mapped[str] = mapped_column(String)                       # GitLab 경로(group/repo) 또는 id
+
+
+class RepoVersion(Base):
+    """GitLab repo 선언본 버전(package.json engines·@nestjs/core, pom.xml 등). (repo, tool) 당 하나."""
+    __tablename__ = "repo_versions"
+    __table_args__ = (UniqueConstraint("repo", "tool", name="uq_repo_version"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    repo: Mapped[str] = mapped_column(String)                          # node · nest · java ...
+    tool: Mapped[str] = mapped_column(String)
+    version: Mapped[str | None] = mapped_column(String, nullable=True)
+    collected_at: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
 # ── CI/CD 현황 (Phase 5) ─────────────────────────────────────────────
 
 class CicdTarget(Base):

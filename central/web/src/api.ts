@@ -67,8 +67,8 @@ export async function fetchAudit(): Promise<AuditRow[]> {
 }
 
 export type VersionRow = {
-  server_id: number
-  hostname: string
+  kind: 'server' | 'repo'
+  name: string
   tools: Record<string, string>
   collected_at?: string | null
 }

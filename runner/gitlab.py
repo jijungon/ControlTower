@@ -47,3 +47,27 @@ def fetch_latest_pipeline(
         "sha": p.get("sha"),
         "web_url": p.get("web_url"),
     }
+
+
+def fetch_repo_file(
+    base_url: str,
+    token: str,
+    project: str,
+    path: str,
+    ref: str = "main",
+    timeout: int = 8,
+    *,
+    transport: httpx.BaseTransport | None = None,
+) -> str | None:
+    """repo 파일 원문을 읽는다(raw). 없거나 오류면 None. 선언본 버전 파싱용(읽기 전용)."""
+    pid = quote(str(project), safe="")
+    fpath = quote(path, safe="")
+    url = f"{base_url.rstrip('/')}/api/v4/projects/{pid}/repository/files/{fpath}/raw"
+    try:
+        with httpx.Client(transport=transport, timeout=timeout) as c:
+            r = c.get(url, params={"ref": ref}, headers={"PRIVATE-TOKEN": token})
+    except httpx.HTTPError:
+        return None
+    if r.status_code != 200:
+        return None
+    return r.text

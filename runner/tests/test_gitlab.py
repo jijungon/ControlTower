@@ -1,7 +1,7 @@
 """GitLab 파이프라인 조회 단위 테스트(httpx MockTransport)."""
 import httpx
 
-from runner.gitlab import fetch_latest_pipeline
+from runner.gitlab import fetch_latest_pipeline, fetch_repo_file
 
 
 def _t(handler):
@@ -30,3 +30,21 @@ def test_project_not_found_returns_none():
         return httpx.Response(404, json={"message": "404 Project Not Found"})
 
     assert fetch_latest_pipeline("http://gl", "tok", "nope", transport=_t(handler)) is None
+
+
+def test_fetch_repo_file_raw():
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert req.headers["PRIVATE-TOKEN"] == "tok"
+        assert "/repository/files/package.json/raw" in str(req.url)
+        assert "ref=main" in str(req.url)
+        return httpx.Response(200, text='{"engines":{"node":"20"}}')
+
+    txt = fetch_repo_file("http://gl", "tok", "group/repo", "package.json", "main", transport=_t(handler))
+    assert txt == '{"engines":{"node":"20"}}'
+
+
+def test_fetch_repo_file_missing_returns_none():
+    def handler(req: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"message": "404 File Not Found"})
+
+    assert fetch_repo_file("http://gl", "tok", "group/repo", ".nvmrc", transport=_t(handler)) is None

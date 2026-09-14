@@ -5,6 +5,7 @@
   python -m runner.cli conf     # 관리 경로 conf 수집 → 드리프트 비교
   python -m runner.cli updates  # 서버별 대기 OS 패치(apt) 수집
   python -m runner.cli versions # 빌드 서버 툴체인 버전(node/java/docker 등) 수집
+  python -m runner.cli versions-repo # GitLab repo 선언본 버전 수집(CT_GITLAB_URL/TOKEN)
   python -m runner.cli cicd     # GitLab 파이프라인 상태 수집(CT_GITLAB_URL/TOKEN)
 
 env: CT_CENTRAL_URL(기본 :8000) · CT_API_TOKEN(기본 dev-runner-token) · CT_SSH_CONFIG(기본 ~/.ssh/config)
@@ -20,9 +21,13 @@ from .api import CentralAPI
 from .apt import parse_upgradable
 from .config import RunnerConfig
 from .conn import list_upgrades, read_file, run_remote, test_ssh
-from .gitlab import fetch_latest_pipeline
+from .gitlab import fetch_latest_pipeline, fetch_repo_file
+from .repoversions import extract_versions
 from .sshconf import parse_ssh_config
 from .versions import PROBES, parse_version
+
+# 선언본 후보 파일(있는 것만 파싱)
+REPO_VERSION_FILES = (".nvmrc", "package.json", "pom.xml")
 
 
 def cmd_import(cfg: RunnerConfig, dry_run: bool = False) -> None:
@@ -136,6 +141,30 @@ def cmd_versions(cfg: RunnerConfig) -> None:
         api.close()
 
 
+def cmd_versions_repo(cfg: RunnerConfig) -> None:
+    if not cfg.gitlab_url or not cfg.gitlab_token:
+        print("GitLab 미설정 — CT_GITLAB_URL / CT_GITLAB_TOKEN 을 설정하세요.")
+        return
+    api = CentralAPI(cfg.central_url, cfg.api_token)
+    try:
+        targets = api.list_version_repo_targets()
+        if not targets:
+            print("선언본 대상 없음 — 먼저 추가: POST /api/versions/repo-targets {repo, project}")
+            return
+        snaps = []
+        for t in targets:
+            files = {
+                p: fetch_repo_file(cfg.gitlab_url, cfg.gitlab_token, t["project"], p, cfg.gitlab_ref, cfg.connect_timeout)
+                for p in REPO_VERSION_FILES
+            }
+            for tool, ver in extract_versions(files).items():
+                snaps.append({"repo": t["repo"], "tool": tool, "version": ver})
+        res = api.upload_repo_snapshots(snaps)
+        print(f"선언본 버전 수집: {res['accepted']}건 (repo {len(targets)})")
+    finally:
+        api.close()
+
+
 def cmd_cicd(cfg: RunnerConfig) -> None:
     if not cfg.gitlab_url or not cfg.gitlab_token:
         print("GitLab 미설정 — CT_GITLAB_URL / CT_GITLAB_TOKEN 을 설정하세요.")
@@ -176,6 +205,7 @@ def main() -> None:
     sub.add_parser("conf", help="관리 경로 conf 수집 → 드리프트 비교")
     sub.add_parser("updates", help="서버별 대기 OS 패치(apt) 수집")
     sub.add_parser("versions", help="빌드 서버 툴체인 버전(node/java/docker 등) 수집")
+    sub.add_parser("versions-repo", help="GitLab repo 선언본 버전 수집(CT_GITLAB_URL/TOKEN 필요)")
     sub.add_parser("cicd", help="GitLab 파이프라인 상태 수집(CT_GITLAB_URL/TOKEN 필요)")
     args = p.parse_args()
 
@@ -190,6 +220,8 @@ def main() -> None:
         cmd_updates(cfg)
     elif args.cmd == "versions":
         cmd_versions(cfg)
+    elif args.cmd == "versions-repo":
+        cmd_versions_repo(cfg)
     elif args.cmd == "cicd":
         cmd_cicd(cfg)
 

@@ -177,7 +177,8 @@ def test_runner_e2e(api, tmp_path):
     # 5) versions: 툴체인 버전 수집(web-01 설치, web-02 미설치→매트릭스 제외)
     r = _run_runner(["versions"], api, ssh_config, fixtures, fake_bin)
     assert r.returncode == 0, r.stderr
-    vers = {row["hostname"]: row for row in c.get("/api/versions").json()}
+    vers = {row["name"]: row for row in c.get("/api/versions").json()}
+    assert vers["web-01"]["kind"] == "server"
     assert vers["web-01"]["tools"]["node"] == "20.11.1"
     assert vers["web-01"]["tools"]["java"] == "17.0.9"
     assert vers["web-01"]["tools"]["docker"] == "24.0.7"

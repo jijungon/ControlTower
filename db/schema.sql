@@ -163,6 +163,22 @@ CREATE TABLE tool_snapshots (
 );
 CREATE INDEX idx_tool_snap_server ON tool_snapshots(server_id);
 
+-- 버전: GitLab repo 선언본 (Phase 3) ------------------------------------------
+CREATE TABLE version_targets (
+    id      INTEGER PRIMARY KEY,
+    repo    TEXT NOT NULL UNIQUE,             -- 표시 이름
+    project TEXT NOT NULL                     -- GitLab 경로(group/repo) 또는 id
+);
+
+CREATE TABLE repo_versions (
+    id           INTEGER PRIMARY KEY,
+    repo         TEXT NOT NULL,
+    tool         TEXT NOT NULL,               -- node · nest · java ...
+    version      TEXT,
+    collected_at TEXT,
+    UNIQUE (repo, tool)
+);
+
 -- CI/CD 현황 (Phase 5) --------------------------------------------------------
 CREATE TABLE cicd_targets (
     id      INTEGER PRIMARY KEY,

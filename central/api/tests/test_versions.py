@@ -28,7 +28,8 @@ def test_versions_matrix(client):
     )
     m = client.get("/api/versions").json()
     assert len(m) == 1
-    assert m[0]["hostname"] == "build-01"
+    assert m[0]["name"] == "build-01"
+    assert m[0]["kind"] == "server"
     assert m[0]["tools"] == {"node": "20.11.1", "java": "17.0.9"}
 
 

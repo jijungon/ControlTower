@@ -63,6 +63,16 @@ test.beforeAll(async () => {
     },
   })
 
+  // 버전(선언본) 시드: aggregator_web repo node/nest
+  await api.post('/api/versions/repo-snapshots', {
+    data: {
+      snapshots: [
+        { repo: 'aggregator_web', tool: 'node', version: '20.11' },
+        { repo: 'aggregator_web', tool: 'nest', version: '10.3' },
+      ],
+    },
+  })
+
   // CI/CD 시드(소스 무관 인제스트): admin 서비스 파이프라인 성공
   await api.post('/api/cicd/targets', { data: { service: 'admin', project: 'group/aggregator-admin' } })
   await api.post('/api/cicd/status', {
@@ -111,10 +121,11 @@ test('작업이력 탭에 감사 로그가 쌓인다', async ({ page }) => {
   await expect(page.getByText('업데이트 수집')).toBeVisible()
 })
 
-test('버전·빌드 탭에 툴체인 버전이 보인다', async ({ page }) => {
+test('버전·빌드 탭에 툴체인·선언본 버전이 보인다', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: '버전·빌드' }).click()
-  await expect(page.getByText('20.11.1')).toBeVisible()
+  await expect(page.getByText('20.11.1')).toBeVisible() // 빌드 서버 툴체인
+  await expect(page.getByText('aggregator_web')).toBeVisible() // GitLab repo 선언본
 })
 
 test('CI/CD 탭에 파이프라인 상태가 보인다', async ({ page }) => {
