@@ -32,6 +32,54 @@ export async function fetchConf(): Promise<ConfRow[]> {
   return res.json()
 }
 
+export type ApplyStatus = 'pending' | 'approved' | 'applied' | 'failed' | 'canceled'
+
+export type ApplyIntent = {
+  id: number
+  server_id: number
+  hostname: string
+  path: string
+  status: ApplyStatus
+  from_sha?: string | null
+  to_sha?: string | null
+  diff?: string | null
+  requested_by?: string | null
+  approved_by?: string | null
+  error?: string | null
+  created_at?: string | null
+  approved_at?: string | null
+  applied_at?: string | null
+}
+
+async function postJson(url: string, body?: unknown): Promise<ApplyIntent> {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: body ? { 'Content-Type': 'application/json' } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  })
+  if (!res.ok) {
+    let detail = `${res.status}`
+    try {
+      detail = (await res.json()).detail ?? detail
+    } catch {
+      /* noop */
+    }
+    throw new Error(detail)
+  }
+  return res.json()
+}
+
+export async function fetchApplyIntents(): Promise<ApplyIntent[]> {
+  const res = await fetch('/api/conf/apply')
+  if (!res.ok) throw new Error(`GET /api/conf/apply ${res.status}`)
+  return res.json()
+}
+
+export const planApply = (server_id: number, path: string) =>
+  postJson('/api/conf/apply/plan', { server_id, path })
+export const approveApply = (id: number) => postJson(`/api/conf/apply/${id}/approve`)
+export const cancelApply = (id: number) => postJson(`/api/conf/apply/${id}/cancel`)
+
 export type UpdatePkg = { name: string; from: string; to: string; security: boolean }
 
 export type UpdateRow = {
