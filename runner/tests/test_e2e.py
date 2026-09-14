@@ -130,6 +130,12 @@ def test_runner_e2e(api, tmp_path):
             "vim/jammy-updates 8.2.5 amd64 [upgradable from: 8.2.3]\n",
         },
         "web-02::apt list --upgradable": {"rc": 0, "stdout": "Listing...\n"},
+        # 버전 프로브(web-01만 설치, web-02는 미매칭→rc1→건너뜀)
+        "web-01::node --version": {"rc": 0, "stdout": "v20.11.1\n"},
+        "web-01::npm --version": {"rc": 0, "stdout": "10.2.4\n"},
+        "web-01::java -version": {"rc": 0, "stderr": 'openjdk version "17.0.9" 2023-10-17\n'},
+        "web-01::python3 --version": {"rc": 0, "stdout": "Python 3.11.6\n"},
+        "web-01::docker --version": {"rc": 0, "stdout": "Docker version 24.0.7, build afdd53b\n"},
     }))
 
     c = httpx.Client(base_url=api, headers={"Authorization": f"Bearer {TOKEN}"}, timeout=10)
@@ -168,7 +174,16 @@ def test_runner_e2e(api, tmp_path):
     assert ups["web-01"]["security"] == 1   # openssl(-security) 만 보안
     assert ups["web-02"]["pending"] == 0
 
-    # 5) 작업이력: 러너 액션이 감사 로그로 남는다
+    # 5) versions: 툴체인 버전 수집(web-01 설치, web-02 미설치→매트릭스 제외)
+    r = _run_runner(["versions"], api, ssh_config, fixtures, fake_bin)
+    assert r.returncode == 0, r.stderr
+    vers = {row["hostname"]: row for row in c.get("/api/versions").json()}
+    assert vers["web-01"]["tools"]["node"] == "20.11.1"
+    assert vers["web-01"]["tools"]["java"] == "17.0.9"
+    assert vers["web-01"]["tools"]["docker"] == "24.0.7"
+    assert "web-02" not in vers
+
+    # 6) 작업이력: 러너 액션이 감사 로그로 남는다
     actions = [a["action"] for a in c.get("/api/audit").json()]
-    for expected in ("server.import", "conn.test", "conf.collect", "updates.collect"):
+    for expected in ("server.import", "conn.test", "conf.collect", "updates.collect", "versions.collect"):
         assert expected in actions, f"{expected} 누락: {actions}"

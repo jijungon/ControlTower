@@ -112,6 +112,19 @@ class UpdateSnapshot(Base):
     collected_at: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
+# ── 버전 관리 (Phase 3) ──────────────────────────────────────────────
+
+class ToolSnapshot(Base):
+    """빌드 서버 툴체인 버전(node/java/docker 등). (server_id, tool) 당 최신 하나."""
+    __tablename__ = "tool_snapshots"
+    __table_args__ = (UniqueConstraint("server_id", "tool", name="uq_tool_snapshot"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    server_id: Mapped[int] = mapped_column(ForeignKey("servers.id"))
+    tool: Mapped[str] = mapped_column(String)                          # node · java · docker ...
+    version: Mapped[str | None] = mapped_column(String, nullable=True)
+    collected_at: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
 # ── 작업이력 / 감사 로그 ─────────────────────────────────────────────
 
 class AuditLog(Base):

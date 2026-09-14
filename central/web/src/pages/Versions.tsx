@@ -1,43 +1,77 @@
-type Row = { name: string; node?: string; nest?: string; java?: string; docker?: string }
+import { useEffect, useState } from 'react'
+import { fetchVersions, type VersionRow } from '../api'
 
-const ROWS: Row[] = [
-  { name: 'repo · aggregator_web', node: '20.11', nest: '10.3' },
-  { name: 'repo · chat-service', node: '20.11', nest: '10.3' },
-  { name: 'repo · pnl_was', java: '17' },
-  { name: 'build-01 (빌드 서버)', node: '18.19', java: '17', docker: '24.0' },
-]
+// 컬럼 선호 순서(존재하는 툴만 노출). 그 외 툴은 뒤에 알파벳순으로.
+const PREFERRED = ['node', 'npm', 'java', 'python', 'docker']
 
-// 예: node 18 은 EOL 표시
-function cell(v?: string) {
-  if (!v) return <span className="ver ver--none">—</span>
-  const eol = v.startsWith('18')
-  return <span className={'ver' + (eol ? ' ver--eol' : '')}>{v}{eol ? ' ⚠' : ''}</span>
+function columns(rows: VersionRow[]): string[] {
+  const seen = new Set<string>()
+  rows.forEach((r) => Object.keys(r.tools).forEach((t) => seen.add(t)))
+  const extra = [...seen].filter((t) => !PREFERRED.includes(t)).sort()
+  return [...PREFERRED.filter((t) => seen.has(t)), ...extra]
 }
 
 export default function Versions() {
+  const [rows, setRows] = useState<VersionRow[] | null>(null)
+  const [err, setErr] = useState(false)
+
+  useEffect(() => {
+    fetchVersions().then(setRows).catch(() => setErr(true))
+  }, [])
+
+  const cols = columns(rows ?? [])
+
   return (
     <div>
       <div className="page-head">
         <h1 className="page-title">버전 · 빌드</h1>
-        <p className="page-sub">대상 × 버전 매트릭스 · GitLab 선언본 + 빌드 서버 · ⚠ = EOL (예시 데이터)</p>
+        <p className="page-sub">
+          빌드 서버 툴체인 버전 매트릭스 (대상 × 툴){rows ? ` · ${rows.length}대` : ''}
+        </p>
       </div>
+
       <div className="card">
         <table className="grid">
           <thead>
-            <tr><th>대상</th><th>node</th><th>nest</th><th>java</th><th>docker</th></tr>
+            <tr>
+              <th>대상</th>
+              {cols.map((c) => (
+                <th key={c}>{c}</th>
+              ))}
+            </tr>
           </thead>
           <tbody>
-            {ROWS.map((r) => (
-              <tr key={r.name}>
-                <td>{r.name}</td>
-                <td>{cell(r.node)}</td>
-                <td>{cell(r.nest)}</td>
-                <td>{cell(r.java)}</td>
-                <td>{cell(r.docker)}</td>
+            {(rows ?? []).map((r) => (
+              <tr key={r.server_id}>
+                <td>{r.hostname}</td>
+                {cols.map((c) => (
+                  <td key={c}>
+                    {r.tools[c] ? (
+                      <span className="mono">{r.tools[c]}</span>
+                    ) : (
+                      <span className="muted">—</span>
+                    )}
+                  </td>
+                ))}
               </tr>
             ))}
           </tbody>
         </table>
+
+        {!rows && !err && (
+          <div className="placeholder" style={{ padding: '28px 16px' }}>불러오는 중…</div>
+        )}
+        {rows && rows.length === 0 && (
+          <div className="placeholder" style={{ padding: '28px 16px' }}>
+            아직 수집된 버전이 없습니다 — 러너로 수집하세요:{' '}
+            <span className="mono">python -m runner.cli versions</span>
+          </div>
+        )}
+        {err && (
+          <div className="placeholder" style={{ padding: '28px 16px' }}>
+            API 연결 실패 — <span className="mono">make dev</span> 로 중앙 API를 띄우세요.
+          </div>
+        )}
       </div>
     </div>
   )

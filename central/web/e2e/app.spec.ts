@@ -53,6 +53,16 @@ test.beforeAll(async () => {
     },
   })
 
+  // 버전(툴체인) 시드: web-01 node/docker
+  await api.post('/api/versions/snapshots', {
+    data: {
+      snapshots: [
+        { server_id: id('web-01'), tool: 'node', version: '20.11.1' },
+        { server_id: id('web-01'), tool: 'docker', version: '24.0.7' },
+      ],
+    },
+  })
+
   await api.dispose()
 })
 
@@ -93,4 +103,10 @@ test('작업이력 탭에 감사 로그가 쌓인다', async ({ page }) => {
   // 시드가 import·conf 수집·updates 수집을 수행 → 감사 로그로 표시
   await expect(page.getByText('서버 임포트')).toBeVisible()
   await expect(page.getByText('업데이트 수집')).toBeVisible()
+})
+
+test('버전·빌드 탭에 툴체인 버전이 보인다', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: '버전·빌드' }).click()
+  await expect(page.getByText('20.11.1')).toBeVisible()
 })

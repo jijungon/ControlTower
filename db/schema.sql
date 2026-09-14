@@ -151,3 +151,14 @@ CREATE TABLE update_snapshots (
     UNIQUE (server_id)
 );
 CREATE INDEX idx_update_snap_server ON update_snapshots(server_id);
+
+-- 버전 관리 (Phase 3) ---------------------------------------------------------
+CREATE TABLE tool_snapshots (
+    id           INTEGER PRIMARY KEY,
+    server_id    INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    tool         TEXT NOT NULL,               -- node · java · docker ...
+    version      TEXT,
+    collected_at TEXT,
+    UNIQUE (server_id, tool)
+);
+CREATE INDEX idx_tool_snap_server ON tool_snapshots(server_id);

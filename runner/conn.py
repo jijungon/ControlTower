@@ -58,6 +58,36 @@ def read_file(alias: str, path: str, timeout: int = 8) -> tuple[str | None, str 
         return None, "ssh not found"
 
 
+def run_remote(alias: str, command: str, timeout: int = 8) -> tuple[str | None, str | None]:
+    """원격 명령을 실행하고 출력을 읽는다(조회 용도). (stdout+stderr, error).
+
+    버전 프로브(`node --version`, `java -version` 등)에 사용 — 서버를 변경하지 않는다.
+    버전은 stdout/stderr 어느 쪽이든 나올 수 있어 둘을 합쳐 돌려준다.
+    """
+    try:
+        r = subprocess.run(
+            [
+                "ssh",
+                "-o", "BatchMode=yes",
+                "-o", f"ConnectTimeout={timeout}",
+                "-o", "StrictHostKeyChecking=accept-new",
+                alias,
+                command,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=timeout + 15,
+        )
+        if r.returncode == 0:
+            return (r.stdout or "") + (r.stderr or ""), None
+        err = r.stderr.strip()
+        return None, (err.splitlines()[-1] if err else f"exit {r.returncode}")
+    except subprocess.TimeoutExpired:
+        return None, "timeout"
+    except FileNotFoundError:
+        return None, "ssh not found"
+
+
 def list_upgrades(alias: str, timeout: int = 8) -> tuple[str | None, str | None]:
     """대기 중인 apt 업그레이드 목록을 읽는다(`apt list --upgradable`). (stdout, error).
 
