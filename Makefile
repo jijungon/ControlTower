@@ -4,7 +4,7 @@ VENV := .venv
 PY   := $(VENV)/bin/python
 PIP  := $(VENV)/bin/pip
 
-.PHONY: help setup dev web import runner conf test lint clean
+.PHONY: help setup dev web import runner conf collect test lint clean
 
 help:
 	@echo "make setup   - venv + 의존성 + .env (최초 1회)"
@@ -13,6 +13,7 @@ help:
 	@echo "make import  - ~/.ssh/config 를 인벤토리에 임포트 (읽기 전용)"
 	@echo "make runner  - 등록 서버 SSH 연결 테스트 → 상태 갱신"
 	@echo "make conf    - 관리 경로 conf 수집 → 드리프트 비교"
+	@echo "make collect - 모든 수집기 1회 실행(import→test→conf→updates→versions[→gitlab])"
 	@echo "make test    - 전체 테스트 (pytest)"
 	@echo "make lint    - 코드 린트 (ruff)"
 	@echo "make clean   - 캐시·로컬 DB 정리"
@@ -41,6 +42,11 @@ runner:
 
 conf:
 	$(PY) -m runner.cli conf
+
+# 모든 수집기 1회. 주기 실행은 cron 에 등록: */5 * * * * cd <repo> && .venv/bin/python -m runner.cli all
+# 또는 상주 실행: .venv/bin/python -m runner.cli all --loop --interval 300
+collect:
+	$(PY) -m runner.cli all
 
 lint:
 	$(VENV)/bin/ruff check .
