@@ -7,6 +7,7 @@ const ACTION_LABEL: Record<string, string> = {
   'conf.collect': '설정 수집',
   'conf.adopt': '기준본 채택',
   'updates.collect': '업데이트 수집',
+  'versions.collect': '버전 수집',
 }
 
 function target(r: AuditRow): string {

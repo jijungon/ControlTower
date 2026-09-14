@@ -4,6 +4,7 @@
   python -m runner.cli test     # 등록 서버에 SSH 연결 테스트 → 결과 업로드
   python -m runner.cli conf     # 관리 경로 conf 수집 → 드리프트 비교
   python -m runner.cli updates  # 서버별 대기 OS 패치(apt) 수집
+  python -m runner.cli versions # 빌드 서버 툴체인 버전(node/java/docker 등) 수집
 
 env: CT_CENTRAL_URL(기본 :8000) · CT_API_TOKEN(기본 dev-runner-token) · CT_SSH_CONFIG(기본 ~/.ssh/config)
 접속 테스트는 시스템 ssh 가 ~/.ssh/config(ProxyJump·키)를 그대로 사용한다.
@@ -17,8 +18,9 @@ import time
 from .api import CentralAPI
 from .apt import parse_upgradable
 from .config import RunnerConfig
-from .conn import list_upgrades, read_file, test_ssh
+from .conn import list_upgrades, read_file, run_remote, test_ssh
 from .sshconf import parse_ssh_config
+from .versions import PROBES, parse_version
 
 
 def cmd_import(cfg: RunnerConfig, dry_run: bool = False) -> None:
@@ -113,6 +115,25 @@ def cmd_updates(cfg: RunnerConfig) -> None:
         api.close()
 
 
+def cmd_versions(cfg: RunnerConfig) -> None:
+    api = CentralAPI(cfg.central_url, cfg.api_token)
+    try:
+        servers = api.list_servers()
+        snaps = []
+        for s in servers:
+            for tool, command in PROBES.items():
+                raw, err = run_remote(s["hostname"], command, cfg.connect_timeout)
+                if err is not None:
+                    continue  # 미설치/접속 실패 툴은 건너뜀(노이즈 방지)
+                ver = parse_version(tool, raw or "")
+                if ver:
+                    snaps.append({"server_id": s["id"], "tool": tool, "version": ver})
+        res = api.upload_tool_snapshots(snaps)
+        print(f"버전 수집: {res['accepted']}건 (서버 {len(servers)} × 툴 {len(PROBES)})")
+    finally:
+        api.close()
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="ct-runner", description="Control Tower 러너")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -121,6 +142,7 @@ def main() -> None:
     sub.add_parser("test", help="등록 서버 SSH 연결 테스트")
     sub.add_parser("conf", help="관리 경로 conf 수집 → 드리프트 비교")
     sub.add_parser("updates", help="서버별 대기 OS 패치(apt) 수집")
+    sub.add_parser("versions", help="빌드 서버 툴체인 버전(node/java/docker 등) 수집")
     args = p.parse_args()
 
     cfg = RunnerConfig.load()
@@ -132,6 +154,8 @@ def main() -> None:
         cmd_conf(cfg)
     elif args.cmd == "updates":
         cmd_updates(cfg)
+    elif args.cmd == "versions":
+        cmd_versions(cfg)
 
 
 if __name__ == "__main__":

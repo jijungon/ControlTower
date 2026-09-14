@@ -65,3 +65,16 @@ export async function fetchAudit(): Promise<AuditRow[]> {
   if (!res.ok) throw new Error(`GET /api/audit ${res.status}`)
   return res.json()
 }
+
+export type VersionRow = {
+  server_id: number
+  hostname: string
+  tools: Record<string, string>
+  collected_at?: string | null
+}
+
+export async function fetchVersions(): Promise<VersionRow[]> {
+  const res = await fetch('/api/versions')
+  if (!res.ok) throw new Error(`GET /api/versions ${res.status}`)
+  return res.json()
+}
