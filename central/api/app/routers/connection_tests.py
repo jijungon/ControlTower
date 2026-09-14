@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from ..audit import record
 from ..auth import require_runner
 from ..db import get_db
 from ..models import ConnectionTest, Server
@@ -41,5 +42,7 @@ def post_connection_tests(batch: TestBatch, db: Session = Depends(get_db)) -> di
         if srv is not None:
             srv.status = "online" if r.ok else "offline"
             srv.last_checked_at = now
+    ok = sum(1 for r in batch.results if r.ok)
+    record(db, "conn.test", target_type="servers", detail=f"{ok}/{len(batch.results)} OK")
     db.commit()
     return {"accepted": len(batch.results)}

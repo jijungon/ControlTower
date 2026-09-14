@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from .db import Base, engine
-from .routers import conf, connection_tests, servers, updates
+from .routers import audit, conf, connection_tests, servers, updates
 
 
 @asynccontextmanager
@@ -26,6 +26,7 @@ app.include_router(servers.router)
 app.include_router(connection_tests.router)
 app.include_router(conf.router)
 app.include_router(updates.router)
+app.include_router(audit.router)
 
 
 @app.get("/health")

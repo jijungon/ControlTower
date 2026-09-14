@@ -86,3 +86,11 @@ test('대시보드가 실집계를 보여준다', async ({ page }) => {
   await expect(page.getByText('0/2')).toBeVisible()
   await expect(page.getByText('수집 현황')).toBeVisible()
 })
+
+test('작업이력 탭에 감사 로그가 쌓인다', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: '작업이력' }).click()
+  // 시드가 import·conf 수집·updates 수집을 수행 → 감사 로그로 표시
+  await expect(page.getByText('서버 임포트')).toBeVisible()
+  await expect(page.getByText('업데이트 수집')).toBeVisible()
+})

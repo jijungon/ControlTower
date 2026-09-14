@@ -110,3 +110,17 @@ class UpdateSnapshot(Base):
     packages: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON: [{name,from,to,security}]
     error: Mapped[str | None] = mapped_column(String, nullable=True)   # 수집 실패(접속/권한 등)
     collected_at: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+# ── 작업이력 / 감사 로그 ─────────────────────────────────────────────
+
+class AuditLog(Base):
+    """러너·사용자 액션 기록(수집·테스트·채택 등). 최신순 조회."""
+    __tablename__ = "audit_logs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    actor: Mapped[str] = mapped_column(String)                            # runner | user:email
+    action: Mapped[str] = mapped_column(String)                           # server.import, conn.test, ...
+    target_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    target_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[str | None] = mapped_column(String, nullable=True)
