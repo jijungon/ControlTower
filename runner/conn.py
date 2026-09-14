@@ -88,6 +88,33 @@ def run_remote(alias: str, command: str, timeout: int = 8) -> tuple[str | None, 
         return None, "ssh not found"
 
 
+def list_upgrades_yum(alias: str, timeout: int = 8) -> tuple[str | None, str | None]:
+    """yum/dnf 업그레이드 목록(조회만). rc 100=업데이트 있음(정상), 0=없음. dnf 우선, 없으면 yum."""
+    cmd = "sh -lc 'command -v dnf >/dev/null 2>&1 && dnf -q check-update || yum -q check-update'"
+    try:
+        r = subprocess.run(
+            [
+                "ssh",
+                "-o", "BatchMode=yes",
+                "-o", f"ConnectTimeout={timeout}",
+                "-o", "StrictHostKeyChecking=accept-new",
+                alias,
+                cmd,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=timeout + 20,
+        )
+        if r.returncode in (0, 100):   # yum/dnf: 100 = 업데이트 있음
+            return r.stdout, None
+        err = r.stderr.strip()
+        return None, (err.splitlines()[-1] if err else f"exit {r.returncode}")
+    except subprocess.TimeoutExpired:
+        return None, "timeout"
+    except FileNotFoundError:
+        return None, "ssh not found"
+
+
 def list_upgrades(alias: str, timeout: int = 8) -> tuple[str | None, str | None]:
     """대기 중인 apt 업그레이드 목록을 읽는다(`apt list --upgradable`). (stdout, error).
 

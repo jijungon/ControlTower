@@ -4,7 +4,7 @@
   python -m runner.cli test     # 등록 서버에 SSH 연결 테스트 → 결과 업로드
   python -m runner.cli probe    # 접속 점검(접속 여부 + 2FA 추정) [--group/--host]
   python -m runner.cli conf     # 관리 경로 conf 수집 → 드리프트 비교
-  python -m runner.cli updates  # 서버별 대기 OS 패치(apt) 수집
+  python -m runner.cli updates  # 서버별 대기 OS 패치(apt, 없으면 yum/dnf) 수집
   python -m runner.cli versions # 빌드 서버 툴체인 버전(node/java/docker 등) 수집
   python -m runner.cli versions-repo # GitLab repo 선언본 버전 수집(CT_GITLAB_URL/TOKEN)
   python -m runner.cli cicd     # GitLab 파이프라인 상태 수집(CT_GITLAB_URL/TOKEN)
@@ -24,12 +24,13 @@ from . import applier
 from .api import CentralAPI
 from .apt import parse_upgradable
 from .config import RunnerConfig
-from .conn import list_upgrades, read_file, run_remote, test_ssh
+from .conn import list_upgrades, list_upgrades_yum, read_file, run_remote, test_ssh
 from .gitlab import fetch_latest_pipeline, fetch_repo_file
 from .probe import probe_ssh
 from .repoversions import extract_versions
 from .sshconf import parse_ssh_config
 from .versions import PROBES, parse_version
+from .yum import parse_yum
 
 # 선언본 후보 파일(있는 것만 파싱)
 REPO_VERSION_FILES = (".nvmrc", "package.json", "pom.xml")
@@ -126,7 +127,16 @@ def cmd_updates(cfg: RunnerConfig, group: str | None = None, host: str | None = 
         snaps = []
         for s in servers:
             out, err = list_upgrades(s["hostname"], cfg.connect_timeout)
-            pkgs = parse_upgradable(out) if out is not None else None
+            if out is not None:
+                pkgs = parse_upgradable(out)
+            elif err and "not found" in err.lower():   # apt 없음 → yum/dnf 폴백
+                yout, yerr = list_upgrades_yum(s["hostname"], cfg.connect_timeout)
+                if yout is not None:
+                    pkgs, err = parse_yum(yout), None
+                else:
+                    pkgs, err = None, yerr
+            else:
+                pkgs = None
             snaps.append({"server_id": s["id"], "packages": pkgs, "error": err})
         res = api.upload_update_snapshots(snaps)
         pending = sum(len(x["packages"]) for x in snaps if x["packages"])
