@@ -149,7 +149,7 @@ CREATE TABLE conf_apply_intents (
     from_sha     TEXT,                        -- 현재 실제본
     to_sha       TEXT,                        -- 목표 기준본
     diff         TEXT,                        -- plan 시 미리보기(unified)
-    status       TEXT NOT NULL DEFAULT 'pending',  -- pending|approved|applied|failed|canceled
+    status       TEXT NOT NULL DEFAULT 'pending',  -- pending|approved|applied|failed|canceled|rolled_back
     requested_by TEXT,
     approved_by  TEXT,
     backup_path  TEXT,

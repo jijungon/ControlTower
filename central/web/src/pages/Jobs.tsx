@@ -10,6 +10,7 @@ const ACTION_LABEL: Record<string, string> = {
   'conf.apply_approve': '적용 승인',
   'conf.apply_cancel': '적용 취소',
   'conf.apply_result': '적용 결과',
+  'conf.apply_rollback': '적용 되돌림',
   'updates.collect': '업데이트 수집',
   'versions.collect': '버전 수집',
   'versions.repo_collect': '선언본 수집',

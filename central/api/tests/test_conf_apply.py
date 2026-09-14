@@ -77,3 +77,35 @@ def test_list_and_filter(client):
     client.post(f"/api/conf/apply/{iid}/approve")
     approved = client.get("/api/conf/apply?status=approved").json()
     assert len(approved) == 1 and approved[0]["id"] == iid
+
+
+def test_content_endpoint(client):
+    sid = _drift(client)
+    iid = client.post("/api/conf/apply/plan", json={"server_id": sid, "path": PATH}).json()["id"]
+    # 인증 필요 + approved 여야 내용 제공
+    assert client.get(f"/api/conf/apply/{iid}/content").status_code == 401
+    assert client.get(f"/api/conf/apply/{iid}/content", headers=AUTH).status_code == 409  # pending
+    client.post(f"/api/conf/apply/{iid}/approve")
+    body = client.get(f"/api/conf/apply/{iid}/content", headers=AUTH).json()
+    assert body["path"] == PATH and body["content"] == "A\n"  # 기준본
+
+
+def test_content_rejects_changed_baseline(client):
+    sid = _drift(client)
+    iid = client.post("/api/conf/apply/plan", json={"server_id": sid, "path": PATH}).json()["id"]
+    client.post(f"/api/conf/apply/{iid}/approve")
+    # 승인 후 기준본이 C 로 바뀜 → to_sha 불일치 → 409(재계획 필요)
+    client.post("/api/conf/snapshots", json={"snapshots": [{"server_id": sid, "path": PATH, "content": "C\n"}]}, headers=AUTH)
+    client.post("/api/conf/baselines/adopt", json={"path": PATH, "server_id": sid}, headers=AUTH)
+    assert client.get(f"/api/conf/apply/{iid}/content", headers=AUTH).status_code == 409
+
+
+def test_rollback_flow(client):
+    sid = _drift(client)
+    iid = client.post("/api/conf/apply/plan", json={"server_id": sid, "path": PATH}).json()["id"]
+    client.post(f"/api/conf/apply/{iid}/approve")
+    client.post(f"/api/conf/apply/{iid}/result", json={"status": "applied", "backup_path": "/x.bak"}, headers=AUTH)
+    assert client.post(f"/api/conf/apply/{iid}/rollback").status_code == 401
+    r = client.post(f"/api/conf/apply/{iid}/rollback", headers=AUTH)
+    assert r.status_code == 200 and r.json()["status"] == "rolled_back"
+    assert client.post(f"/api/conf/apply/{iid}/rollback", headers=AUTH).status_code == 409  # applied 아님

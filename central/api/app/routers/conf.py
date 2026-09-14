@@ -162,6 +162,7 @@ def _intent_dump(it: ConfApplyIntent, hostname: str) -> dict:
         "diff": it.diff,
         "requested_by": it.requested_by,
         "approved_by": it.approved_by,
+        "backup_path": it.backup_path,
         "error": it.error,
         "created_at": it.created_at,
         "approved_at": it.approved_at,
@@ -247,6 +248,20 @@ def apply_list(status: str | None = None, db: Session = Depends(get_db)) -> list
     return [_intent_dump(it, servers[it.server_id].hostname if it.server_id in servers else str(it.server_id)) for it in rows]
 
 
+@router.get("/apply/{intent_id}/content", dependencies=[Depends(require_runner)])
+def apply_content(intent_id: int, db: Session = Depends(get_db)) -> dict:
+    """러너가 적용 직전 호출 — 서버에 쓸 기준본 내용. approved 만, 승인 후 기준본이 바뀌었으면 거부."""
+    it = db.get(ConfApplyIntent, intent_id)
+    if it is None:
+        raise HTTPException(status_code=404, detail="의도를 찾을 수 없음")
+    if it.status != "approved":
+        raise HTTPException(status_code=409, detail=f"approved 상태가 아님({it.status})")
+    base = db.query(ConfBaseline).filter(ConfBaseline.path == it.path).first()
+    if base is None or base.sha256 != it.to_sha:
+        raise HTTPException(status_code=409, detail="기준본이 승인 후 변경됨 — 재계획 필요")
+    return {"path": it.path, "content": base.content, "to_sha": it.to_sha}
+
+
 class ApplyResultIn(BaseModel):
     status: str                  # applied | failed
     backup_path: str | None = None
@@ -268,6 +283,21 @@ def apply_result(intent_id: int, body: ApplyResultIn, db: Session = Depends(get_
     it.error = body.error
     it.applied_at = _now()
     record(db, "conf.apply_result", target_type="conf", target_id=it.path, detail=body.status)
+    db.commit()
+    srv = db.get(Server, it.server_id)
+    return _intent_dump(it, srv.hostname if srv else str(it.server_id))
+
+
+@router.post("/apply/{intent_id}/rollback", dependencies=[Depends(require_runner)])
+def apply_rollback(intent_id: int, db: Session = Depends(get_db)) -> dict:
+    """러너가 백업본으로 되돌린 뒤 보고. applied 만 롤백 가능."""
+    it = db.get(ConfApplyIntent, intent_id)
+    if it is None:
+        raise HTTPException(status_code=404, detail="의도를 찾을 수 없음")
+    if it.status != "applied":
+        raise HTTPException(status_code=409, detail=f"applied 상태가 아님({it.status})")
+    it.status = "rolled_back"
+    record(db, "conf.apply_rollback", target_type="conf", target_id=it.path)
     db.commit()
     srv = db.get(Server, it.server_id)
     return _intent_dump(it, srv.hostname if srv else str(it.server_id))
