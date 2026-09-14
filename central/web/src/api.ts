@@ -49,3 +49,19 @@ export async function fetchUpdates(): Promise<UpdateRow[]> {
   if (!res.ok) throw new Error(`GET /api/updates ${res.status}`)
   return res.json()
 }
+
+export type AuditRow = {
+  id: number
+  actor: string
+  action: string
+  target_type?: string | null
+  target_id?: string | null
+  detail?: string | null
+  created_at?: string | null
+}
+
+export async function fetchAudit(): Promise<AuditRow[]> {
+  const res = await fetch('/api/audit')
+  if (!res.ok) throw new Error(`GET /api/audit ${res.status}`)
+  return res.json()
+}

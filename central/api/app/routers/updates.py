@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from ..audit import record
 from ..auth import require_runner
 from ..db import get_db
 from ..models import Server, UpdateSnapshot
@@ -46,6 +47,7 @@ def upload_snapshots(batch: SnapshotBatch, db: Session = Depends(get_db)) -> dic
         row.packages = json.dumps(s.packages, ensure_ascii=False) if s.packages is not None else None
         row.error = s.error
         row.collected_at = now
+    record(db, "updates.collect", target_type="updates", detail=f"{len(batch.snapshots)}대")
     db.commit()
     return {"accepted": len(batch.snapshots)}
 

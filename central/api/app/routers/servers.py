@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from ..audit import record
 from ..auth import require_runner
 from ..db import get_db
 from ..models import Server
@@ -77,5 +78,6 @@ def import_servers(payload: ImportPayload, db: Session = Depends(get_db)) -> dic
             gw.role = "gateway"
             target.gateway_id = gw.id
 
+    record(db, "server.import", target_type="servers", detail=f"신규 {created}/총 {len(payload.servers)}")
     db.commit()
     return {"imported_new": created, "total": len(payload.servers)}

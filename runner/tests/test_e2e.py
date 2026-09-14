@@ -167,3 +167,8 @@ def test_runner_e2e(api, tmp_path):
     assert ups["web-01"]["pending"] == 2
     assert ups["web-01"]["security"] == 1   # openssl(-security) 만 보안
     assert ups["web-02"]["pending"] == 0
+
+    # 5) 작업이력: 러너 액션이 감사 로그로 남는다
+    actions = [a["action"] for a in c.get("/api/audit").json()]
+    for expected in ("server.import", "conn.test", "conf.collect", "updates.collect"):
+        assert expected in actions, f"{expected} 누락: {actions}"

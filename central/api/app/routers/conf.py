@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from ..audit import record
 from ..auth import require_runner
 from ..db import get_db
 from ..models import ConfBaseline, ConfSnapshot, ConfTarget, Server
@@ -73,6 +74,7 @@ def upload_snapshots(batch: SnapshotBatch, db: Session = Depends(get_db)) -> dic
         row.sha256 = _sha(s.content) if s.content is not None else None
         row.error = s.error
         row.collected_at = now
+    record(db, "conf.collect", target_type="conf", detail=f"{len(batch.snapshots)}건")
     db.commit()
     return {"accepted": len(batch.snapshots)}
 
@@ -99,6 +101,7 @@ def adopt_baseline(body: AdoptIn, db: Session = Depends(get_db)) -> dict:
     base.content = snap.content
     base.sha256 = snap.sha256
     base.updated_at = _now()
+    record(db, "conf.adopt", target_type="conf", target_id=body.path)
     db.commit()
     return {"ok": True, "path": body.path, "sha256": snap.sha256}
 
