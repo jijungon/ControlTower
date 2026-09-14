@@ -32,7 +32,7 @@ export async function fetchConf(): Promise<ConfRow[]> {
   return res.json()
 }
 
-export type ApplyStatus = 'pending' | 'approved' | 'applied' | 'failed' | 'canceled'
+export type ApplyStatus = 'pending' | 'approved' | 'applied' | 'failed' | 'canceled' | 'rolled_back'
 
 export type ApplyIntent = {
   id: number

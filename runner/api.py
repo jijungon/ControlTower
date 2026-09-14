@@ -38,6 +38,31 @@ class CentralAPI:
         r.raise_for_status()
         return r.json()
 
+    def list_apply_intents(self, status: str | None = None) -> list[dict[str, Any]]:
+        r = self._client.get("/api/conf/apply", params={"status": status} if status else None)
+        r.raise_for_status()
+        return r.json()
+
+    def get_apply_content(self, intent_id: int) -> dict[str, Any]:
+        r = self._client.get(f"/api/conf/apply/{intent_id}/content")
+        r.raise_for_status()
+        return r.json()
+
+    def post_apply_result(
+        self, intent_id: int, status: str, backup_path: str | None = None, error: str | None = None
+    ) -> dict[str, Any]:
+        r = self._client.post(
+            f"/api/conf/apply/{intent_id}/result",
+            json={"status": status, "backup_path": backup_path, "error": error},
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def post_apply_rollback(self, intent_id: int) -> dict[str, Any]:
+        r = self._client.post(f"/api/conf/apply/{intent_id}/rollback")
+        r.raise_for_status()
+        return r.json()
+
     def upload_update_snapshots(self, snapshots: list[dict[str, Any]]) -> dict[str, Any]:
         r = self._client.post("/api/updates/snapshots", json={"snapshots": snapshots})
         r.raise_for_status()

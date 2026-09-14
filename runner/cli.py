@@ -8,6 +8,7 @@
   python -m runner.cli versions-repo # GitLab repo 선언본 버전 수집(CT_GITLAB_URL/TOKEN)
   python -m runner.cli cicd     # GitLab 파이프라인 상태 수집(CT_GITLAB_URL/TOKEN)
   python -m runner.cli all      # 모든 수집기 1회(--loop --interval N 로 주기 실행)
+  python -m runner.cli apply    # 승인된 conf 를 서버에 실제 적용(--dry-run/--rollback ID)
 
 env: CT_CENTRAL_URL(기본 :8000) · CT_API_TOKEN(기본 dev-runner-token) · CT_SSH_CONFIG(기본 ~/.ssh/config)
 접속 테스트는 시스템 ssh 가 ~/.ssh/config(ProxyJump·키)를 그대로 사용한다.
@@ -18,6 +19,7 @@ import argparse
 import os
 import time
 
+from . import applier
 from .api import CentralAPI
 from .apt import parse_upgradable
 from .config import RunnerConfig
@@ -197,6 +199,47 @@ def cmd_cicd(cfg: RunnerConfig) -> None:
         api.close()
 
 
+def cmd_apply(cfg: RunnerConfig, dry_run: bool = False, rollback_id: int | None = None) -> None:
+    api = CentralAPI(cfg.central_url, cfg.api_token)
+    try:
+        if rollback_id is not None:
+            it = next((x for x in api.list_apply_intents() if x["id"] == rollback_id), None)
+            if it is None:
+                print(f"의도 {rollback_id} 를 찾을 수 없습니다.")
+                return
+            if not it.get("backup_path"):
+                print("백업 경로가 없어 롤백할 수 없습니다.")
+                return
+            res = applier.rollback(it["hostname"], it["path"], it["backup_path"], sudo=cfg.apply_sudo, timeout=cfg.connect_timeout)
+            if res["ok"]:
+                api.post_apply_rollback(rollback_id)
+                print(f"롤백 완료: {it['hostname']}:{it['path']} ← {it['backup_path']}")
+            else:
+                print(f"롤백 실패: {res['error']}")
+            return
+
+        intents = api.list_apply_intents(status="approved")
+        if not intents:
+            print("승인된 적용 대상이 없습니다.")
+            return
+        for it in intents:
+            c = api.get_apply_content(it["id"])  # {path, content, to_sha} — 승인 후 기준본 변경 시 여기서 409
+            if dry_run:
+                print(f"[dry-run] {it['hostname']}:{it['path']} → 기준본 적용 예정(백업 후 원자 교체)")
+                continue
+            res = applier.apply_intent(
+                it["hostname"], c["path"], c["content"], c["to_sha"], sudo=cfg.apply_sudo, timeout=cfg.connect_timeout
+            )
+            if res["ok"]:
+                api.post_apply_result(it["id"], "applied", backup_path=res["backup_path"])
+                print(f"  ✓ {it['hostname']}:{it['path']} 적용됨 (백업 {res['backup_path']})")
+            else:
+                api.post_apply_result(it["id"], "failed", backup_path=res["backup_path"], error=res["error"])
+                print(f"  ✗ {it['hostname']}:{it['path']} 실패: {res['error']}")
+    finally:
+        api.close()
+
+
 def run_all_once(cfg: RunnerConfig) -> None:
     """모든 수집기를 1회 실행. 한 스텝이 실패해도 나머지는 계속(격리)."""
     steps = [
@@ -239,6 +282,9 @@ def main() -> None:
     allp = sub.add_parser("all", help="모든 수집기 1회 실행(--loop 로 주기 반복)")
     allp.add_argument("--loop", action="store_true", help="간격을 두고 반복 실행")
     allp.add_argument("--interval", type=int, default=300, help="반복 간격(초, 기본 300)")
+    ap = sub.add_parser("apply", help="승인된 conf 를 서버에 실제 적용(백업·원자교체·verify)")
+    ap.add_argument("--dry-run", action="store_true", help="쓰기 없이 적용 대상만 출력")
+    ap.add_argument("--rollback", type=int, metavar="ID", help="해당 의도를 백업본으로 되돌림")
     args = p.parse_args()
 
     cfg = RunnerConfig.load()
@@ -258,6 +304,8 @@ def main() -> None:
         cmd_cicd(cfg)
     elif args.cmd == "all":
         cmd_all(cfg, loop=args.loop, interval=args.interval)
+    elif args.cmd == "apply":
+        cmd_apply(cfg, dry_run=args.dry_run, rollback_id=args.rollback)
 
 
 if __name__ == "__main__":

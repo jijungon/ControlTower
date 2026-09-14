@@ -18,6 +18,7 @@ class RunnerConfig:
     gitlab_url: str = ""        # self-hosted GitLab (CI/CD·선언본 수집용, 예: https://gitlab.example.com)
     gitlab_token: str = ""      # GitLab PRIVATE-TOKEN (러너 로컬에만 — 중앙 저장 안 함)
     gitlab_ref: str = "main"    # 선언본을 읽을 기본 브랜치
+    apply_sudo: bool = False    # conf 적용 시 sudo 사용(root 소유 파일). CT_APPLY_SUDO=1
 
     @classmethod
     def load(cls) -> "RunnerConfig":
@@ -33,4 +34,5 @@ class RunnerConfig:
             gitlab_url=os.environ.get("CT_GITLAB_URL", ""),
             gitlab_token=os.environ.get("CT_GITLAB_TOKEN", ""),
             gitlab_ref=os.environ.get("CT_GITLAB_REF", "main"),
+            apply_sudo=os.environ.get("CT_APPLY_SUDO", "") not in ("", "0", "false", "False"),
         )

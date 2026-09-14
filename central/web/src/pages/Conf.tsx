@@ -24,6 +24,7 @@ const APPLY_BADGE: Record<ApplyStatus, JSX.Element> = {
   applied: <span className="badge badge--ok">적용됨</span>,
   failed: <span className="badge badge--danger">실패</span>,
   canceled: <span className="badge badge--muted">취소</span>,
+  rolled_back: <span className="badge badge--muted">되돌림</span>,
 }
 
 export default function Conf() {
