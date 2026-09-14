@@ -1,0 +1,23 @@
+# 연습용 미니 서버(SSH) — control-ai-grafana 위에 '격리 실행'.
+# 진짜 Grafana 서비스와 무관(별도 컨테이너·별도 포트·별도 파일시스템).
+# 검증 끝나면:  docker compose down   (흔적 없이 제거)
+#
+# 올리는 법(서버에서):
+#   1) 이 폴더(Dockerfile · nginx.conf · authorized_keys · docker-compose.yml)를 서버에 복사
+#   2) authorized_keys 채우기(연습 접속 공개키). 기존 키 재사용이 제일 간단:
+#        ssh-keygen -y -f ~/.ssh/aws-key/loopvm.pem > authorized_keys
+#   3) docker compose up -d --build
+#   4) 러너 쪽 ~/.ssh/config 에 연습 호스트 추가:
+#        Host ct-apply-demo
+#          HostName 20.20.1.35
+#          Port 2222
+#          User deploy
+#          IdentityFile ~/.ssh/aws-key/loopvm.pem
+#   5) 접속 확인:  ssh ct-apply-demo  (컨테이너 안으로 들어가지면 OK)
+services:
+  ct-apply-demo:
+    build: .
+    container_name: ct-apply-demo
+    ports:
+      - "2222:22"          # 호스트 2222 → 컨테이너 SSH (포트 충돌 시 바꿔도 됨)
+    restart: "no"

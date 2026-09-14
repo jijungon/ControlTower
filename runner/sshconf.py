@@ -19,15 +19,23 @@ class SSHHost:
     proxy_jump: str | None = None
 
 
+def _dequote(v: str) -> str:
+    # ssh config 값은 따옴표로 감쌀 수 있다: IdentityFile "~/.ssh/x.pem" → x.pem
+    v = v.strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in ('"', "'"):
+        return v[1:-1].strip()
+    return v
+
+
 def _split(line: str) -> tuple[str | None, str | None]:
     # "Key value" 또는 "Key=value"
     if "=" in line and " " not in line.split("=", 1)[0].strip():
         k, v = line.split("=", 1)
-        return k.strip(), v.strip()
+        return k.strip(), _dequote(v)
     parts = line.split(None, 1)
     if len(parts) != 2:
         return None, None
-    return parts[0].strip(), parts[1].strip()
+    return parts[0].strip(), _dequote(parts[1])
 
 
 def parse_ssh_config(path: str) -> list[SSHHost]:
