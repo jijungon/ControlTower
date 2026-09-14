@@ -46,6 +46,7 @@ def _dump(s: Server, groups: dict[int, str]) -> dict:
         "group_id": s.group_id,
         "group": groups.get(s.group_id) if s.group_id else None,
         "tags": _tags_list(s.tags),
+        "needs_2fa": None if s.needs_2fa is None else bool(s.needs_2fa),
         "status": s.status,
         "last_checked_at": s.last_checked_at,
     }

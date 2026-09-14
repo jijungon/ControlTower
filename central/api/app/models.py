@@ -45,6 +45,7 @@ class Server(Base):
     access_control: Mapped[str | None] = mapped_column(String, nullable=True)  # dbsafe·ncloud 등 (NULL=일반)
     group_id: Mapped[int | None] = mapped_column(ForeignKey("server_groups.id"), nullable=True)
     tags: Mapped[str | None] = mapped_column(String, nullable=True)           # 콤마 구분(중앙 UI에서 지정)
+    needs_2fa: Mapped[int | None] = mapped_column(Integer, nullable=True)     # 접속 점검(probe): 1=추가인증 필요, 0=키단독, NULL=미확인
     status: Mapped[str] = mapped_column(String, default="unknown")            # unknown | online | offline
     last_checked_at: Mapped[str | None] = mapped_column(String, nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
