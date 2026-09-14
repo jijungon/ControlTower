@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { fetchCicd, type CicdRow } from '../api'
+import { addCicdTarget, fetchCicd, type CicdRow } from '../api'
 
 function statusBadge(r: CicdRow) {
   if (!r.has_cicd) return <span className="badge badge--muted">없음</span>
@@ -22,10 +22,28 @@ function statusBadge(r: CicdRow) {
 export default function Cicd() {
   const [rows, setRows] = useState<CicdRow[] | null>(null)
   const [err, setErr] = useState(false)
+  const [svc, setSvc] = useState('')
+  const [proj, setProj] = useState('')
+  const [msg, setMsg] = useState<string | null>(null)
+
+  const load = () => fetchCicd().then(setRows).catch(() => setErr(true))
 
   useEffect(() => {
-    fetchCicd().then(setRows).catch(() => setErr(true))
+    load()
   }, [])
+
+  async function add() {
+    if (!svc.trim() || !proj.trim()) return
+    setMsg(null)
+    try {
+      await addCicdTarget(svc.trim(), proj.trim())
+      setSvc('')
+      setProj('')
+      await load()
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : '추가 실패')
+    }
+  }
 
   const failed = (rows ?? []).filter((r) => r.status === 'failed').length
 
@@ -37,6 +55,13 @@ export default function Cicd() {
           서비스별 GitLab 파이프라인 상태{rows ? ` · 실패 ${failed}건` : ''}
         </p>
       </div>
+
+      <div className="toolbar" style={{ flexWrap: 'wrap' }}>
+        <input className="search" style={{ minWidth: 160 }} placeholder="서비스 이름" value={svc} onChange={(e) => setSvc(e.target.value)} />
+        <input className="search" style={{ minWidth: 220 }} placeholder="GitLab 프로젝트 (group/repo 또는 id)" value={proj} onChange={(e) => setProj(e.target.value)} />
+        <button className="btn" onClick={add}>서비스 추가</button>
+      </div>
+      {msg && <div className="card" style={{ padding: '10px 14px', marginBottom: 12, color: 'var(--danger,#b3261e)' }}>{msg}</div>}
 
       <div className="card">
         <table className="grid">

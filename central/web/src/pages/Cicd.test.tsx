@@ -21,6 +21,7 @@ test('파이프라인 상태 배지 렌더', async () => {
   expect(screen.getByText('성공')).toBeInTheDocument()
   expect(screen.getByText('실패')).toBeInTheDocument()
   expect(screen.getAllByText('없음').length).toBeGreaterThanOrEqual(1) // legacy: CI/CD·상태 모두 없음
+  expect(screen.getByRole('button', { name: '서비스 추가' })).toBeInTheDocument() // 대상 추가 폼
 })
 
 test('빈 상태 안내', async () => {

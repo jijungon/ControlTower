@@ -67,7 +67,7 @@ def list_repo_targets(db: Session = Depends(get_db)) -> list[dict]:
     return [{"repo": t.repo, "project": t.project} for t in rows]
 
 
-@router.post("/repo-targets", dependencies=[Depends(require_runner)])
+@router.post("/repo-targets")  # 대상 등록은 UI 액션 — open. 스냅샷 업로드(/repo-snapshots)만 러너 토큰.
 def add_repo_target(body: RepoTargetIn, db: Session = Depends(get_db)) -> dict:
     row = db.query(VersionTarget).filter(VersionTarget.repo == body.repo).first()
     if row is None:

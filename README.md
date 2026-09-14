@@ -70,7 +70,7 @@
 | 4. 알림·운영 | 만료/드리프트 알림·업데이트 적용·EOL | |
 | 5. CI/CD 현황 | 두 GitLab 파이프라인 파싱·배포 현황 대시보드 | |
 
-**현재 상태:** 스캐폴드 완료 — docker-compose(db·api·web), FastAPI 스켈레톤(+Phase 0 엔드포인트 스텁), 데이터 모델, pytest(6개 통과), GitHub 연결 + CI(pytest). 다음은 Phase 0 구현.
+**현재 상태:** 7개 탭 전부 실데이터로 연결됨 — 서버·접속키(그룹·태그·필터), conf(드리프트 + 계획→승인→적용→롤백), 업데이트(apt), 버전(빌드서버 툴체인 + GitLab 선언본), CI/CD 현황, 작업이력(감사), 대시보드. 러너 수집기(import/test/conf/updates/versions/versions-repo/cicd) + `all`(주기 수집) + `apply`(안전 배포). CI 3잡(pytest·vitest·playwright) 게이트. GitLab 실연결만 인스턴스 준비 대기(코드 완비).
 
 ## 빠른 시작 (로컬)
 
@@ -81,6 +81,26 @@ make test      # 전체 테스트
 ```
 
 전체 스택을 컨테이너로: `docker compose up -d --build` — 로컬에서 이게 곧 **상시 운영(=prod)**이다. `make dev` 는 코딩 중 hot-reload용. 자세한 개발 흐름은 [docs/DEV.md](docs/DEV.md).
+
+주기 수집(모든 수집기 1회): `make collect` — cron 에 등록하면 데이터가 계속 최신으로 유지된다.
+상주 실행: `python -m runner.cli all --loop --interval 300`.
+
+## GitLab 연동 켜기
+
+CI/CD 파이프라인 상태와 repo 선언본 버전(node/nest/java)은 GitLab 에서 읽는다. GitLab 이 준비되면:
+
+1. **러너 `.env`** 에 토큰 설정 (러너 로컬에만 — 중앙엔 저장 안 함):
+   ```
+   CT_GITLAB_URL=https://gitlab.example.com
+   CT_GITLAB_TOKEN=glpat-xxxxxxxx    # read_api 스코프면 충분
+   ```
+2. **웹에서 대상 등록**:
+   - CI/CD 탭 → *서비스 추가* (서비스 이름 + `group/repo`)
+   - 버전·빌드 탭 → *GitLab 선언본 대상 추가*
+3. **러너 실행**: `python -m runner.cli cicd` (파이프라인) · `versions-repo` (선언본).
+   `make collect` / cron 도 GitLab 설정 시 이 둘을 포함한다.
+
+> GitLab 이 아직이면 이 두 기능만 비어 있고, 나머지(서버·conf·업데이트·툴체인·작업이력)는 그대로 동작한다. 토큰은 **러너 로컬에만** 두며 중앙 DB엔 결과 상태만 저장된다.
 
 ## 저장소 구조
 

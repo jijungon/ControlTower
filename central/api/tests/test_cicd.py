@@ -3,8 +3,9 @@
 AUTH = {"Authorization": "Bearer dev-runner-token"}
 
 
-def test_writes_require_auth(client):
-    assert client.post("/api/cicd/targets", json={"service": "a", "project": "g/a"}).status_code == 401
+def test_status_requires_auth_targets_open(client):
+    # 대상 등록은 UI 액션(open), 상태 업로드는 러너 토큰 필요
+    assert client.post("/api/cicd/targets", json={"service": "a", "project": "g/a"}).status_code == 200
     assert client.post("/api/cicd/status", json={"statuses": []}).status_code == 401
 
 
