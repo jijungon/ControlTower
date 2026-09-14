@@ -48,6 +48,16 @@ class CentralAPI:
         r.raise_for_status()
         return r.json()
 
+    def list_version_repo_targets(self) -> list[dict[str, Any]]:
+        r = self._client.get("/api/versions/repo-targets")
+        r.raise_for_status()
+        return r.json()
+
+    def upload_repo_snapshots(self, snapshots: list[dict[str, Any]]) -> dict[str, Any]:
+        r = self._client.post("/api/versions/repo-snapshots", json={"snapshots": snapshots})
+        r.raise_for_status()
+        return r.json()
+
     def list_cicd_targets(self) -> list[dict[str, Any]]:
         r = self._client.get("/api/cicd/targets")
         r.raise_for_status()
