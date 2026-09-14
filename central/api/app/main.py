@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from .db import Base, engine
-from .routers import connection_tests, servers
+from .routers import conf, connection_tests, servers
 
 
 @asynccontextmanager
@@ -24,6 +24,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Control Tower API", version="0.0.1", lifespan=lifespan)
 app.include_router(servers.router)
 app.include_router(connection_tests.router)
+app.include_router(conf.router)
 
 
 @app.get("/health")

@@ -28,5 +28,15 @@ class CentralAPI:
         r = self._client.post("/api/connection-tests", json={"results": results})
         r.raise_for_status()
 
+    def list_conf_targets(self) -> list[str]:
+        r = self._client.get("/api/conf/targets")
+        r.raise_for_status()
+        return r.json()
+
+    def upload_conf_snapshots(self, snapshots: list[dict[str, Any]]) -> dict[str, Any]:
+        r = self._client.post("/api/conf/snapshots", json={"snapshots": snapshots})
+        r.raise_for_status()
+        return r.json()
+
     def close(self) -> None:
         self._client.close()

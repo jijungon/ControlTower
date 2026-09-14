@@ -14,3 +14,20 @@ export async function fetchServers(): Promise<Server[]> {
   if (!res.ok) throw new Error(`GET /api/servers ${res.status}`)
   return res.json()
 }
+
+export type ConfStatus = 'synced' | 'drift' | 'no_baseline' | 'error'
+
+export type ConfRow = {
+  server_id: number
+  hostname: string
+  path: string
+  status: ConfStatus
+  detail?: string
+  collected_at?: string | null
+}
+
+export async function fetchConf(): Promise<ConfRow[]> {
+  const res = await fetch('/api/conf')
+  if (!res.ok) throw new Error(`GET /api/conf ${res.status}`)
+  return res.json()
+}

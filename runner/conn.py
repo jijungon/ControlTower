@@ -30,3 +30,29 @@ def test_ssh(alias: str, timeout: int = 8) -> tuple[bool, str]:
         return False, "timeout"
     except FileNotFoundError:
         return False, "ssh not found"
+
+
+def read_file(alias: str, path: str, timeout: int = 8) -> tuple[str | None, str | None]:
+    """서버의 파일 내용을 읽는다(시스템 ssh cat). (content, error) — 실패 시 (None, error)."""
+    try:
+        r = subprocess.run(
+            [
+                "ssh",
+                "-o", "BatchMode=yes",
+                "-o", f"ConnectTimeout={timeout}",
+                "-o", "StrictHostKeyChecking=accept-new",
+                alias,
+                "cat", "--", path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=timeout + 15,
+        )
+        if r.returncode == 0:
+            return r.stdout, None
+        err = r.stderr.strip()
+        return None, (err.splitlines()[-1] if err else f"exit {r.returncode}")
+    except subprocess.TimeoutExpired:
+        return None, "timeout"
+    except FileNotFoundError:
+        return None, "ssh not found"
