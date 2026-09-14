@@ -7,6 +7,7 @@
   python -m runner.cli versions # 빌드 서버 툴체인 버전(node/java/docker 등) 수집
   python -m runner.cli versions-repo # GitLab repo 선언본 버전 수집(CT_GITLAB_URL/TOKEN)
   python -m runner.cli cicd     # GitLab 파이프라인 상태 수집(CT_GITLAB_URL/TOKEN)
+  python -m runner.cli all      # 모든 수집기 1회(--loop --interval N 로 주기 실행)
 
 env: CT_CENTRAL_URL(기본 :8000) · CT_API_TOKEN(기본 dev-runner-token) · CT_SSH_CONFIG(기본 ~/.ssh/config)
 접속 테스트는 시스템 ssh 가 ~/.ssh/config(ProxyJump·키)를 그대로 사용한다.
@@ -196,6 +197,34 @@ def cmd_cicd(cfg: RunnerConfig) -> None:
         api.close()
 
 
+def run_all_once(cfg: RunnerConfig) -> None:
+    """모든 수집기를 1회 실행. 한 스텝이 실패해도 나머지는 계속(격리)."""
+    steps = [
+        ("import", cmd_import),
+        ("test", cmd_test),
+        ("conf", cmd_conf),
+        ("updates", cmd_updates),
+        ("versions", cmd_versions),
+    ]
+    if cfg.gitlab_url and cfg.gitlab_token:
+        steps += [("versions-repo", cmd_versions_repo), ("cicd", cmd_cicd)]
+    for name, fn in steps:
+        try:
+            fn(cfg)
+        except Exception as e:  # noqa: BLE001 - 한 스텝 실패가 전체 주기를 막지 않게
+            print(f"  ✗ {name} 실패: {e}")
+
+
+def cmd_all(cfg: RunnerConfig, loop: bool = False, interval: int = 300) -> None:
+    if not loop:
+        run_all_once(cfg)
+        return
+    print(f"주기 수집 시작 — {interval}s 간격 (Ctrl-C 로 종료)")
+    while True:
+        run_all_once(cfg)
+        time.sleep(interval)
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="ct-runner", description="Control Tower 러너")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -207,6 +236,9 @@ def main() -> None:
     sub.add_parser("versions", help="빌드 서버 툴체인 버전(node/java/docker 등) 수집")
     sub.add_parser("versions-repo", help="GitLab repo 선언본 버전 수집(CT_GITLAB_URL/TOKEN 필요)")
     sub.add_parser("cicd", help="GitLab 파이프라인 상태 수집(CT_GITLAB_URL/TOKEN 필요)")
+    allp = sub.add_parser("all", help="모든 수집기 1회 실행(--loop 로 주기 반복)")
+    allp.add_argument("--loop", action="store_true", help="간격을 두고 반복 실행")
+    allp.add_argument("--interval", type=int, default=300, help="반복 간격(초, 기본 300)")
     args = p.parse_args()
 
     cfg = RunnerConfig.load()
@@ -224,6 +256,8 @@ def main() -> None:
         cmd_versions_repo(cfg)
     elif args.cmd == "cicd":
         cmd_cicd(cfg)
+    elif args.cmd == "all":
+        cmd_all(cfg, loop=args.loop, interval=args.interval)
 
 
 if __name__ == "__main__":
