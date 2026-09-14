@@ -14,7 +14,7 @@ import time
 
 from .api import CentralAPI
 from .config import RunnerConfig
-from .conn import test_ssh
+from .conn import read_file, test_ssh
 from .sshconf import parse_ssh_config
 
 
@@ -71,12 +71,32 @@ def cmd_test(cfg: RunnerConfig) -> None:
         api.close()
 
 
+def cmd_conf(cfg: RunnerConfig) -> None:
+    api = CentralAPI(cfg.central_url, cfg.api_token)
+    try:
+        servers = api.list_servers()
+        paths = api.list_conf_targets()
+        if not paths:
+            print("관리 대상 conf 경로가 없습니다 — 먼저 추가: POST /api/conf/targets {path}")
+            return
+        snaps = []
+        for s in servers:
+            for p in paths:
+                content, err = read_file(s["hostname"], p, cfg.connect_timeout)
+                snaps.append({"server_id": s["id"], "path": p, "content": content, "error": err})
+        res = api.upload_conf_snapshots(snaps)
+        print(f"conf 수집: {res['accepted']}건 (서버 {len(servers)} × 경로 {len(paths)})")
+    finally:
+        api.close()
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="ct-runner", description="Control Tower 러너")
     sub = p.add_subparsers(dest="cmd", required=True)
     imp = sub.add_parser("import", help="~/.ssh/config → 중앙 인벤토리 임포트")
     imp.add_argument("--dry-run", action="store_true", help="파싱 결과만 출력(전송 안 함)")
     sub.add_parser("test", help="등록 서버 SSH 연결 테스트")
+    sub.add_parser("conf", help="관리 경로 conf 수집 → 드리프트 비교")
     args = p.parse_args()
 
     cfg = RunnerConfig.load()
@@ -84,6 +104,8 @@ def main() -> None:
         cmd_import(cfg, dry_run=args.dry_run)
     elif args.cmd == "test":
         cmd_test(cfg)
+    elif args.cmd == "conf":
+        cmd_conf(cfg)
 
 
 if __name__ == "__main__":

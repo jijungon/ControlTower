@@ -4,7 +4,7 @@
 """
 from __future__ import annotations
 
-from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
@@ -65,3 +65,35 @@ class ConnectionTest(Base):
     ok: Mapped[int] = mapped_column(Integer)                # 0/1
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+# ── conf 관리 (Phase 1) ──────────────────────────────────────────────
+
+class ConfTarget(Base):
+    """관리 대상 conf 파일 경로 (러너가 이 경로들을 수집)."""
+    __tablename__ = "conf_targets"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    path: Mapped[str] = mapped_column(String, unique=True)   # 예: /etc/nginx/nginx.conf
+
+
+class ConfBaseline(Base):
+    """중앙 기준본(정답). path 당 하나."""
+    __tablename__ = "conf_baselines"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    path: Mapped[str] = mapped_column(String, unique=True)
+    content: Mapped[str] = mapped_column(Text)
+    sha256: Mapped[str] = mapped_column(String)
+    updated_at: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+class ConfSnapshot(Base):
+    """서버에서 수집한 실제본. (server_id, path) 당 최신 하나로 upsert."""
+    __tablename__ = "conf_snapshots"
+    __table_args__ = (UniqueConstraint("server_id", "path", name="uq_conf_snapshot"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    server_id: Mapped[int] = mapped_column(ForeignKey("servers.id"))
+    path: Mapped[str] = mapped_column(String)
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sha256: Mapped[str | None] = mapped_column(String, nullable=True)
+    error: Mapped[str | None] = mapped_column(String, nullable=True)   # 읽기 실패(없음/권한 등)
+    collected_at: Mapped[str | None] = mapped_column(String, nullable=True)

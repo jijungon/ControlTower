@@ -1,35 +1,29 @@
-type Status = 'synced' | 'drift' | 'unknown'
-type Row = { server: string; file: string; status: Status; detail?: string }
+import { useEffect, useState } from 'react'
+import { fetchConf, type ConfRow, type ConfStatus } from '../api'
 
-// 서버별로 어떤 파일이 다른지 한눈에 (예시 데이터)
-const ROWS: Row[] = [
-  { server: 'web-01', file: 'nginx.conf', status: 'drift', detail: 'gzip 설정 누락' },
-  { server: 'web-02', file: 'nginx.conf', status: 'synced' },
-  { server: 'web-03', file: 'nginx.conf', status: 'synced' },
-  { server: 'web-04', file: 'nginx.conf', status: 'synced' },
-  { server: 'web-05', file: 'nginx.conf', status: 'drift', detail: 'worker_processes 값 차이' },
-  { server: 'app-01', file: 'docker-compose.yml', status: 'synced' },
-  { server: 'app-01', file: 'systemd/app.service', status: 'unknown', detail: '미수집' },
-  { server: 'app-02', file: 'docker-compose.yml', status: 'drift', detail: '환경변수 차이' },
-  { server: 'app-02', file: 'systemd/app.service', status: 'synced' },
-  { server: 'app-03', file: 'docker-compose.yml', status: 'synced' },
-]
-
-const BADGE: Record<Status, JSX.Element> = {
+const BADGE: Record<ConfStatus, JSX.Element> = {
   synced: <span className="badge badge--ok">동기화됨</span>,
   drift: <span className="badge badge--warn">드리프트</span>,
-  unknown: <span className="badge badge--muted">미수집</span>,
+  no_baseline: <span className="badge badge--muted">기준본 없음</span>,
+  error: <span className="badge badge--danger">수집 실패</span>,
 }
 
 export default function Conf() {
-  const drift = ROWS.filter((r) => r.status === 'drift').length
+  const [rows, setRows] = useState<ConfRow[] | null>(null)
+  const [err, setErr] = useState(false)
+
+  useEffect(() => {
+    fetchConf().then(setRows).catch(() => setErr(true))
+  }, [])
+
+  const drift = (rows ?? []).filter((r) => r.status === 'drift').length
 
   return (
     <div>
       <div className="page-head">
         <h1 className="page-title">설정 (conf)</h1>
         <p className="page-sub">
-          서버별 기준본 ↔ 실제본 비교 · 드리프트 {drift}건 (예시 데이터)
+          서버별 기준본 ↔ 실제본 비교{rows ? ` · 드리프트 ${drift}건` : ''}
         </p>
       </div>
 
@@ -44,16 +38,31 @@ export default function Conf() {
             </tr>
           </thead>
           <tbody>
-            {ROWS.map((r) => (
-              <tr key={`${r.server}:${r.file}`}>
-                <td>{r.server}</td>
-                <td className="mono">{r.file}</td>
+            {(rows ?? []).map((r) => (
+              <tr key={`${r.server_id}:${r.path}`}>
+                <td>{r.hostname}</td>
+                <td className="mono">{r.path}</td>
                 <td>{BADGE[r.status]}</td>
                 <td className="muted">{r.detail ?? ''}</td>
               </tr>
             ))}
           </tbody>
         </table>
+
+        {!rows && !err && (
+          <div className="placeholder" style={{ padding: '28px 16px' }}>불러오는 중…</div>
+        )}
+        {rows && rows.length === 0 && (
+          <div className="placeholder" style={{ padding: '28px 16px' }}>
+            아직 수집된 conf 가 없습니다 — 관리 경로 추가 후{' '}
+            <span className="mono">python -m runner.cli conf</span>
+          </div>
+        )}
+        {err && (
+          <div className="placeholder" style={{ padding: '28px 16px' }}>
+            API 연결 실패 — <span className="mono">make dev</span> 로 중앙 API를 띄우세요.
+          </div>
+        )}
       </div>
     </div>
   )

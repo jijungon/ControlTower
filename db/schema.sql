@@ -114,3 +114,29 @@ CREATE INDEX idx_servers_gateway  ON servers(gateway_id);
 CREATE INDEX idx_servers_group    ON servers(group_id);
 CREATE INDEX idx_conn_tests_server ON connection_tests(server_id);
 CREATE INDEX idx_audit_created    ON audit_logs(created_at);
+
+-- conf 관리 (Phase 1) ---------------------------------------------------------
+CREATE TABLE conf_targets (
+    id   INTEGER PRIMARY KEY,
+    path TEXT NOT NULL UNIQUE               -- 관리 대상 경로 (예: /etc/nginx/nginx.conf)
+);
+
+CREATE TABLE conf_baselines (
+    id         INTEGER PRIMARY KEY,
+    path       TEXT NOT NULL UNIQUE,         -- 중앙 기준본(정답)
+    content    TEXT NOT NULL,
+    sha256     TEXT NOT NULL,
+    updated_at TEXT
+);
+
+CREATE TABLE conf_snapshots (
+    id           INTEGER PRIMARY KEY,
+    server_id    INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    path         TEXT NOT NULL,
+    content      TEXT,
+    sha256       TEXT,
+    error        TEXT,                        -- 읽기 실패(없음/권한 등)
+    collected_at TEXT,
+    UNIQUE (server_id, path)
+);
+CREATE INDEX idx_conf_snap_server ON conf_snapshots(server_id);
