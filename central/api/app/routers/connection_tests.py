@@ -20,6 +20,7 @@ class TestResult(BaseModel):
     ok: bool
     latency_ms: int | None = None
     error: str | None = None
+    needs_2fa: bool | None = None   # 접속 점검(probe) 결과: 추가 인증 필요 여부
 
 
 class TestBatch(BaseModel):
@@ -42,6 +43,8 @@ def post_connection_tests(batch: TestBatch, db: Session = Depends(get_db)) -> di
         if srv is not None:
             srv.status = "online" if r.ok else "offline"
             srv.last_checked_at = now
+            if r.needs_2fa is not None:
+                srv.needs_2fa = 1 if r.needs_2fa else 0
     ok = sum(1 for r in batch.results if r.ok)
     record(db, "conn.test", target_type="servers", detail=f"{ok}/{len(batch.results)} OK")
     db.commit()

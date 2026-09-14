@@ -12,16 +12,20 @@ function routed(servers: unknown, groups: unknown = [], serversOk = true) {
   )
 }
 
-test('서버 목록에 그룹·태그를 렌더', async () => {
+test('서버 목록에 그룹·태그·인증(2FA)을 렌더', async () => {
   routed(
-    [{ id: 1, hostname: 'web-01', ip: '10.0.0.1', ssh_user: 'deploy', status: 'online', group: 'prod', tags: ['edge', 'nginx'] }],
+    [
+      { id: 1, hostname: 'web-01', ip: '10.0.0.1', ssh_user: 'deploy', status: 'online', needs_2fa: false, group: 'prod', tags: ['edge', 'nginx'] },
+      { id: 2, hostname: 'db-01', ip: '10.0.0.2', ssh_user: 'root', status: 'offline', needs_2fa: true, tags: [] },
+    ],
     [{ id: 1, name: 'prod', count: 1 }],
   )
   render(<Servers />)
   expect(await screen.findByText('web-01')).toBeInTheDocument()
-  expect(screen.getByText('10.0.0.1')).toBeInTheDocument()
   expect(screen.getByText('prod')).toBeInTheDocument()
   expect(screen.getByText('edge')).toBeInTheDocument()
+  expect(screen.getByText('2FA')).toBeInTheDocument() // db-01: 추가 인증 필요
+  expect(screen.getByText('키만')).toBeInTheDocument() // web-01: 키 단독
 })
 
 test('빈 상태 안내', async () => {

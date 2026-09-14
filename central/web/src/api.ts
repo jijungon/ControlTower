@@ -8,6 +8,7 @@ export type Server = {
   group_id?: number | null
   group?: string | null
   tags?: string[]
+  needs_2fa?: boolean | null
   status: string
   last_checked_at?: string | null
 }

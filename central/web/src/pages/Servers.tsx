@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react'
 import { createGroup, fetchGroups, fetchServers, setServerMeta, type Group, type Server } from '../api'
 
+function authCell(s: Server) {
+  if (s.needs_2fa === true) return <span className="badge badge--warn">2FA</span>
+  if (s.needs_2fa === false) return <span className="muted">키만</span>
+  return <span className="muted">—</span>
+}
+
 export default function Servers() {
   const [q, setQ] = useState('')
   const [servers, setServers] = useState<Server[] | null>(null)
@@ -104,6 +110,7 @@ export default function Servers() {
               <th>서버</th>
               <th>IP</th>
               <th>user</th>
+              <th>인증</th>
               <th>그룹</th>
               <th>태그</th>
               <th>키</th>
@@ -114,11 +121,15 @@ export default function Servers() {
             {rows.map((s) => (
               <tr key={s.id}>
                 <td>
-                  <span className={`dot dot--${s.status}`} title={s.status} />
+                  <span
+                    className={`dot dot--${s.status === 'online' ? 'online' : 'unknown'}`}
+                    title={s.last_checked_at ? `${s.status} · 확인 ${s.last_checked_at}` : s.status}
+                  />
                   {s.hostname}
                 </td>
                 <td className="mono">{s.ip ?? '—'}</td>
                 <td>{s.ssh_user}</td>
+                <td>{authCell(s)}</td>
                 {editId === s.id ? (
                   <>
                     <td>

@@ -2,6 +2,7 @@
 
   python -m runner.cli import   # ~/.ssh/config 파싱 → 중앙 인벤토리에 임포트
   python -m runner.cli test     # 등록 서버에 SSH 연결 테스트 → 결과 업로드
+  python -m runner.cli probe    # 접속 점검(접속 여부 + 2FA 추정) [--group/--host]
   python -m runner.cli conf     # 관리 경로 conf 수집 → 드리프트 비교
   python -m runner.cli updates  # 서버별 대기 OS 패치(apt) 수집
   python -m runner.cli versions # 빌드 서버 툴체인 버전(node/java/docker 등) 수집
@@ -25,12 +26,23 @@ from .apt import parse_upgradable
 from .config import RunnerConfig
 from .conn import list_upgrades, read_file, run_remote, test_ssh
 from .gitlab import fetch_latest_pipeline, fetch_repo_file
+from .probe import probe_ssh
 from .repoversions import extract_versions
 from .sshconf import parse_ssh_config
 from .versions import PROBES, parse_version
 
 # 선언본 후보 파일(있는 것만 파싱)
 REPO_VERSION_FILES = (".nvmrc", "package.json", "pom.xml")
+
+
+def _select(servers: list, group: str | None, host: str | None) -> list:
+    """수집/점검 대상 좁히기 — --group(그룹명) / --host(별칭). 없으면 전체."""
+    out = servers
+    if group:
+        out = [s for s in out if s.get("group") == group]
+    if host:
+        out = [s for s in out if s.get("hostname") == host]
+    return out
 
 
 def cmd_import(cfg: RunnerConfig, dry_run: bool = False) -> None:
@@ -59,10 +71,10 @@ def cmd_import(cfg: RunnerConfig, dry_run: bool = False) -> None:
         api.close()
 
 
-def cmd_test(cfg: RunnerConfig) -> None:
+def cmd_test(cfg: RunnerConfig, group: str | None = None, host: str | None = None) -> None:
     api = CentralAPI(cfg.central_url, cfg.api_token)
     try:
-        servers = api.list_servers()
+        servers = _select(api.list_servers(), group, host)
         results = []
         for s in servers:
             t0 = time.monotonic()
@@ -86,10 +98,10 @@ def cmd_test(cfg: RunnerConfig) -> None:
         api.close()
 
 
-def cmd_conf(cfg: RunnerConfig) -> None:
+def cmd_conf(cfg: RunnerConfig, group: str | None = None, host: str | None = None) -> None:
     api = CentralAPI(cfg.central_url, cfg.api_token)
     try:
-        servers = api.list_servers()
+        servers = _select(api.list_servers(), group, host)
         paths = api.list_conf_targets()
         if not paths:
             print("관리 대상 conf 경로가 없습니다 — 먼저 추가: POST /api/conf/targets {path}")
@@ -105,10 +117,10 @@ def cmd_conf(cfg: RunnerConfig) -> None:
         api.close()
 
 
-def cmd_updates(cfg: RunnerConfig) -> None:
+def cmd_updates(cfg: RunnerConfig, group: str | None = None, host: str | None = None) -> None:
     api = CentralAPI(cfg.central_url, cfg.api_token)
     try:
-        servers = api.list_servers()
+        servers = _select(api.list_servers(), group, host)
         snaps = []
         for s in servers:
             out, err = list_upgrades(s["hostname"], cfg.connect_timeout)
@@ -125,10 +137,10 @@ def cmd_updates(cfg: RunnerConfig) -> None:
         api.close()
 
 
-def cmd_versions(cfg: RunnerConfig) -> None:
+def cmd_versions(cfg: RunnerConfig, group: str | None = None, host: str | None = None) -> None:
     api = CentralAPI(cfg.central_url, cfg.api_token)
     try:
-        servers = api.list_servers()
+        servers = _select(api.list_servers(), group, host)
         snaps = []
         for s in servers:
             for tool, command in PROBES.items():
@@ -240,6 +252,34 @@ def cmd_apply(cfg: RunnerConfig, dry_run: bool = False, rollback_id: int | None 
         api.close()
 
 
+def cmd_probe(cfg: RunnerConfig, group: str | None = None, host: str | None = None) -> None:
+    api = CentralAPI(cfg.central_url, cfg.api_token)
+    try:
+        servers = _select(api.list_servers(), group, host)
+        if not servers:
+            print("대상 서버가 없습니다(필터 확인).")
+            return
+        results = []
+        for s in servers:
+            p = probe_ssh(s["hostname"], cfg.connect_timeout)
+            results.append({
+                "server_id": s["id"],
+                "ok": p["ok"],
+                "needs_2fa": p["needs_2fa"],
+                "error": None if p["ok"] else p["detail"],
+            })
+        ok_n = sum(1 for r in results if r["ok"])
+        mfa_n = sum(1 for r in results if r["needs_2fa"])
+        print(f"접속 점검: {ok_n}/{len(results)} 접속됨 · 추가인증(2FA) 추정 {mfa_n}")
+        for s, r in zip(servers, results):
+            if not r["ok"]:
+                print(f"  · {s['hostname']}: {r['error']}")
+        if results:
+            api.post_connection_tests(results)
+    finally:
+        api.close()
+
+
 def run_all_once(cfg: RunnerConfig) -> None:
     """모든 수집기를 1회 실행. 한 스텝이 실패해도 나머지는 계속(격리)."""
     steps = [
@@ -273,10 +313,15 @@ def main() -> None:
     sub = p.add_subparsers(dest="cmd", required=True)
     imp = sub.add_parser("import", help="~/.ssh/config → 중앙 인벤토리 임포트")
     imp.add_argument("--dry-run", action="store_true", help="파싱 결과만 출력(전송 안 함)")
-    sub.add_parser("test", help="등록 서버 SSH 연결 테스트")
-    sub.add_parser("conf", help="관리 경로 conf 수집 → 드리프트 비교")
-    sub.add_parser("updates", help="서버별 대기 OS 패치(apt) 수집")
-    sub.add_parser("versions", help="빌드 서버 툴체인 버전(node/java/docker 등) 수집")
+    def _flt(pp):  # 대상 좁히기 필터(공통)
+        pp.add_argument("--group", help="이 그룹만 대상")
+        pp.add_argument("--host", help="이 호스트(별칭)만 대상")
+        return pp
+    _flt(sub.add_parser("test", help="등록 서버 SSH 연결 테스트"))
+    _flt(sub.add_parser("conf", help="관리 경로 conf 수집 → 드리프트 비교"))
+    _flt(sub.add_parser("updates", help="서버별 대기 OS 패치(apt) 수집"))
+    _flt(sub.add_parser("versions", help="빌드 서버 툴체인 버전(node/java/docker 등) 수집"))
+    _flt(sub.add_parser("probe", help="접속 점검(접속 여부 + 2FA 추정)"))
     sub.add_parser("versions-repo", help="GitLab repo 선언본 버전 수집(CT_GITLAB_URL/TOKEN 필요)")
     sub.add_parser("cicd", help="GitLab 파이프라인 상태 수집(CT_GITLAB_URL/TOKEN 필요)")
     allp = sub.add_parser("all", help="모든 수집기 1회 실행(--loop 로 주기 반복)")
@@ -291,13 +336,15 @@ def main() -> None:
     if args.cmd == "import":
         cmd_import(cfg, dry_run=args.dry_run)
     elif args.cmd == "test":
-        cmd_test(cfg)
+        cmd_test(cfg, args.group, args.host)
     elif args.cmd == "conf":
-        cmd_conf(cfg)
+        cmd_conf(cfg, args.group, args.host)
     elif args.cmd == "updates":
-        cmd_updates(cfg)
+        cmd_updates(cfg, args.group, args.host)
     elif args.cmd == "versions":
-        cmd_versions(cfg)
+        cmd_versions(cfg, args.group, args.host)
+    elif args.cmd == "probe":
+        cmd_probe(cfg, args.group, args.host)
     elif args.cmd == "versions-repo":
         cmd_versions_repo(cfg)
     elif args.cmd == "cicd":
