@@ -79,3 +79,10 @@ test('업데이트 탭에서 서버 행을 열면 패키지가 보인다', async
   // web-01 은 기본 펼침
   await expect(page.getByText('openssl').first()).toBeVisible()
 })
+
+test('대시보드가 실집계를 보여준다', async ({ page }) => {
+  await page.goto('/')
+  // 기본 탭=대시보드. 서버 2대 임포트·연결테스트 미실행 → 온라인 0/2
+  await expect(page.getByText('0/2')).toBeVisible()
+  await expect(page.getByText('수집 현황')).toBeVisible()
+})
