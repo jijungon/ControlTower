@@ -50,6 +50,11 @@ node_modules/
 dist/
 build/
 .vite/
+# Playwright E2E 산출물
+playwright-report/
+test-results/
+.playwright/
+blob-report/
 
 # === Docker 로컬 오버라이드 ===
 docker-compose.override.yml

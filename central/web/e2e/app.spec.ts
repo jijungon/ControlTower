@@ -1,0 +1,65 @@
+import { expect, request, test } from '@playwright/test'
+
+const API = process.env.CT_E2E_API || 'http://127.0.0.1:8099'
+const TOKEN = 'e2e-web-token'
+const CONF_PATH = '/etc/nginx/nginx.conf'
+
+// API 에 직접 시드(러너 역할): 서버 임포트 → conf 대상·스냅샷 → web-01 을 기준본으로 채택.
+// 결과적으로 web-01=synced, web-02=drift 가 되어야 한다.
+test.beforeAll(async () => {
+  const api = await request.newContext({
+    baseURL: API,
+    extraHTTPHeaders: { Authorization: `Bearer ${TOKEN}` },
+  })
+
+  const imp = await api.post('/api/servers/import', {
+    data: {
+      servers: [
+        { hostname: 'web-01', ip: '10.0.0.1', ssh_user: 'deploy', credential_alias: 'id_rsa', access_control: 'ncloud' },
+        { hostname: 'web-02', ip: '10.0.0.2', ssh_user: 'deploy', credential_alias: 'id_rsa' },
+      ],
+    },
+  })
+  expect(imp.ok(), await imp.text()).toBeTruthy()
+
+  const servers: Array<{ id: number; hostname: string }> = await (await api.get('/api/servers')).json()
+  const id = (h: string) => servers.find((s) => s.hostname === h)!.id
+
+  await api.post('/api/conf/targets', { data: { path: CONF_PATH } })
+  await api.post('/api/conf/snapshots', {
+    data: {
+      snapshots: [
+        { server_id: id('web-01'), path: CONF_PATH, content: 'gzip on;\nworker_processes 4;\n' },
+        { server_id: id('web-02'), path: CONF_PATH, content: 'worker_processes 4;\n' }, // gzip 누락 → drift
+      ],
+    },
+  })
+  const adopt = await api.post('/api/conf/baselines/adopt', { data: { path: CONF_PATH, server_id: id('web-01') } })
+  expect(adopt.ok(), await adopt.text()).toBeTruthy()
+
+  await api.dispose()
+})
+
+test('서버 인벤토리에 임포트된 서버가 보인다', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: '서버' }).click()
+  await expect(page.getByRole('heading', { name: /서버 · 접속키/ })).toBeVisible()
+  await expect(page.getByText('web-01')).toBeVisible()
+  await expect(page.getByText('web-02')).toBeVisible()
+  await expect(page.getByText('ncloud')).toBeVisible()
+})
+
+test('설정(conf) 탭에서 동기화·드리프트가 보인다', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: '설정' }).click()
+  await expect(page.getByRole('heading', { name: /설정 \(conf\)/ })).toBeVisible()
+  await expect(page.getByText('동기화됨', { exact: true })).toBeVisible()
+  await expect(page.getByText('드리프트', { exact: true })).toBeVisible()
+})
+
+test('업데이트 탭에서 서버 행을 열면 패키지가 보인다', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: '업데이트' }).click()
+  // web-01 은 기본 펼침
+  await expect(page.getByText('openssl').first()).toBeVisible()
+})
