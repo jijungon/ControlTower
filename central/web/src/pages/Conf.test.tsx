@@ -11,7 +11,11 @@ function routed(confRows: unknown, intents: unknown) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string) => {
-      const body = url.includes('/api/conf/apply') ? intents : confRows
+      const body = url.includes('/api/conf/targets')
+        ? ['/etc/nginx/nginx.conf']
+        : url.includes('/api/conf/apply')
+          ? intents
+          : confRows
       return new Response(JSON.stringify(body), { status: 200 })
     }),
   )
@@ -25,6 +29,8 @@ test('드리프트 배지 + 드리프트 행에 적용 계획 버튼', async () 
   expect(screen.getByText('gzip 누락')).toBeInTheDocument()
   // drift 행에만 적용 계획 버튼(1개)
   expect(screen.getAllByRole('button', { name: '적용 계획' })).toHaveLength(1)
+  // 관리 대상 추가 폼
+  expect(screen.getByRole('button', { name: '대상 추가' })).toBeInTheDocument()
 })
 
 test('적용 대기 섹션 — 승인 버튼과 diff 토글', async () => {

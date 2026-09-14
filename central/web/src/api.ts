@@ -109,6 +109,14 @@ export async function fetchApplyIntents(): Promise<ApplyIntent[]> {
   return res.json()
 }
 
+export async function fetchConfTargets(): Promise<string[]> {
+  const res = await fetch('/api/conf/targets')
+  if (!res.ok) throw new Error(`GET /api/conf/targets ${res.status}`)
+  return res.json()
+}
+
+export const addConfTarget = (path: string) => postJsonServer('/api/conf/targets', { path })
+
 export const planApply = (server_id: number, path: string) =>
   postJson('/api/conf/apply/plan', { server_id, path })
 export const approveApply = (id: number) => postJson(`/api/conf/apply/${id}/approve`)

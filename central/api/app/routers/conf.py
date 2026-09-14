@@ -39,7 +39,7 @@ def list_targets(db: Session = Depends(get_db)) -> list[str]:
     return [t.path for t in db.query(ConfTarget).order_by(ConfTarget.path).all()]
 
 
-@router.post("/targets", dependencies=[Depends(require_runner)])
+@router.post("/targets")  # 관리 대상 등록은 UI(설정) 액션 — open. 수집(/snapshots)·채택만 러너 토큰.
 def add_target(body: TargetIn, db: Session = Depends(get_db)) -> dict:
     if not db.query(ConfTarget).filter(ConfTarget.path == body.path).first():
         db.add(ConfTarget(path=body.path))
