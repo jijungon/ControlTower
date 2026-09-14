@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from .db import Base, engine
-from .routers import audit, conf, connection_tests, servers, updates, versions
+from .routers import audit, cicd, conf, connection_tests, servers, updates, versions
 
 
 @asynccontextmanager
@@ -27,6 +27,7 @@ app.include_router(connection_tests.router)
 app.include_router(conf.router)
 app.include_router(updates.router)
 app.include_router(versions.router)
+app.include_router(cicd.router)
 app.include_router(audit.router)
 
 

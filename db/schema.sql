@@ -162,3 +162,21 @@ CREATE TABLE tool_snapshots (
     UNIQUE (server_id, tool)
 );
 CREATE INDEX idx_tool_snap_server ON tool_snapshots(server_id);
+
+-- CI/CD 현황 (Phase 5) --------------------------------------------------------
+CREATE TABLE cicd_targets (
+    id      INTEGER PRIMARY KEY,
+    service TEXT NOT NULL UNIQUE,             -- 표시 이름
+    project TEXT NOT NULL                     -- GitLab 경로(group/repo) 또는 숫자 id
+);
+
+CREATE TABLE pipeline_status (
+    id           INTEGER PRIMARY KEY,
+    service      TEXT NOT NULL UNIQUE,
+    has_cicd     INTEGER NOT NULL DEFAULT 0,  -- 0/1
+    status       TEXT,                        -- success/failed/running...
+    ref          TEXT,                        -- 브랜치
+    sha          TEXT,
+    web_url      TEXT,
+    collected_at TEXT
+);

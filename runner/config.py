@@ -15,6 +15,8 @@ class RunnerConfig:
     keystore_path: str          # (예비) alias→키. Phase 0 은 시스템 ssh 사용
     runner_name: str = "local-runner"
     connect_timeout: int = 8
+    gitlab_url: str = ""        # self-hosted GitLab (CI/CD 수집용, 예: https://gitlab.example.com)
+    gitlab_token: str = ""      # GitLab PRIVATE-TOKEN (러너 로컬에만 — 중앙 저장 안 함)
 
     @classmethod
     def load(cls) -> "RunnerConfig":
@@ -27,4 +29,6 @@ class RunnerConfig:
                 "CT_KEYSTORE", os.path.expanduser("~/.controltower/keystore.toml")
             ),
             runner_name=os.environ.get("CT_RUNNER_NAME", "local-runner"),
+            gitlab_url=os.environ.get("CT_GITLAB_URL", ""),
+            gitlab_token=os.environ.get("CT_GITLAB_TOKEN", ""),
         )

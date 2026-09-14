@@ -125,6 +125,29 @@ class ToolSnapshot(Base):
     collected_at: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
+# ── CI/CD 현황 (Phase 5) ─────────────────────────────────────────────
+
+class CicdTarget(Base):
+    """추적할 서비스 ↔ GitLab 프로젝트 매핑."""
+    __tablename__ = "cicd_targets"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    service: Mapped[str] = mapped_column(String, unique=True)
+    project: Mapped[str] = mapped_column(String)          # GitLab 경로(group/repo) 또는 숫자 id
+
+
+class PipelineStatus(Base):
+    """서비스별 최근 파이프라인 상태(소스 무관 업서트). service 당 하나."""
+    __tablename__ = "pipeline_status"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    service: Mapped[str] = mapped_column(String, unique=True)
+    has_cicd: Mapped[int] = mapped_column(Integer, default=0)             # 0/1
+    status: Mapped[str | None] = mapped_column(String, nullable=True)     # success/failed/running...
+    ref: Mapped[str | None] = mapped_column(String, nullable=True)        # 브랜치
+    sha: Mapped[str | None] = mapped_column(String, nullable=True)
+    web_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    collected_at: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
 # ── 작업이력 / 감사 로그 ─────────────────────────────────────────────
 
 class AuditLog(Base):

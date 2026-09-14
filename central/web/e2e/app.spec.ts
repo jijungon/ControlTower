@@ -63,6 +63,12 @@ test.beforeAll(async () => {
     },
   })
 
+  // CI/CD 시드(소스 무관 인제스트): admin 서비스 파이프라인 성공
+  await api.post('/api/cicd/targets', { data: { service: 'admin', project: 'group/aggregator-admin' } })
+  await api.post('/api/cicd/status', {
+    data: { statuses: [{ service: 'admin', has_cicd: true, status: 'success', ref: 'main', web_url: 'http://gl/p/1' }] },
+  })
+
   await api.dispose()
 })
 
@@ -109,4 +115,11 @@ test('버전·빌드 탭에 툴체인 버전이 보인다', async ({ page }) => 
   await page.goto('/')
   await page.getByRole('button', { name: '버전·빌드' }).click()
   await expect(page.getByText('20.11.1')).toBeVisible()
+})
+
+test('CI/CD 탭에 파이프라인 상태가 보인다', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'CI/CD' }).click()
+  await expect(page.getByRole('link', { name: 'admin', exact: true })).toBeVisible()
+  await expect(page.getByText('성공')).toBeVisible()
 })
