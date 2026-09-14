@@ -5,7 +5,7 @@ pythonpath = ["central/api", "."]
 [tool.ruff]
 line-length = 120
 target-version = "py311"
-extend-exclude = [".venv", "central/web"]
+extend-exclude = [".venv", "central/web", "central/api/alembic"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]

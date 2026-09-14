@@ -4,7 +4,7 @@ VENV := .venv
 PY   := $(VENV)/bin/python
 PIP  := $(VENV)/bin/pip
 
-.PHONY: help setup dev web import runner conf collect test lint clean
+.PHONY: help setup dev web import runner conf collect migrate test lint clean
 
 help:
 	@echo "make setup   - venv + 의존성 + .env (최초 1회)"
@@ -12,6 +12,7 @@ help:
 	@echo "make web     - 프론트 로컬 실행 (Vite, :5173)"
 	@echo "make import  - ~/.ssh/config 를 인벤토리에 임포트 (읽기 전용)"
 	@echo "make runner  - 등록 서버 SSH 연결 테스트 → 상태 갱신"
+	@echo "make migrate - DB 스키마를 최신으로(Alembic upgrade head)"
 	@echo "make conf    - 관리 경로 conf 수집 → 드리프트 비교"
 	@echo "make collect - 모든 수집기 1회 실행(import→test→conf→updates→versions[→gitlab])"
 	@echo "make test    - 전체 테스트 (pytest)"
@@ -24,6 +25,9 @@ setup:
 	$(PIP) install -r requirements-dev.txt -r central/api/requirements.txt -r runner/requirements.txt
 	[ -f .env ] || cp .env.example .env
 	@echo "완료. 'make dev' 또는 'make test'."
+
+migrate:
+	cd central/api && PYTHONPATH=. ../../$(VENV)/bin/alembic upgrade head
 
 dev:
 	cd central/api && ../../$(VENV)/bin/uvicorn app.main:app --reload --host 127.0.0.1 --port 8000

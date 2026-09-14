@@ -16,7 +16,8 @@ from .routers import audit, cicd, conf, connection_tests, servers, updates, vers
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 개발용: 테이블 자동 생성. 운영은 Alembic 마이그레이션 권장(db/README.md).
+    # 안전망: 빈 DB(테스트·e2e·로컬 직접 기동)면 테이블 생성(멱등, 기존 테이블은 그대로).
+    # 운영 스키마 '진화'(컬럼 추가 등)는 Alembic 이 담당한다(도커 진입점이 upgrade/stamp).
     Base.metadata.create_all(bind=engine)
     yield
 

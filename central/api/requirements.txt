@@ -4,3 +4,4 @@ sqlalchemy>=2.0
 psycopg[binary]>=3.2
 pydantic>=2
 pydantic-settings>=2      # .env / 환경변수 주입
+alembic>=1.13
