@@ -1,4 +1,4 @@
-"""~/.ssh/config 파서 테스트 — 따옴표 제거·와일드카드 제외·ProxyJump."""
+"""~/.ssh/config 파서 테스트 — 따옴표 제거·와일드카드 제외·Port·ProxyJump·없는 파일."""
 from runner.sshconf import parse_ssh_config
 
 SAMPLE = '''
@@ -6,19 +6,22 @@ SAMPLE = '''
 Host *
   User nobody
 
+Host web-*
+  User deploy
+
 Host web-01
   HostName 10.0.0.1
   User deploy
+  Port 2222
   IdentityFile "~/.ssh/aws-key/loopvm.pem"
-  Port 22
+  ProxyJump bastion
 
 Host app-01
   HostName=10.0.0.2
   User=ec2-user
   IdentityFile ~/.ssh/plain.pem
-  ProxyJump gw
 
-Host gw
+Host bastion
   HostName 1.2.3.4
 '''
 
@@ -37,13 +40,19 @@ def test_dequote_identityfile(tmp_path):
     assert hosts["app-01"].identity_file == "~/.ssh/plain.pem"
 
 
-def test_wildcard_excluded(tmp_path):
+def test_wildcards_excluded(tmp_path):
     hosts = {h.alias: h for h in parse_ssh_config(_write(tmp_path, SAMPLE))}
-    assert "*" not in hosts  # Host * 는 제외
+    assert "*" not in hosts and "web-*" not in hosts  # 와일드카드 Host 제외
 
 
-def test_key_value_and_proxyjump(tmp_path):
+def test_fields_and_proxyjump(tmp_path):
     hosts = {h.alias: h for h in parse_ssh_config(_write(tmp_path, SAMPLE))}
-    assert hosts["app-01"].hostname == "10.0.0.2"  # Key=value 형식
-    assert hosts["app-01"].user == "ec2-user"
-    assert hosts["app-01"].proxy_jump == "gw"
+    w = hosts["web-01"]
+    assert w.hostname == "10.0.0.1" and w.user == "deploy"
+    assert w.port == 2222 and w.proxy_jump == "bastion"
+    # Key=value 형식
+    assert hosts["app-01"].hostname == "10.0.0.2" and hosts["app-01"].user == "ec2-user"
+
+
+def test_missing_file(tmp_path):
+    assert parse_ssh_config(str(tmp_path / "none")) == []
