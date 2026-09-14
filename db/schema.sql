@@ -55,6 +55,7 @@ CREATE TABLE servers (
     credential_alias TEXT REFERENCES credential_refs(alias),
     access_control   TEXT,                            -- 특수 접속 경로: dbsafe·ncloud 등 (NULL=일반)
     group_id         INTEGER REFERENCES server_groups(id),
+    tags             TEXT,                            -- 콤마 구분 태그(중앙 UI에서 지정)
     status           TEXT NOT NULL DEFAULT 'unknown',   -- unknown | online | offline
     last_checked_at  TEXT,
     note             TEXT,

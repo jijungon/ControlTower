@@ -5,6 +5,9 @@ export type Server = {
   ssh_user: string
   access_control?: string | null
   credential_alias?: string | null
+  group_id?: number | null
+  group?: string | null
+  tags?: string[]
   status: string
   last_checked_at?: string | null
 }
@@ -14,6 +17,36 @@ export async function fetchServers(): Promise<Server[]> {
   if (!res.ok) throw new Error(`GET /api/servers ${res.status}`)
   return res.json()
 }
+
+export type Group = { id: number; name: string; count: number }
+
+export async function fetchGroups(): Promise<Group[]> {
+  const res = await fetch('/api/groups')
+  if (!res.ok) throw new Error(`GET /api/groups ${res.status}`)
+  return res.json()
+}
+
+async function postJsonServer(url: string, body: unknown): Promise<unknown> {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    let detail = `${res.status}`
+    try {
+      detail = ((await res.json()) as { detail?: string }).detail ?? detail
+    } catch {
+      /* noop */
+    }
+    throw new Error(detail)
+  }
+  return res.json()
+}
+
+export const createGroup = (name: string) => postJsonServer('/api/groups', { name }) as Promise<Group>
+export const setServerMeta = (id: number, meta: { group_id?: number | null; tags?: string[] }) =>
+  postJsonServer(`/api/servers/${id}/meta`, meta) as Promise<Server>
 
 export type ConfStatus = 'synced' | 'drift' | 'no_baseline' | 'error'
 

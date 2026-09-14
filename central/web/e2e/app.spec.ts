@@ -25,6 +25,10 @@ test.beforeAll(async () => {
   const servers: Array<{ id: number; hostname: string }> = await (await api.get('/api/servers')).json()
   const id = (h: string) => servers.find((s) => s.hostname === h)!.id
 
+  // 그룹·태그 시드: web-01 을 prod 그룹 + edge 태그로
+  const gid = (await (await api.post('/api/groups', { data: { name: 'prod' } })).json()).id
+  await api.post(`/api/servers/${id('web-01')}/meta`, { data: { group_id: gid, tags: ['edge'] } })
+
   await api.post('/api/conf/targets', { data: { path: CONF_PATH } })
   await api.post('/api/conf/snapshots', {
     data: {
@@ -88,7 +92,8 @@ test('서버 인벤토리에 임포트된 서버가 보인다', async ({ page })
   await expect(page.getByRole('heading', { name: /서버 · 접속키/ })).toBeVisible()
   await expect(page.getByText('web-01')).toBeVisible()
   await expect(page.getByText('web-02')).toBeVisible()
-  await expect(page.getByText('ncloud')).toBeVisible()
+  await expect(page.getByText('prod', { exact: true })).toBeVisible() // 그룹 태그(드롭다운 'prod (1)' 와 구분)
+  await expect(page.getByText('edge', { exact: true })).toBeVisible() // 태그
 })
 
 test('설정(conf) 탭에서 동기화·드리프트가 보인다', async ({ page }) => {
