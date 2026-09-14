@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import {
+  addConfTarget,
   approveApply,
   cancelApply,
   fetchApplyIntents,
   fetchConf,
+  fetchConfTargets,
   planApply,
   type ApplyIntent,
   type ApplyStatus,
@@ -34,14 +36,31 @@ export default function Conf() {
   const [openDiff, setOpenDiff] = useState<number | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
+  const [targets, setTargets] = useState<string[]>([])
+  const [newPath, setNewPath] = useState('')
 
   const loadConf = () => fetchConf().then(setRows).catch(() => setErr(true))
   const loadIntents = () => fetchApplyIntents().then(setIntents).catch(() => setIntents([]))
+  const loadTargets = () => fetchConfTargets().then(setTargets).catch(() => setTargets([]))
 
   useEffect(() => {
     loadConf()
     loadIntents()
+    loadTargets()
   }, [])
+
+  async function addTarget() {
+    const p = newPath.trim()
+    if (!p) return
+    setMsg(null)
+    try {
+      await addConfTarget(p)
+      setNewPath('')
+      await loadTargets()
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : '대상 추가 실패')
+    }
+  }
 
   const drift = (rows ?? []).filter((r) => r.status === 'drift').length
   // 이미 대기/승인 중인 (server,path) 는 중복 계획 방지
@@ -72,6 +91,28 @@ export default function Conf() {
       {msg && (
         <div className="card" style={{ padding: '10px 14px', marginBottom: 12, color: 'var(--danger, #b3261e)' }}>
           {msg}
+        </div>
+      )}
+
+      <div className="subhead">관리 대상 (수집할 파일)</div>
+      <div className="toolbar" style={{ flexWrap: 'wrap' }}>
+        <input
+          className="search"
+          style={{ minWidth: 300 }}
+          placeholder="수집할 파일 경로 (예: /etc/nginx/nginx.conf)"
+          value={newPath}
+          onChange={(e) => setNewPath(e.target.value)}
+        />
+        <button className="btn" onClick={addTarget}>대상 추가</button>
+        <span className="muted" style={{ marginLeft: 4 }}>
+          {targets.length}개 · 추가 후 <span className="mono">runner conf</span> 로 수집
+        </span>
+      </div>
+      {targets.length > 0 && (
+        <div className="card" style={{ marginBottom: 12, padding: '10px 14px' }}>
+          {targets.map((t) => (
+            <span key={t} className="tag mono" style={{ marginRight: 6 }}>{t}</span>
+          ))}
         </div>
       )}
 
