@@ -104,6 +104,15 @@ table.grid { width: 100%; border-collapse: collapse; font-size: 15px; }
 .badge--danger { background: var(--danger-bg); color: var(--danger); }
 .badge--muted { background: var(--surface-pearl); color: var(--ink-muted-48); border-color: var(--hairline); }
 
+/* 펼침 행 (업데이트 상세) */
+.grid tbody tr.clickable { cursor: pointer; }
+.grid tbody tr.clickable:hover { background: var(--surface-pearl); }
+.caret { display: inline-block; width: 14px; color: var(--ink-muted-48); }
+.detail-row > td { background: var(--surface-pearl); padding: 8px 16px 12px 34px; }
+table.subgrid { width: 100%; border-collapse: collapse; font-size: 13px; }
+.subgrid th { text-align: left; font-weight: 600; font-size: 11px; color: var(--ink-muted-48); padding: 4px 12px; }
+.subgrid td { padding: 5px 12px; border-top: 1px solid var(--divider-soft); }
+
 /* 상태 점 (서버 온라인/오프라인) */
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; vertical-align: middle; }
 .dot--online { background: var(--ok); }
