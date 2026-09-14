@@ -115,9 +115,19 @@ table.subgrid { width: 100%; border-collapse: collapse; font-size: 13px; }
 
 /* 상태 점 (서버 온라인/오프라인) — 한눈에 구분되게 크게+쨍하게 */
 .dot { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 9px; vertical-align: middle; }
-.dot--online { background: #16c65a; box-shadow: 0 0 0 3px rgba(22, 198, 90, 0.25); }   /* 접속됨: 쨍한 초록 + 헤일로 */
+.dot--online { background: #16c65a; animation: dot-pulse 1.4s ease-in-out infinite; }   /* 접속됨: 쨍한 초록 + 맥박(pulse) */
 .dot--offline { background: #e5484d; box-shadow: 0 0 0 3px rgba(229, 72, 77, 0.20); }  /* 접속 실패: 빨강 */
 .dot--unknown { background: #cbced4; }                                                   /* 미확인: 옅은 회색(뒤로 물러남) */
+
+@keyframes dot-pulse {
+  0%   { box-shadow: 0 0 0 2px rgba(22, 198, 90, 0.45); }
+  70%  { box-shadow: 0 0 0 8px rgba(22, 198, 90, 0); }
+  100% { box-shadow: 0 0 0 2px rgba(22, 198, 90, 0); }
+}
+/* 모션 최소화 선호 시 깜빡임 끄고 정적 헤일로 유지 */
+@media (prefers-reduced-motion: reduce) {
+  .dot--online { animation: none; box-shadow: 0 0 0 3px rgba(22, 198, 90, 0.25); }
+}
 
 /* version matrix cells */
 .ver { font-family: var(--font-mono); font-size: 13px; }
