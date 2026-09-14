@@ -5,6 +5,7 @@
   python -m runner.cli conf     # 관리 경로 conf 수집 → 드리프트 비교
   python -m runner.cli updates  # 서버별 대기 OS 패치(apt) 수집
   python -m runner.cli versions # 빌드 서버 툴체인 버전(node/java/docker 등) 수집
+  python -m runner.cli cicd     # GitLab 파이프라인 상태 수집(CT_GITLAB_URL/TOKEN)
 
 env: CT_CENTRAL_URL(기본 :8000) · CT_API_TOKEN(기본 dev-runner-token) · CT_SSH_CONFIG(기본 ~/.ssh/config)
 접속 테스트는 시스템 ssh 가 ~/.ssh/config(ProxyJump·키)를 그대로 사용한다.
@@ -19,6 +20,7 @@ from .api import CentralAPI
 from .apt import parse_upgradable
 from .config import RunnerConfig
 from .conn import list_upgrades, read_file, run_remote, test_ssh
+from .gitlab import fetch_latest_pipeline
 from .sshconf import parse_ssh_config
 from .versions import PROBES, parse_version
 
@@ -134,6 +136,37 @@ def cmd_versions(cfg: RunnerConfig) -> None:
         api.close()
 
 
+def cmd_cicd(cfg: RunnerConfig) -> None:
+    if not cfg.gitlab_url or not cfg.gitlab_token:
+        print("GitLab 미설정 — CT_GITLAB_URL / CT_GITLAB_TOKEN 을 설정하세요.")
+        return
+    api = CentralAPI(cfg.central_url, cfg.api_token)
+    try:
+        targets = api.list_cicd_targets()
+        if not targets:
+            print("CI/CD 대상 없음 — 먼저 추가: POST /api/cicd/targets {service, project}")
+            return
+        statuses = []
+        for t in targets:
+            pipe = fetch_latest_pipeline(cfg.gitlab_url, cfg.gitlab_token, t["project"], cfg.connect_timeout)
+            if pipe is None:
+                statuses.append({"service": t["service"], "has_cicd": False})
+            else:
+                statuses.append({
+                    "service": t["service"],
+                    "has_cicd": True,
+                    "status": pipe["status"],
+                    "ref": pipe.get("ref"),
+                    "sha": pipe.get("sha"),
+                    "web_url": pipe.get("web_url"),
+                })
+        res = api.upload_cicd_status(statuses)
+        ok = sum(1 for s in statuses if s.get("has_cicd"))
+        print(f"CI/CD 수집: {res['accepted']}개 서비스 (파이프라인 {ok})")
+    finally:
+        api.close()
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="ct-runner", description="Control Tower 러너")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -143,6 +176,7 @@ def main() -> None:
     sub.add_parser("conf", help="관리 경로 conf 수집 → 드리프트 비교")
     sub.add_parser("updates", help="서버별 대기 OS 패치(apt) 수집")
     sub.add_parser("versions", help="빌드 서버 툴체인 버전(node/java/docker 등) 수집")
+    sub.add_parser("cicd", help="GitLab 파이프라인 상태 수집(CT_GITLAB_URL/TOKEN 필요)")
     args = p.parse_args()
 
     cfg = RunnerConfig.load()
@@ -156,6 +190,8 @@ def main() -> None:
         cmd_updates(cfg)
     elif args.cmd == "versions":
         cmd_versions(cfg)
+    elif args.cmd == "cicd":
+        cmd_cicd(cfg)
 
 
 if __name__ == "__main__":

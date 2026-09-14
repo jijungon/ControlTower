@@ -48,5 +48,15 @@ class CentralAPI:
         r.raise_for_status()
         return r.json()
 
+    def list_cicd_targets(self) -> list[dict[str, Any]]:
+        r = self._client.get("/api/cicd/targets")
+        r.raise_for_status()
+        return r.json()
+
+    def upload_cicd_status(self, statuses: list[dict[str, Any]]) -> dict[str, Any]:
+        r = self._client.post("/api/cicd/status", json={"statuses": statuses})
+        r.raise_for_status()
+        return r.json()
+
     def close(self) -> None:
         self._client.close()

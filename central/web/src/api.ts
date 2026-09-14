@@ -78,3 +78,20 @@ export async function fetchVersions(): Promise<VersionRow[]> {
   if (!res.ok) throw new Error(`GET /api/versions ${res.status}`)
   return res.json()
 }
+
+export type CicdRow = {
+  service: string
+  project?: string | null
+  has_cicd: boolean
+  status?: string | null
+  ref?: string | null
+  sha?: string | null
+  web_url?: string | null
+  collected_at?: string | null
+}
+
+export async function fetchCicd(): Promise<CicdRow[]> {
+  const res = await fetch('/api/cicd')
+  if (!res.ok) throw new Error(`GET /api/cicd ${res.status}`)
+  return res.json()
+}
