@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import difflib
 import hashlib
 from datetime import datetime, timezone
 
@@ -15,7 +16,7 @@ from sqlalchemy.orm import Session
 from ..audit import record
 from ..auth import require_runner
 from ..db import get_db
-from ..models import ConfBaseline, ConfSnapshot, ConfTarget, Server
+from ..models import ConfApplyIntent, ConfBaseline, ConfSnapshot, ConfTarget, Server
 
 router = APIRouter(prefix="/api/conf", tags=["conf"])
 
@@ -135,3 +136,138 @@ def conf_matrix(db: Session = Depends(get_db)) -> list[dict]:
         )
     out.sort(key=lambda r: (r["hostname"], r["path"]))
     return out
+
+
+# ── 적용(배포): plan → approve → apply (러너는 approved 만 적용) ──────
+def _unified(current: str | None, target: str | None) -> str:
+    return "".join(
+        difflib.unified_diff(
+            (current or "").splitlines(keepends=True),
+            (target or "").splitlines(keepends=True),
+            fromfile="current(server)",
+            tofile="baseline(target)",
+        )
+    )
+
+
+def _intent_dump(it: ConfApplyIntent, hostname: str) -> dict:
+    return {
+        "id": it.id,
+        "server_id": it.server_id,
+        "hostname": hostname,
+        "path": it.path,
+        "status": it.status,
+        "from_sha": it.from_sha,
+        "to_sha": it.to_sha,
+        "diff": it.diff,
+        "requested_by": it.requested_by,
+        "approved_by": it.approved_by,
+        "error": it.error,
+        "created_at": it.created_at,
+        "approved_at": it.approved_at,
+        "applied_at": it.applied_at,
+    }
+
+
+class PlanIn(BaseModel):
+    server_id: int
+    path: str
+
+
+@router.post("/apply/plan")
+def apply_plan(body: PlanIn, db: Session = Depends(get_db)) -> dict:
+    """드리프트난 (server, path)에 대해 '기준본으로 바꾸겠다'는 의도 생성(pending). 서버는 안 건드림."""
+    snap = (
+        db.query(ConfSnapshot)
+        .filter(ConfSnapshot.server_id == body.server_id, ConfSnapshot.path == body.path)
+        .first()
+    )
+    if snap is None or snap.content is None:
+        raise HTTPException(status_code=400, detail="실제본(스냅샷)이 없습니다")
+    base = db.query(ConfBaseline).filter(ConfBaseline.path == body.path).first()
+    if base is None:
+        raise HTTPException(status_code=400, detail="기준본이 없습니다")
+    if snap.sha256 == base.sha256:
+        raise HTTPException(status_code=400, detail="드리프트가 아닙니다(변경 없음)")
+
+    intent = ConfApplyIntent(
+        server_id=body.server_id,
+        path=body.path,
+        from_sha=snap.sha256,
+        to_sha=base.sha256,
+        diff=_unified(snap.content, base.content),
+        status="pending",
+        requested_by="ui",
+        created_at=_now(),
+    )
+    db.add(intent)
+    record(db, "conf.apply_plan", target_type="conf", target_id=body.path)
+    db.commit()
+    srv = db.get(Server, body.server_id)
+    return _intent_dump(intent, srv.hostname if srv else str(body.server_id))
+
+
+@router.post("/apply/{intent_id}/approve")
+def apply_approve(intent_id: int, db: Session = Depends(get_db)) -> dict:
+    it = db.get(ConfApplyIntent, intent_id)
+    if it is None:
+        raise HTTPException(status_code=404, detail="의도를 찾을 수 없음")
+    if it.status != "pending":
+        raise HTTPException(status_code=409, detail=f"pending 상태가 아님({it.status})")
+    it.status = "approved"
+    it.approved_by = "ui"
+    it.approved_at = _now()
+    record(db, "conf.apply_approve", target_type="conf", target_id=it.path)
+    db.commit()
+    srv = db.get(Server, it.server_id)
+    return _intent_dump(it, srv.hostname if srv else str(it.server_id))
+
+
+@router.post("/apply/{intent_id}/cancel")
+def apply_cancel(intent_id: int, db: Session = Depends(get_db)) -> dict:
+    it = db.get(ConfApplyIntent, intent_id)
+    if it is None:
+        raise HTTPException(status_code=404, detail="의도를 찾을 수 없음")
+    if it.status not in ("pending", "approved"):
+        raise HTTPException(status_code=409, detail=f"취소할 수 없는 상태({it.status})")
+    it.status = "canceled"
+    record(db, "conf.apply_cancel", target_type="conf", target_id=it.path)
+    db.commit()
+    srv = db.get(Server, it.server_id)
+    return _intent_dump(it, srv.hostname if srv else str(it.server_id))
+
+
+@router.get("/apply")
+def apply_list(status: str | None = None, db: Session = Depends(get_db)) -> list[dict]:
+    servers = {s.id: s for s in db.query(Server).all()}
+    q = db.query(ConfApplyIntent)
+    if status:
+        q = q.filter(ConfApplyIntent.status == status)
+    rows = q.order_by(ConfApplyIntent.id.desc()).all()
+    return [_intent_dump(it, servers[it.server_id].hostname if it.server_id in servers else str(it.server_id)) for it in rows]
+
+
+class ApplyResultIn(BaseModel):
+    status: str                  # applied | failed
+    backup_path: str | None = None
+    error: str | None = None
+
+
+@router.post("/apply/{intent_id}/result", dependencies=[Depends(require_runner)])
+def apply_result(intent_id: int, body: ApplyResultIn, db: Session = Depends(get_db)) -> dict:
+    """러너가 실제 적용(PR-B) 후 결과 보고. approved 만 적용 가능."""
+    it = db.get(ConfApplyIntent, intent_id)
+    if it is None:
+        raise HTTPException(status_code=404, detail="의도를 찾을 수 없음")
+    if it.status != "approved":
+        raise HTTPException(status_code=409, detail=f"approved 상태가 아님({it.status})")
+    if body.status not in ("applied", "failed"):
+        raise HTTPException(status_code=400, detail="status 는 applied|failed")
+    it.status = body.status
+    it.backup_path = body.backup_path
+    it.error = body.error
+    it.applied_at = _now()
+    record(db, "conf.apply_result", target_type="conf", target_id=it.path, detail=body.status)
+    db.commit()
+    srv = db.get(Server, it.server_id)
+    return _intent_dump(it, srv.hostname if srv else str(it.server_id))

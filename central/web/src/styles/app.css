@@ -123,3 +123,22 @@ table.subgrid { width: 100%; border-collapse: collapse; font-size: 13px; }
 .ver { font-family: var(--font-mono); font-size: 13px; }
 .ver--eol { color: var(--danger); }
 .ver--none { color: var(--ink-muted-48); }
+
+/* 버튼 (conf 적용 등) */
+.btn {
+  height: 30px; padding: 0 12px; border-radius: var(--radius-pill);
+  border: 1px solid var(--hairline); background: var(--surface-pearl); color: var(--ink);
+  font-size: 13px; letter-spacing: -0.2px;
+}
+.btn:hover { background: var(--canvas); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.btn--sm { height: 26px; padding: 0 10px; font-size: 12px; margin-right: 6px; }
+.btn--primary { background: var(--primary); color: var(--on-primary); border-color: transparent; }
+.btn--primary:hover { filter: brightness(1.05); }
+
+/* diff 미리보기 */
+.diff {
+  font-family: var(--font-mono); line-height: 1.5;
+  background: var(--surface-pearl); color: var(--ink);
+  border-top: 1px solid var(--hairline); white-space: pre;
+}

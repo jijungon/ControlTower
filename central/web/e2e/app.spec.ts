@@ -134,3 +134,14 @@ test('CI/CD 탭에 파이프라인 상태가 보인다', async ({ page }) => {
   await expect(page.getByRole('link', { name: 'admin', exact: true })).toBeVisible()
   await expect(page.getByText('성공')).toBeVisible()
 })
+
+test('설정 탭 conf 적용: 계획 → 승인 (서버 쓰기 없음)', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: '설정' }).click()
+  // web-02 가 드리프트 → [적용 계획]
+  await page.getByRole('button', { name: '적용 계획' }).click()
+  await expect(page.getByText('적용 대기 · 이력')).toBeVisible()
+  // 승인 게이트
+  await page.getByRole('button', { name: '승인' }).click()
+  await expect(page.getByText('승인됨')).toBeVisible()
+})

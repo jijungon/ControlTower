@@ -99,6 +99,28 @@ class ConfSnapshot(Base):
     collected_at: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
+class ConfApplyIntent(Base):
+    """conf 적용(배포) 의도. plan→approve→apply 상태머신. 러너는 approved 만 적용한다.
+
+    쓰기(서버 파일 교체)는 러너가 수행하고, 중앙은 의도·승인·결과만 기록한다.
+    """
+    __tablename__ = "conf_apply_intents"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    server_id: Mapped[int] = mapped_column(ForeignKey("servers.id"))
+    path: Mapped[str] = mapped_column(String)
+    from_sha: Mapped[str | None] = mapped_column(String, nullable=True)   # 현재 실제본
+    to_sha: Mapped[str | None] = mapped_column(String, nullable=True)     # 목표 기준본
+    diff: Mapped[str | None] = mapped_column(Text, nullable=True)         # plan 시 미리보기(unified)
+    status: Mapped[str] = mapped_column(String, default="pending")        # pending|approved|applied|failed|canceled
+    requested_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    approved_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    backup_path: Mapped[str | None] = mapped_column(String, nullable=True)  # 러너가 남긴 백업(PR-B)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    approved_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    applied_at: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
 # ── 업데이트 관리 (Phase 2) ──────────────────────────────────────────
 
 class UpdateSnapshot(Base):

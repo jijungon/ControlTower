@@ -141,6 +141,25 @@ CREATE TABLE conf_snapshots (
 );
 CREATE INDEX idx_conf_snap_server ON conf_snapshots(server_id);
 
+-- conf 적용(배포) 의도 — plan→approve→apply (러너는 approved 만 적용)
+CREATE TABLE conf_apply_intents (
+    id           INTEGER PRIMARY KEY,
+    server_id    INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    path         TEXT NOT NULL,
+    from_sha     TEXT,                        -- 현재 실제본
+    to_sha       TEXT,                        -- 목표 기준본
+    diff         TEXT,                        -- plan 시 미리보기(unified)
+    status       TEXT NOT NULL DEFAULT 'pending',  -- pending|approved|applied|failed|canceled
+    requested_by TEXT,
+    approved_by  TEXT,
+    backup_path  TEXT,
+    error        TEXT,
+    created_at   TEXT,
+    approved_at  TEXT,
+    applied_at   TEXT
+);
+CREATE INDEX idx_apply_status ON conf_apply_intents(status);
+
 -- 업데이트 관리 (Phase 2) -----------------------------------------------------
 CREATE TABLE update_snapshots (
     id           INTEGER PRIMARY KEY,
