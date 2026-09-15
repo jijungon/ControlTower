@@ -10,7 +10,8 @@ services:
       POSTGRES_USER: ${DB_USER:-ctower}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # 호스트 로컬 디렉토리(bind mount) — 데이터가 <repo>/data/pgdata 에 보인다. .env 로 경로 조정.
+      - ${PG_DATA_DIR:-./data/pgdata}:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-ctower} -d ${DB_NAME:-controltower}"]
       interval: 5s
@@ -45,6 +46,3 @@ services:
     ports:
       - "${BIND_ADDR:-127.0.0.1}:${WEB_PORT:-8090}:80"   # 기본 8090(로컬 127.0.0.1). VM 은 BIND_ADDR=0.0.0.0
     restart: unless-stopped
-
-volumes:
-  pgdata:
