@@ -15,6 +15,18 @@ function latest(times: (string | null | undefined)[]): string {
   return t.length ? t[t.length - 1] : '—'
 }
 
+// ISO 시각 → "N분 전" 상대 표기
+function relTime(iso: string): string {
+  if (iso === '—') return '아직 없음'
+  const t = new Date(iso).getTime()
+  if (Number.isNaN(t)) return '아직 없음'
+  const s = Math.floor((Date.now() - t) / 1000)
+  if (s < 60) return '방금'
+  if (s < 3600) return `${Math.floor(s / 60)}분 전`
+  if (s < 86400) return `${Math.floor(s / 3600)}시간 전`
+  return `${Math.floor(s / 86400)}일 전`
+}
+
 // EOL/오래된 것으로 볼 하한 [major, minor]. 이 미만이면 경고. (대략적 기준)
 const EOL_FLOOR: Record<string, [number, number]> = { node: [18, 0], python: [3, 8] }
 
@@ -61,6 +73,14 @@ export default function Dashboard() {
 
   const ready = servers !== null && conf !== null && updates !== null
 
+  // 마지막 수집 시점(모든 도메인 중 가장 최근)
+  const lastCollected = latest([
+    ...(servers ?? []).map((s) => s.last_checked_at),
+    ...(conf ?? []).map((r) => r.collected_at),
+    ...(updates ?? []).map((r) => r.collected_at),
+    ...versions.map((v) => v.collected_at),
+  ])
+
   // 경고: EOL/오래된 툴체인
   const eol = versions.flatMap((v) => oldTools(v.tools).map((t) => ({ name: v.name, ...t })))
   // 경고: 보안 패치 많은 서버 top
@@ -78,7 +98,9 @@ export default function Dashboard() {
     <div>
       <div className="page-head">
         <h1 className="page-title">대시보드</h1>
-        <p className="page-sub">서버·설정·업데이트·버전 실시간 집계</p>
+        <p className="page-sub">
+          서버·설정·업데이트·버전 실시간 집계{ready ? ` · 마지막 수집 ${relTime(lastCollected)}` : ''}
+        </p>
       </div>
 
       {err && (
