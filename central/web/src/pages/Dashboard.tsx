@@ -15,14 +15,22 @@ function latest(times: (string | null | undefined)[]): string {
   return t.length ? t[t.length - 1] : '—'
 }
 
-// EOL/오래된 것으로 볼 하한(이 major 미만이면 경고). 대략적 기준.
-const EOL_FLOOR: Record<string, number> = { node: 18, python: 3.8 }
+// EOL/오래된 것으로 볼 하한 [major, minor]. 이 미만이면 경고. (대략적 기준)
+const EOL_FLOOR: Record<string, [number, number]> = { node: [18, 0], python: [3, 8] }
+
+// "3.10.12" → [3,10] (parseFloat 는 3.10 을 3.1 로 오독하므로 정수 파싱)
+function majorMinor(ver: string): [number, number] {
+  const p = ver.split('.')
+  return [parseInt(p[0], 10) || 0, parseInt(p[1], 10) || 0]
+}
 
 function oldTools(tools: Record<string, string>): { tool: string; version: string }[] {
   const out: { tool: string; version: string }[] = []
   for (const [tool, ver] of Object.entries(tools)) {
     const floor = EOL_FLOOR[tool]
-    if (floor && parseFloat(ver) < floor) out.push({ tool, version: ver })
+    if (!floor) continue
+    const [maj, min] = majorMinor(ver)
+    if (maj < floor[0] || (maj === floor[0] && min < floor[1])) out.push({ tool, version: ver })
   }
   return out
 }

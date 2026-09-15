@@ -16,7 +16,7 @@ const UPDATES = [
 ]
 const VERSIONS = [
   { kind: 'server', name: 'old-01', tools: { node: '10.24.0', python: '3.6.8' } }, // EOL
-  { kind: 'server', name: 'new-01', tools: { node: '20.11.1' } }, // OK
+  { kind: 'server', name: 'new-01', tools: { node: '20.11.1', python: '3.10.12' } }, // OK — 3.10 은 EOL 아님(3.1 오독 방지)
 ]
 
 function routedFetch(url: string) {
