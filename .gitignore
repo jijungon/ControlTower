@@ -41,9 +41,10 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 
-# === DB (로컬/테스트 SQLite) ===
+# === DB (로컬/테스트 SQLite + postgres bind mount) ===
 *.db
 *.sqlite3
+data/
 
 # === 프론트(central/web) ===
 node_modules/
