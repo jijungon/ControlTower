@@ -57,7 +57,21 @@
 - **GitOps** — 설정 기준본은 Git에. 이력·롤백·감사 로그가 공짜.
 - **스택** — 중앙 FastAPI + React + SQLite(→PostgreSQL) / 러너 Python(asyncssh). 설정은 `.env` 주입(pydantic-settings·dotenv).
 - **얇은 코어** — Redis/Consul/Kong 등 무거운 인프라는 내부에 안 들임(라이선스·SPOF 부담 회피). 대신 나중에 "관리 대상"으로 품는다.
-- **개발/테스트** — 로컬 우선(SQLite, `make dev`/`make test`, Docker 불필요). 기능 단위 worktree + PR + CI(pytest 게이트).
+- **개발/테스트** — 로컬 우선(SQLite, `make dev`/`make test`, Docker 불필요). 기능 단위 worktree + PR. CI는 **PR마다 빠른 검사(pytest·vitest·gitleaks), merge queue에서 무거운 검사(e2e·image·deps-audit)** — FileSharer 방식.
+
+## IdP-옵셔널 — 나중에 인증 플랫폼에 꽂는 준비
+
+ControlTower는 **혼자서도 그대로 돌고**, 나중에 사내 IdP/Secrets 플랫폼(Authentik + OpenBao SSH CA)이
+서면 **환경변수 스위치 3개**만 켜서 붙는다. 코드 수정 없음. (중앙이 SSH 키를 park 하지 않는 원칙의 완성형)
+
+| 어댑터 | 스위치 | 기본(지금) | 플랫폼 모드 |
+|---|---|---|---|
+| 접속(러너) | `CT_SSH_MODE` | `key` — `~/.ssh/config` 상주 키 | `cert` — OpenBao 단명 SSH 인증서 |
+| 로그인(웹) | `CT_AUTH_MODE` | `none` — 로그인 없음 | `oidc` — Authentik OIDC (`GET /api/me`) |
+| 비밀(중앙) | `CT_SECRET_MODE` | `env` — `.env`/환경변수 | `vault` — OpenBao KV |
+
+- 각 모드는 **미설정·실패 시 기본으로 폴백**한다(안전). 기본값만 쓰면 예전과 100% 동일하게 동작.
+- 플랫폼 자체(Authentik/OpenBao)는 **별도 프로젝트** — 설계·계획은 로컬 전용 `~/Downloads/parameta-idp-secrets/`.
 
 ## 언제 (When) — 로드맵
 
@@ -70,17 +84,17 @@
 | 4. 알림·운영 | 만료/드리프트 알림·업데이트 적용·EOL | |
 | 5. CI/CD 현황 | 두 GitLab 파이프라인 파싱·배포 현황 대시보드 | |
 
-**현재 상태:** 7개 탭 전부 실데이터로 연결됨 — 서버·접속키(그룹·태그·필터), conf(드리프트 + 계획→승인→적용→롤백), 업데이트(apt), 버전(빌드서버 툴체인 + GitLab 선언본), CI/CD 현황, 작업이력(감사), 대시보드. 러너 수집기(import/test/conf/updates/versions/versions-repo/cicd) + `all`(주기 수집) + `apply`(안전 배포). CI 3잡(pytest·vitest·playwright) 게이트. GitLab 실연결만 인스턴스 준비 대기(코드 완비).
+**현재 상태:** 7개 탭 전부 실데이터로 연결됨 — 서버·접속키(그룹·태그·필터), conf(드리프트 + 계획→승인→적용→롤백), 업데이트(apt), 버전(빌드서버 툴체인 + GitLab 선언본), CI/CD 현황, 작업이력(감사), 대시보드. 러너 수집기(import/test/conf/updates/versions/versions-repo/cicd) + `all`(주기 수집) + `apply`(안전 배포). **접속·로그인·비밀 3개 어댑터로 IdP-옵셔널 준비 완료**(위 § 참조). CI 6잡(backend·frontend·gitleaks·deps-audit·image·e2e) — PR은 빠르게 / merge queue는 꼼꼼. GitLab 실연결만 인스턴스 준비 대기(코드 완비).
 
 ## 빠른 시작 (로컬)
 
 ```bash
 make setup     # venv + 의존성 + .env (최초 1회)
-make dev       # 중앙 API 로컬 실행 (SQLite, hot-reload) → http://127.0.0.1:8000/health
+make dev       # 중앙 API 로컬 실행 (SQLite, hot-reload) → http://127.0.0.1:8000/health (version·build 포함)
 make test      # 전체 테스트
 ```
 
-전체 스택을 컨테이너로: `docker compose up -d --build` — 로컬에서 이게 곧 **상시 운영(=prod)**이다. `make dev` 는 코딩 중 hot-reload용. 자세한 개발 흐름은 [docs/DEV.md](docs/DEV.md).
+전체 스택을 컨테이너로: `docker compose up -d --build` → 웹 http://127.0.0.1:8090 · API http://127.0.0.1:8000. 로컬에서 이게 곧 **상시 운영(=prod)**이다. `make dev` 는 코딩 중 hot-reload용. 개발 흐름 [docs/DEV.md](docs/DEV.md) · **사내 VM 배포 [docs/DEPLOY.md](docs/DEPLOY.md)**.
 
 주기 수집(모든 수집기 1회): `make collect` — cron 에 등록하면 데이터가 계속 최신으로 유지된다.
 상주 실행: `python -m runner.cli all --loop --interval 300`.
