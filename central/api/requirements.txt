@@ -5,3 +5,4 @@ psycopg[binary]>=3.2
 pydantic>=2
 pydantic-settings>=2      # .env / 환경변수 주입
 alembic>=1.13
+PyJWT[crypto]>=2.8        # 로그인 어댑터(oidc 모드) — Authentik JWT 검증
