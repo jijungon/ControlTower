@@ -70,6 +70,7 @@ jobs:
           fetch-depth: 0
       - uses: gitleaks/gitleaks-action@v2
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # PR 스캔에 필수(자동 제공 토큰)
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
 
   # ── merge queue + main push 에서만: 무거운 검사 ─────
