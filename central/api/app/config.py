@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from .secret_source import hydrate_from_vault
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -25,4 +27,6 @@ class Settings(BaseSettings):
     ct_oidc_audience: str = ""                          # CT_OIDC_AUDIENCE
 
 
+# vault 모드면 OpenBao KV → env 주입(Settings 읽기 전). env 모드(기본)면 no-op.
+hydrate_from_vault()
 settings = Settings()
