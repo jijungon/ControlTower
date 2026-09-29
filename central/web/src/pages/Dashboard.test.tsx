@@ -38,6 +38,8 @@ test('실집계 + EOL/보안 경고를 표시', async () => {
   expect(await screen.findByText('1/2')).toBeInTheDocument() // 온라인 1/2
   expect(screen.getByText('3')).toBeInTheDocument() // 대기 업데이트 2+1
   expect(screen.getByText('보안 패치')).toBeInTheDocument()
+  // 상시 수집 X → "N분 전" 대신 "데이터 기준 <절대날짜>"(UTC) 로 표기
+  expect(screen.getByText(/데이터 기준 2026-09-14/)).toBeInTheDocument()
   // EOL 경고: old-01 의 node 10 · python 3.6 이 경고 표에 뜸(툴 2개 → 이름 2행)
   expect(await screen.findByText('node 10.24.0')).toBeInTheDocument()
   expect(screen.getByText('python 3.6.8')).toBeInTheDocument()

@@ -15,16 +15,21 @@ function latest(times: (string | null | undefined)[]): string {
   return t.length ? t[t.length - 1] : '—'
 }
 
-// ISO 시각 → "N분 전" 상대 표기
-function relTime(iso: string): string {
+// ISO 시각 → "2026-09-15" (UTC 기준, 타임존 무관·결정적). 데이터 없으면 '아직 없음'
+// 상시 수집을 안 하므로 "N분 전"(실시간 뉘앙스) 대신 "데이터 기준 날짜"로 표기한다.
+function asOfDate(iso: string): string {
   if (iso === '—') return '아직 없음'
+  const t = new Date(iso)
+  if (Number.isNaN(t.getTime())) return '아직 없음'
+  return t.toISOString().slice(0, 10)
+}
+
+// 마지막 수집 이후 경과 일수 (데이터 없으면 null). 오래됨 표시용.
+function daysSince(iso: string): number | null {
+  if (iso === '—') return null
   const t = new Date(iso).getTime()
-  if (Number.isNaN(t)) return '아직 없음'
-  const s = Math.floor((Date.now() - t) / 1000)
-  if (s < 60) return '방금'
-  if (s < 3600) return `${Math.floor(s / 60)}분 전`
-  if (s < 86400) return `${Math.floor(s / 3600)}시간 전`
-  return `${Math.floor(s / 86400)}일 전`
+  if (Number.isNaN(t)) return null
+  return Math.floor((Date.now() - t) / 86400000)
 }
 
 // EOL/오래된 것으로 볼 하한 [major, minor]. 이 미만이면 경고. (대략적 기준)
@@ -80,6 +85,9 @@ export default function Dashboard() {
     ...(updates ?? []).map((r) => r.collected_at),
     ...versions.map((v) => v.collected_at),
   ])
+  const asOf = asOfDate(lastCollected)
+  const staleDays = daysSince(lastCollected)
+  const isStale = staleDays !== null && staleDays >= 7 // 7일 이상 지나면 '오래됨' 힌트
 
   // 경고: EOL/오래된 툴체인
   const eol = versions.flatMap((v) => oldTools(v.tools).map((t) => ({ name: v.name, ...t })))
@@ -99,7 +107,10 @@ export default function Dashboard() {
       <div className="page-head">
         <h1 className="page-title">대시보드</h1>
         <p className="page-sub">
-          서버·설정·업데이트·버전 실시간 집계{ready ? ` · 마지막 수집 ${relTime(lastCollected)}` : ''}
+          {ready && lastCollected !== '—'
+            ? `서버·설정·업데이트·버전 집계 · 데이터 기준 ${asOf}`
+            : '서버·설정·업데이트·버전 집계'}
+          {ready && isStale && <span className="muted"> · {staleDays}일 지남</span>}
         </p>
       </div>
 
