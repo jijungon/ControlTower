@@ -24,8 +24,8 @@ jobs:
       DB_PASSWORD: ${{ secrets.DB_PASSWORD || 'ci-dummy-pw' }}
       DATABASE_URL: sqlite:///./ci.db
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -51,8 +51,8 @@ jobs:
       run:
         working-directory: central/web
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: npm
@@ -65,10 +65,10 @@ jobs:
     # 공개 repo 라 시크릿 유출은 PR 단계에서 즉시 잡는다(빠름).
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # PR 스캔에 필수(자동 제공 토큰)
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
@@ -78,14 +78,14 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with: { python-version: "3.12" }
       - name: pip-audit (API 의존성)
         run: |
           python -m pip install -U pip pip-audit
           pip-audit -r central/api/requirements.txt || true   # 초기엔 경보만(비차단)
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with: { node-version: "20" }
       - name: npm audit (web)
         working-directory: central/web
@@ -95,7 +95,7 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build API image (push 안 함 — 빌드 검증만)
         run: docker build -t controltower-api:ci central/api
       - name: Build web image (push 안 함)
@@ -105,8 +105,8 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -115,7 +115,7 @@ jobs:
         run: |
           python -m pip install -U pip
           pip install -r central/api/requirements.txt
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: npm
