@@ -73,6 +73,26 @@ ControlTower는 **혼자서도 그대로 돌고**, 나중에 사내 IdP/Secrets 
 - 각 모드는 **미설정·실패 시 기본으로 폴백**한다(안전). 기본값만 쓰면 예전과 100% 동일하게 동작.
 - 플랫폼 자체(Authentik/OpenBao)는 **별도 프로젝트** — 설계·계획은 로컬 전용 `~/Downloads/parameta-idp-secrets/`.
 
+### 운영에서 OpenBao에 붙일 때 (TLS·mTLS)
+
+운영 OpenBao는 HTTPS(사내 CA 발급)에 LB가 mTLS를 요구할 수 있다. 주소가 `https://` 일 때만 적용되며,
+`http://`(PoC·개발)에는 **아무 영향이 없다.**
+
+| | 러너(`CT_SSH_MODE=cert`) | 중앙(`CT_SECRET_MODE=vault`) |
+|---|---|---|
+| 사내 CA 번들(PEM) | `CT_BAO_CACERT` | `CT_VAULT_CACERT` |
+| 클라이언트 인증서 | `CT_BAO_CLIENT_CERT` | `CT_VAULT_CLIENT_CERT` |
+| 클라이언트 개인키 | `CT_BAO_CLIENT_KEY` | `CT_VAULT_CLIENT_KEY` |
+| **실패 시 중단(운영 필수)** | `CT_SSH_CERT_REQUIRED=1` | `CT_SECRET_REQUIRED=1` |
+
+> ⚠️ **`*_REQUIRED`를 운영에서 반드시 켠다.** 폴백은 개발 편의를 위한 것이라, 켜지 않으면
+> TLS·토큰 문제로 OpenBao 연동이 깨져도 러너는 **상주 키로 계속 접속**하고 중앙은
+> **공개된 기본값(`dev-secret-change-me`)으로 기동**한다 — 둘 다 조용히 일어난다.
+> 켜지 않아도 실패는 이제 `stderr` 경고로 남는다.
+
+> ⚠️ 사내망에 **TLS 검사 프록시**가 있으면 중간에서 인증서를 갈아끼우기 때문에 mTLS가 깨진다.
+> OpenBao 엔드포인트는 프록시 **검사 예외(bypass)** 목록에 넣어야 한다.
+
 ## 언제 (When) — 로드맵
 
 | Phase | 내용 | 상태 |
