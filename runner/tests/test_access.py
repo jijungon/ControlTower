@@ -3,6 +3,8 @@
 핵심: 기본(key) 모드는 기존과 동일(추가 옵션 없음). cert 모드는 서명된 인증서 옵션을 끼운다.
 서명 미설정/실패면 key 로 폴백.
 """
+import json
+
 from runner import access, conn, signer
 
 
@@ -70,3 +72,44 @@ def test_signer_unconfigured_returns_none(monkeypatch):
     signer.reset_cache()
     monkeypatch.delenv("CT_BAO_ADDR", raising=False)
     assert signer.ensure_cert("a") is None
+
+
+def test_signer_sign_via_http(monkeypatch, tmp_path):
+    """_sign 이 bao CLI 아닌 HTTP(urllib)로 OpenBao 에 서명 요청하는지 검증."""
+    signer.reset_cache()
+    monkeypatch.setenv("CT_BAO_ADDR", "http://bao.local")
+    monkeypatch.setenv("CT_BAO_TOKEN", "root")
+    monkeypatch.delenv("CT_BAO_ROLE_ID", raising=False)
+    monkeypatch.delenv("CT_BAO_SECRET_ID", raising=False)
+
+    captured = {}
+
+    class FakeResp:
+        def __init__(self, payload):
+            self._p = payload
+
+        def read(self):
+            return json.dumps(self._p).encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout=10):
+        captured["url"] = req.full_url
+        captured["token"] = req.get_header("X-vault-token")
+        captured["body"] = json.loads(req.data.decode())
+        return FakeResp({"data": {"signed_key": "CERT-DATA"}})
+
+    monkeypatch.setattr(signer.urllib.request, "urlopen", fake_urlopen)
+
+    key = tmp_path / "id"
+    cert = signer._sign("ssh-ed25519 AAAA pub", str(key))
+
+    assert cert == str(key) + "-cert.pub"
+    assert (tmp_path / "id-cert.pub").read_text() == "CERT-DATA"
+    assert captured["url"].endswith("/v1/ssh-client-signer/sign/runner-ro")
+    assert captured["token"] == "root"
+    assert captured["body"]["public_key"] == "ssh-ed25519 AAAA pub"
