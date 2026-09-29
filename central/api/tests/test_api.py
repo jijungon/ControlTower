@@ -6,7 +6,10 @@ AUTH = {"Authorization": "Bearer dev-runner-token"}  # settings.ct_api_token 기
 def test_health(client):
     r = client.get("/health")
     assert r.status_code == 200
-    assert r.json() == {"status": "ok"}
+    body = r.json()
+    assert body["status"] == "ok"
+    # 배포 확인용 version/build 필드가 항상 있어야 한다(기본값 'dev')
+    assert "version" in body and "build" in body
 
 
 def test_list_servers_empty(client):

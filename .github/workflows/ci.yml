@@ -1,23 +1,30 @@
 name: CI
 
+# FileSharer ci-test 방식:
+#  - 각 PR = 가벼운 검사(backend·frontend·gitleaks) 만
+#  - 무거운 검사(deps-audit·image·e2e)는 merge queue(합쳐서 한 번) + main push 에서만
 on:
+  pull_request:
+  merge_group:
   push:
     branches: [main]
-  pull_request:
+
+# 같은 PR 의 이전 실행은 취소(자원 절약). main·merge_group 은 취소하지 않는다.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
+  # ── PR 마다: 빠른 검사 ─────────────────────────────
+  backend:
+    runs-on: ubuntu-24.04   # 'latest' 금지 — GitHub 가 다음 LTS 로 바꾸면 조용히 깨진다
     env:
-      # 시크릿은 GitHub repo Settings → Secrets and variables → Actions 에 등록한다.
-      # git 에는 절대 올리지 않는다(.gitignore 로 .env·키 제외). 미설정 시 CI 더미로 폴백
-      # (현재 테스트는 SQLite라 실제 비밀이 필요 없음 — 배선 패턴만 확립).
+      # 시크릿은 repo Settings → Secrets 에 등록. 미설정 시 CI 더미(테스트는 SQLite).
       CT_SECRET: ${{ secrets.CT_SECRET || 'ci-dummy-secret' }}
       DB_PASSWORD: ${{ secrets.DB_PASSWORD || 'ci-dummy-pw' }}
       DATABASE_URL: sqlite:///./ci.db
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -25,24 +32,21 @@ jobs:
           cache-dependency-path: |
             requirements-dev.txt
             central/api/requirements.txt
-
       - name: Install deps
         run: |
           python -m pip install -U pip
           pip install -r requirements-dev.txt -r central/api/requirements.txt
-
       - name: Alembic 마이그레이션 점검 (빈 DB → head)
         working-directory: central/api
         env:
           DATABASE_URL: sqlite:///./ci_migrate.db
           PYTHONPATH: .
         run: alembic upgrade head
-
-      - name: Run tests
+      - name: pytest
         run: pytest -q
 
   frontend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: central/web
@@ -57,11 +61,51 @@ jobs:
       - name: Vitest (컴포넌트)
         run: npm run test
 
-  e2e:
-    runs-on: ubuntu-latest
+  gitleaks:
+    # 공개 repo 라 시크릿 유출은 PR 단계에서 즉시 잡는다(빠름).
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # PR 스캔에 필수(자동 제공 토큰)
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
 
+  # ── merge queue + main push 에서만: 무거운 검사 ─────
+  deps-audit:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: pip-audit (API 의존성)
+        run: |
+          python -m pip install -U pip pip-audit
+          pip-audit -r central/api/requirements.txt || true   # 초기엔 경보만(비차단)
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - name: npm audit (web)
+        working-directory: central/web
+        run: npm audit --omit=dev || true                     # 초기엔 경보만(비차단)
+
+  image:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build API image (push 안 함 — 빌드 검증만)
+        run: docker build -t controltower-api:ci central/api
+      - name: Build web image (push 안 함)
+        run: docker build -t controltower-web:ci central/web
+
+  e2e:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -71,7 +115,6 @@ jobs:
         run: |
           python -m pip install -U pip
           pip install -r central/api/requirements.txt
-
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -83,7 +126,6 @@ jobs:
       - name: Install Playwright browser
         working-directory: central/web
         run: npx playwright install --with-deps chromium
-
       - name: Playwright E2E (api+web 풀스택)
         working-directory: central/web
-        run: npx playwright test  # CT_PYTHON 기본값 'python' 사용(CI엔 uvicorn 설치됨)
+        run: npx playwright test

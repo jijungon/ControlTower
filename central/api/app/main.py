@@ -6,12 +6,17 @@ Phase 0 엔드포인트(러너가 사용):
 """
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
 from .db import Base, engine
 from .routers import audit, cicd, conf, connection_tests, servers, updates, versions
+
+# 배포 확인은 이 값으로 한다(프론트 번들 grep 아님). 이미지 빌드 시 CT_VERSION/CT_BUILD 주입.
+APP_VERSION = os.getenv("CT_VERSION", "dev")
+APP_BUILD = os.getenv("CT_BUILD", "dev")
 
 
 @asynccontextmanager
@@ -22,7 +27,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Control Tower API", version="0.0.1", lifespan=lifespan)
+app = FastAPI(title="Control Tower API", version=APP_VERSION, lifespan=lifespan)
 app.include_router(servers.router)
 app.include_router(connection_tests.router)
 app.include_router(conf.router)
@@ -34,4 +39,5 @@ app.include_router(audit.router)
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok"}
+    """상태 + 배포 버전. version=제품 버전(태그), build=빌드 식별자(커밋·런번호)."""
+    return {"status": "ok", "version": APP_VERSION, "build": APP_BUILD}
