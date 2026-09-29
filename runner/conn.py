@@ -6,16 +6,26 @@ from __future__ import annotations
 
 import subprocess
 
+from .access import ssh_access_opts
+
+
+def _ssh_argv(alias: str, timeout: int) -> list[str]:
+    """모든 조회가 공유하는 ssh 프리픽스. 접속 수단(key/cert)은 access 어댑터가 결정한다."""
+    return [
+        "ssh",
+        "-o", "BatchMode=yes",
+        "-o", f"ConnectTimeout={timeout}",
+        "-o", "StrictHostKeyChecking=accept-new",
+        *ssh_access_opts(alias),
+        alias,
+    ]
+
 
 def test_ssh(alias: str, timeout: int = 8) -> tuple[bool, str]:
     try:
         r = subprocess.run(
             [
-                "ssh",
-                "-o", "BatchMode=yes",
-                "-o", f"ConnectTimeout={timeout}",
-                "-o", "StrictHostKeyChecking=accept-new",
-                alias,
+                *_ssh_argv(alias, timeout),
                 "true",
             ],
             capture_output=True,
@@ -37,11 +47,7 @@ def read_file(alias: str, path: str, timeout: int = 8) -> tuple[str | None, str 
     try:
         r = subprocess.run(
             [
-                "ssh",
-                "-o", "BatchMode=yes",
-                "-o", f"ConnectTimeout={timeout}",
-                "-o", "StrictHostKeyChecking=accept-new",
-                alias,
+                *_ssh_argv(alias, timeout),
                 "cat", "--", path,
             ],
             capture_output=True,
@@ -67,11 +73,7 @@ def run_remote(alias: str, command: str, timeout: int = 8) -> tuple[str | None, 
     try:
         r = subprocess.run(
             [
-                "ssh",
-                "-o", "BatchMode=yes",
-                "-o", f"ConnectTimeout={timeout}",
-                "-o", "StrictHostKeyChecking=accept-new",
-                alias,
+                *_ssh_argv(alias, timeout),
                 command,
             ],
             capture_output=True,
@@ -94,11 +96,7 @@ def list_upgrades_yum(alias: str, timeout: int = 8) -> tuple[str | None, str | N
     try:
         r = subprocess.run(
             [
-                "ssh",
-                "-o", "BatchMode=yes",
-                "-o", f"ConnectTimeout={timeout}",
-                "-o", "StrictHostKeyChecking=accept-new",
-                alias,
+                *_ssh_argv(alias, timeout),
                 cmd,
             ],
             capture_output=True,
@@ -124,11 +122,7 @@ def list_upgrades(alias: str, timeout: int = 8) -> tuple[str | None, str | None]
     try:
         r = subprocess.run(
             [
-                "ssh",
-                "-o", "BatchMode=yes",
-                "-o", f"ConnectTimeout={timeout}",
-                "-o", "StrictHostKeyChecking=accept-new",
-                alias,
+                *_ssh_argv(alias, timeout),
                 "apt", "list", "--upgradable",
             ],
             capture_output=True,
