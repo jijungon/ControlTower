@@ -8,7 +8,7 @@
   python -m runner.cli versions # 빌드 서버 툴체인 버전(node/java/docker 등) 수집
   python -m runner.cli versions-repo # GitLab repo 선언본 버전 수집(CT_GITLAB_URL/TOKEN)
   python -m runner.cli cicd     # GitLab 파이프라인 상태 수집(CT_GITLAB_URL/TOKEN)
-  python -m runner.cli shape    # 서비스 비교표 + center config(start.sh·compose 이사) 수집(shape-targets.yml)
+  python -m runner.cli shape    # 서비스 비교표 + center config(start.sh 상태·형태) 수집(shape-targets.yml)
   python -m runner.cli all      # 모든 수집기 1회(--loop --interval N 로 주기 실행)
   python -m runner.cli apply    # 승인된 conf 를 서버에 실제 적용(--dry-run/--rollback ID)
 

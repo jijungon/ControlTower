@@ -12,7 +12,7 @@ const ROWS: ConfigRow[] = [
   { path: 'shop/empty', state: 'none' },
 ]
 
-test('폴더별 실행 명령 위치·상태·compose 이사 + 오래된 버전 빨간 칸', async () => {
+test('폴더별 실행 명령 위치·상태·start.sh 형태 + 오래된 버전 빨간 칸', async () => {
   const fetchMock = vi.fn(async () => new Response(JSON.stringify(ROWS), { status: 200 }))
   vi.stubGlobal('fetch', fetchMock)
   render(<ConfigRepo />)
@@ -25,9 +25,11 @@ test('폴더별 실행 명령 위치·상태·compose 이사 + 오래된 버전 
   expect(table.getByText('해당 없음')).toBeInTheDocument()
   expect(table.getByText('Dockerfile 없음')).toBeInTheDocument()
   expect(table.getAllByText('Dockerfile (CMD)').length).toBe(2)
-  // compose 이사: 환경 순서(dev → prod)대로
-  const badges = table.getAllByText(/^(dev|stg|prod) 이사/).map((b) => b.textContent)
-  expect(badges).toEqual(['dev 이사 완료', 'prod 이사 전'])
+  // start.sh 형태: 환경 순서(dev → prod)대로, shell(마운트) / compose(command:)
+  const badges = table.getAllByText(/^(dev|stg|prod) (shell|compose|Dockerfile)$/).map((b) => b.textContent)
+  expect(badges).toEqual(['dev compose', 'prod shell'])
+  expect(table.getByText('prod shell')).toHaveClass('badge--warn')
+  expect(table.getByText('dev compose')).toHaveClass('badge--ok')
   expect(screen.getByText('구형 1 · 잔재 1 · 완료 1')).toBeInTheDocument()
   // 서비스별로 묶음: shop 의 5개 폴더가 한 칸
   expect(table.getByText('shop').closest('td')).toHaveAttribute('rowspan', '5')

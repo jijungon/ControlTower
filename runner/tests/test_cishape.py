@@ -157,7 +157,7 @@ def test_dockerfile_legacy_and_multistage():
 
 def test_compose_image_vs_direct():
     d = analyze_compose(COMPOSE_DIRECT)
-    assert d["path"] == "direct" and d["startup"] is True and d["start"] == "mount"  # compose 이사 전
+    assert d["path"] == "direct" and d["startup"] is True and d["start"] == "mount"  # start.sh 형태 = shell
     i = analyze_compose(COMPOSE_IMAGE)
     assert i["path"] == "image" and i["startup"] is False and i["start"] == "image"  # 이미지 CMD 사용
 
@@ -358,7 +358,7 @@ def test_cmd_shape_scans_config_dir_and_links_services(monkeypatch, tmp_path, ca
     items = {i["path"]: i["data"] for i in sent["config"]}
     assert set(items) == {"shop/web", "shop/old"} and sent["replace"] is True
     assert items["shop/web"]["state"] == "leftover" and items["shop/web"]["compose"] == {}
-    assert items["shop/old"]["state"] == "legacy" and items["shop/old"]["compose"] == {"dev": "mount"}  # 이사 전
+    assert items["shop/old"]["state"] == "legacy" and items["shop/old"]["compose"] == {"dev": "mount"}  # start.sh 형태 = shell
     web = sent["shapes"][0]["data"]
     assert web["runtime_version"] == "20" and web["startup"] is True  # config_dir 로 채움
     assert web["start_state"] == "leftover"  # CMD 로 실행하는데 start.sh 파일만 남음

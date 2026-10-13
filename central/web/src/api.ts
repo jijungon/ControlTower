@@ -222,7 +222,7 @@ export type ConfigRow = {
   start?: 'dockerfile' | 'start.sh' | 'base' | null // 실행 명령 위치
   start_files?: string[]
   state: 'legacy' | 'leftover' | 'done' | 'base' | 'none'
-  compose?: Record<string, 'mount' | 'command' | 'image'> // 서버 compose: start.sh 마운트 / command / 이미지 CMD
+  compose?: Record<string, 'mount' | 'command' | 'image'> // start.sh 형태(서버 compose): shell(마운트) / compose(command:) / Dockerfile(이미지 CMD)
   collected_at?: string | null
 }
 

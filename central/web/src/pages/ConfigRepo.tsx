@@ -18,11 +18,14 @@ const STATE: Record<ConfigRow['state'], { label: string; tone: string; title: st
   none: { label: 'Dockerfile 없음', tone: 'muted', title: '폴더에 Dockerfile 이 없음' },
 }
 
-// compose 이사: start.sh 마운트 = 이사 전, command: = 이사 완료, 둘 다 없음 = 이미지 CMD 사용
-const MOVE: Record<string, { label: string; tone: string }> = {
-  mount: { label: '이사 전', tone: 'warn' },
-  command: { label: '이사 완료', tone: 'ok' },
-  image: { label: '이미지 CMD', tone: 'muted' },
+// start.sh 형태(서버 compose 기준): 앱 실행 명령이 어디서 오나
+//   shell      = compose 가 start.sh 파일을 마운트해서 그 스크립트로 실행
+//   compose    = compose 의 command: 에 실행 명령을 직접 적음(start.sh 필요 없음)
+//   Dockerfile = compose 에 아무것도 없음 → 이미지 안의 CMD 를 그대로 씀
+const MOVE: Record<string, { label: string; tone: string; title: string }> = {
+  mount: { label: 'shell', tone: 'warn', title: 'compose 가 start.sh 를 마운트해서 실행 — compose 의 command: 로 옮길 대상' },
+  command: { label: 'compose', tone: 'ok', title: 'compose 의 command: 로 직접 실행 — start.sh 필요 없음' },
+  image: { label: 'Dockerfile', tone: 'muted', title: 'compose 에 실행 명령이 없음 — 이미지 안의 CMD 를 그대로 씀' },
 }
 const ENV_ORDER = ['dev', 'lab', 'stg', 'preview', 'prod']
 
@@ -34,9 +37,9 @@ function composeCell(c?: ConfigRow['compose']) {
   const envs = Object.keys(c ?? {}).sort((a, b) => ENV_ORDER.indexOf(a) - ENV_ORDER.indexOf(b))
   if (!c || envs.length === 0) return <span className="muted" title="서버 compose 를 대상 파일(config.compose)에 적으면 표시">—</span>
   return envs.map((e) => {
-    const m = MOVE[c[e]] ?? { label: c[e], tone: 'muted' }
+    const m = MOVE[c[e]] ?? { label: c[e], tone: 'muted', title: '' }
     return (
-      <span key={e} className={`badge badge--${m.tone}`} style={{ marginRight: 4 }}>
+      <span key={e} className={`badge badge--${m.tone}`} style={{ marginRight: 4 }} title={m.title}>
         {e} {m.label}
       </span>
     )
@@ -77,7 +80,7 @@ export default function ConfigRepo() {
       <div className="page-head">
         <h1 className="page-title">config</h1>
         <p className="page-sub">
-          center 가 이미지를 만들 때 참조하는 config repo — 폴더(서비스/타입)마다 베이스 이미지 · 실행 명령 위치 · start.sh · compose 이사
+          center 가 이미지를 만들 때 참조하는 config repo — 폴더(서비스/타입)마다 베이스 이미지 · 실행 명령 위치 · start.sh · start.sh 형태
         </p>
       </div>
 
@@ -102,9 +105,9 @@ export default function ConfigRepo() {
             <span className="badge badge--ok">완료</span>
           </li>
           <li>
-            <b>compose 이사</b> = start.sh 가 하던 일을 서버 compose 의 <span className="mono">command:</span> 로 옮겼나 —{' '}
-            <span className="badge badge--warn">이사 전</span> compose 가 start.sh 를 마운트 · <span className="badge badge--ok">이사 완료</span>{' '}
-            command: 로 직접 실행 · <span className="badge badge--muted">이미지 CMD</span> 이미지에 든 명령을 그대로 씀
+            <b>start.sh 형태</b> (서버 compose 기준, 환경별) — <span className="badge badge--warn">shell</span> compose 가 start.sh 파일을 마운트해서 실행(옮길 대상) ·{' '}
+            <span className="badge badge--ok">compose</span> compose 의 <span className="mono">command:</span> 에 명령을 직접 적음(start.sh 없음) ·{' '}
+            <span className="badge badge--muted">Dockerfile</span> compose 엔 없고 이미지 안의 CMD 를 그대로 씀
           </li>
           <li>
             <span className="ver ver--old">⚠ 빨간 칸</span> = 같은 종류 중 최신이 아닌 버전
@@ -123,7 +126,7 @@ export default function ConfigRepo() {
               <th>실행 명령 위치</th>
               <th>start.sh 파일</th>
               <th>상태</th>
-              <th>compose 이사</th>
+              <th>start.sh 형태 (서버)</th>
             </tr>
           </thead>
           <tbody>

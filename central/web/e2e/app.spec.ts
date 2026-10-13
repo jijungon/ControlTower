@@ -94,7 +94,7 @@ test.beforeAll(async () => {
   })
   expect(shape.ok(), await shape.text()).toBeTruthy()
 
-  // center config 시드(러너 shape 역할): 구형(start.sh) / 완료(CMD) + compose 이사 전
+  // center config 시드(러너 shape 역할): 구형(start.sh) / 완료(CMD) + start.sh 형태 shell·compose
   const cfg = await api.post('/api/cicd/config', {
     data: {
       items: [
@@ -194,14 +194,14 @@ test('서버 탭 /etc 설정 적용: 계획 → 승인 (서버 쓰기 없음)', 
   await expect(page.getByText('승인됨')).toBeVisible()
 })
 
-test('config 탭 — 실행 명령 위치·상태·compose 이사 + 새로고침', async ({ page }) => {
+test('config 탭 — 실행 명령 위치·상태·start.sh 형태 + 새로고침', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'config' }).click()
   await expect(page.locator('table.grid--nowrap').getByText('shop', { exact: true })).toBeVisible()
   await expect(page.getByText('⚠ node 18')).toHaveClass(/ver--old/)
   await expect(page.locator('table.grid--nowrap').getByText('구형', { exact: true })).toBeVisible()
-  await expect(page.getByText('dev 이사 전')).toBeVisible()
-  await expect(page.getByText('dev 이사 완료')).toBeVisible()
+  await expect(page.getByText('dev shell')).toBeVisible()
+  await expect(page.getByText('dev compose')).toBeVisible()
   await page.getByRole('button', { name: 'config 폴더 새로고침' }).click()
   await expect(page.getByText(/데이터 기준/)).toBeVisible()
 })

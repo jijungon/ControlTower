@@ -21,7 +21,7 @@ config:
   gitlab: center
   project: shop/config
   # file: ../config-clone        # 로컬 사본이면 이렇게
-  compose:                       # (선택) 서버 compose → 'compose 이사' 칸. 폴더: {환경: 소스}
+  compose:                       # (선택) 서버 compose → 'start.sh 형태' 칸(shell/compose/Dockerfile). 폴더: {환경: 소스}
     shop/was: {prod: {ssh: shop-prod-01, path: /app/was-shop/docker-compose.yml}}
 
 services:

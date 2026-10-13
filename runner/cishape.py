@@ -336,7 +336,7 @@ def analyze_compose(text: str | None) -> dict | None:
     if not images:
         return None
     path = "image" if any("$" in i.rsplit("/", 1)[-1] for i in images) else "direct"
-    # compose 이사: start.sh 를 마운트하면 '이사 전', command: 로 직접 실행하면 '이사 완료', 둘 다 없으면 이미지 CMD 사용
+    # start.sh 형태: start.sh 를 마운트하면 shell(mount), command: 로 직접 실행하면 compose(command), 둘 다 없으면 Dockerfile(image)
     start = "mount" if startup else ("command" if command else "image")
     return {"path": path, "startup": startup, "start": start, "images": images}
 

@@ -139,7 +139,7 @@ CI/CD 파이프라인 상태와 repo 선언본 버전(node/nest/java)은 GitLab 
 ### 서비스 비교표 · config (빌드·배포 탭 / config 탭)
 
 - **빌드·배포 탭** — 그룹(프로젝트 묶음) → 서비스 → 타입(web·was)으로 묶어 **런타임·베이스 이미지 · 환경별 배포(파일 복사 · repo / 파일 복사 · center / 이미지 / 빌드만) · executor · start.sh · CI 변수**를 나란히 비교. 같은 종류 중 **최신이 아닌 버전은 빨간 칸**. 표 위 "표 읽는 법"에 각 칸의 뜻.
-- **config 탭** — center 의 config repo 를 폴더(서비스/타입)마다 읽어 **실행 명령 위치(Dockerfile CMD / start.sh) · start.sh 상태(구형/잔재/완료) · compose 이사**(start.sh 마운트 → compose `command:`) 표시.
+- **config 탭** — center 의 config repo 를 폴더(서비스/타입)마다 읽어 **실행 명령 위치(Dockerfile CMD / start.sh) · start.sh 상태(구형/잔재/완료) · start.sh 형태**(서버 compose 기준: shell = start.sh 마운트 / compose = `command:` 직접 / Dockerfile = 이미지 CMD) 표시.
 
 1. `cp runner/shape-targets.example.yml shape-targets.yml` 후 읽을 파일을 적는다 (커밋 안 됨).
    - GitLab: `{gitlab: repo|center, project, path}` — center 는 별도 인스턴스라 `CT_GITLAB_CENTER_URL/TOKEN`

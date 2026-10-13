@@ -211,7 +211,7 @@ class ConfigItem(Base):
     __tablename__ = "config_items"
     id: Mapped[int] = mapped_column(primary_key=True)
     path: Mapped[str] = mapped_column(String, unique=True)                # 예: shop/web
-    data: Mapped[str] = mapped_column(Text, default="{}")                 # JSON: 베이스 이미지·실행 명령 위치·start.sh·compose 이사
+    data: Mapped[str] = mapped_column(Text, default="{}")                 # JSON: 베이스 이미지·실행 명령 위치·start.sh·start.sh 형태
     collected_at: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
