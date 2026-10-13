@@ -101,6 +101,17 @@ function srcLabel(info?: ComposeSrc | null): { text: string; title: string } | n
   return null
 }
 
+// '못 읽음' 아래 짧은 이유 — 전체 이유는 마우스
+export function missShort(reason: string): string {
+  if (reason.includes('직접 등록 안 된')) return '직접 접속 안 됨'
+  if (reason.includes('적어 둔 파일')) return '파일 못 읽음'
+  if (/Host key verification failed/i.test(reason)) return '서버 지문 모름'
+  if (/Permission denied/i.test(reason)) return '권한 없음'
+  if (/timed out|timeout|No route|unreachable/i.test(reason)) return '네트워크 안 닿음'
+  if (/No such file/i.test(reason)) return '파일 없음'
+  return 'SSH 실패'
+}
+
 // (서버) 환경 한 칸 — ● = 실제로 실행되는 명령
 //   compose 가 command: 를 주거나 start.sh 를 넣으면 → 이 칸이 이김(●)
 //   아무것도 안 하면 → (이미지) 칸의 명령이 그대로 실행 → '← 이미지'
@@ -110,7 +121,7 @@ function serverEnvCell(r: ConfigRow, env: string) {
   if (!c) {
     const m = r.compose_miss?.[env]
     if (m?.state === 'fail') {
-      const short = m.reason.includes('직접 등록 안 된') ? '직접 접속 안 됨' : m.reason.includes('적어 둔 파일') ? '파일 못 읽음' : 'SSH 실패'
+      const short = missShort(m.reason)
       return (
         <span className="miss-fail" title={`못 읽음 — ${m.reason}`}>
           못 읽음

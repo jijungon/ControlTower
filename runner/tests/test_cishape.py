@@ -480,6 +480,11 @@ variables:
   DEPLOY_PROD_WEB_SERVERS: "10.0.0.5, 10.0.0.6"
   DEPLOY_LAB_SERVERS: ""
 deploy:
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^dev-(web|was)-v\d+/'
+    - if: '$CI_COMMIT_TAG =~ /^lab-web-v\d+/'
+      variables:
+        APP_DIR_OVERRIDE: /app/web-lab
   script:
     - |
       # APP_DIR="/app/old-place"
@@ -488,7 +493,8 @@ deploy:
 
 
 def test_deploy_targets_servers_and_dir():
-    web = deploy_targets(CENTER_DEPLOY, "web")
+    web = deploy_targets(CENTER_DEPLOY.replace('  DEPLOY_LAB_SERVERS: ""', '  DEPLOY_LAB_SERVERS: "10.0.0.9"'), "web")
+    assert web.pop("lab") == {"hosts": ["10.0.0.9"], "dir": "/app/web-lab"}  # lab 규칙의 APP_DIR_OVERRIDE
     assert web == {
         "dev": {"hosts": ["10.0.0.1"], "dir": "/app/web-shop"},
         "stg": {"hosts": ["10.0.0.2"], "dir": "/app/web-shop"},       # 타입이 맞는 STG_WEB 우선

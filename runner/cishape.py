@@ -586,17 +586,30 @@ def deploy_targets(text: str | None, svc_type: str = "web") -> dict[str, dict]:
         rank = 0 if typ == svc_type else 1
         if env not in picked or rank < picked[env][0]:
             picked[env] = (rank, hosts)
-    scope = {**top, "BUILD_INFO": svc_type}
-    app_dir = None
-    for line in _strip_comments(text or "").splitlines():
-        m = re.search(r'\bAPP_DIR="([^"]+)"', line)
-        if not m:
+    # 환경마다 규칙(rules) 안에서 따로 넣는 변수 — 예: lab 태그일 때만 APP_DIR_OVERRIDE: /app/web-lab
+    env_vars: dict[str, dict[str, str]] = {}
+    for job in doc.values():
+        if not isinstance(job, dict):
             continue
-        d = _expand_shell(m.group(1), scope)
-        if d.startswith("/") and "$" not in d:
-            app_dir = d.rstrip("/")
-            break
-    return {env: {"hosts": hosts, "dir": app_dir} for env, (_, hosts) in picked.items()}
+        for rule in job.get("rules") or []:
+            if not (isinstance(rule, dict) and isinstance(rule.get("variables"), dict)):
+                continue
+            for m in re.finditer(r"=~\s*(/(?:\\/|[^/])*/[a-z]*)", str(rule.get("if") or "")):
+                rx = _gl_regex(m.group(1))
+                for env in ENVS:
+                    if rx and rx.search(f"{env}-{svc_type}-v1.0.0"):
+                        env_vars.setdefault(env, {}).update(_vars(rule["variables"]))
+    dir_lines = [m.group(1) for line in _strip_comments(text or "").splitlines() if (m := re.search(r'\bAPP_DIR="([^"]+)"', line))]
+
+    def app_dir(env: str) -> str | None:
+        scope = {**top, "BUILD_INFO": svc_type, **env_vars.get(env, {})}
+        for raw in dir_lines:
+            d = _expand_shell(raw, scope)
+            if d.startswith("/") and "$" not in d:
+                return d.rstrip("/")
+        return None
+
+    return {env: {"hosts": hosts, "dir": app_dir(env)} for env, (_, hosts) in picked.items()}
 
 
 def parse_gateways(text: str) -> tuple[dict[str, str], str | None]:

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expect, test, vi } from 'vitest'
-import ConfigRepo from './ConfigRepo'
+import ConfigRepo, { missShort } from './ConfigRepo'
 import type { ConfigRow } from '../api'
 
 const ROWS: ConfigRow[] = [
@@ -107,4 +107,11 @@ test("lab·preview 는 '기타' 한 열에 모음", async () => {
   expect(screen.getByRole('columnheader', { name: '기타' })).toBeInTheDocument()
   expect(table.getByText('lab ● 서버 compose')).toBeInTheDocument()
   expect(table.getByText('preview 못 읽음')).toHaveClass('miss-fail')
+})
+
+test('못 읽음 이유를 짧게', () => {
+  expect(missShort('SSH 로 못 읽음 — gw → x (Host key verification failed.)')).toBe('서버 지문 모름')
+  expect(missShort('SSH 로 못 읽음 — gw → x (ubuntu@x: Permission denied (publickey).)')).toBe('권한 없음')
+  expect(missShort('SSH 로 못 읽음 — gw → x (ssh: connect to host x port 22: Connection timed out)')).toBe('네트워크 안 닿음')
+  expect(missShort('SSH 로 못 읽음 — gw → x (cat: /app/x: No such file or directory)')).toBe('파일 없음')
 })
