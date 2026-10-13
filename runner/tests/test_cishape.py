@@ -590,6 +590,14 @@ def test_cmd_shape_ssh_plan_and_read(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(cli, "CentralAPI", FakeAPI)
     monkeypatch.setattr(cli, "read_file", fake_read)
     monkeypatch.setattr(cli, "read_file_via", fake_read_via)
+    gw_lookups: list[str] = []
+    gw_known: dict[str, str] = {}  # gw 로그인 계정 ssh 설정에 등록된 이름(처음엔 없음)
+
+    def fake_gw_aliases(gw, timeout=8):
+        gw_lookups.append(gw)
+        return dict(gw_known)
+
+    monkeypatch.setattr(cli, "gateway_aliases", fake_gw_aliases)
     cfg = types.SimpleNamespace(
         shape_targets=str(targets), central_url="x", api_token="t", gitlab_url="", gitlab_token="",
         gitlab_center_url="", gitlab_center_token="", gitlab_ref="main", connect_timeout=1,
@@ -597,7 +605,7 @@ def test_cmd_shape_ssh_plan_and_read(monkeypatch, tmp_path, capsys):
     # 1) 계획만: 접속 안 함
     cli.cmd_shape(cfg, ssh_mode="plan")
     out = capsys.readouterr().out
-    assert reads == []
+    assert reads == [] and gw_lookups == []  # 계획만: gw 설정도 안 읽음
     # stg·preview·prod (dev 는 이미 적힘): stg 직접 · prod gw 경유 · preview 길 없음
     assert "서버 compose 자동 찾기: 3곳 (직접 1 · gw 경유 1 · 길 없음 1)" in out
     assert "shop-stg:/app/web-shop/docker-compose.yml" in out and "gw-prod → 10.0.0.5:/app/web-shop/docker-compose.yml" in out
@@ -621,6 +629,26 @@ def test_cmd_shape_ssh_plan_and_read(monkeypatch, tmp_path, capsys):
     # 실제로 읽기: 직접 등록도 gw 도 없는 preview 만 '못 읽음' + 이유
     assert {e: m["state"] for e, m in data["compose_miss"].items()} == {"preview": "fail"}
     assert "직접 등록 안 된" in data["compose_miss"]["preview"]["reason"] and "gateways:" in data["compose_miss"]["preview"]["reason"]
+    assert gw_lookups == ["gw-prod"]  # gw 설정은 gw 마다 한 번
+    # 3) gw 에 이름으로 등록된 서버면 주소 대신 그 이름으로(gw 의 계정·키·지문 설정 그대로, user@ 안 붙임)
+    gw_known["10.0.0.5"] = "shop-prod01"
+    reads.clear()
+    cli.cmd_shape(cfg, ssh_mode="read")
+    assert ("gw-prod->None@shop-prod01", "/app/web-shop/docker-compose.yml") in reads
+    assert sent["config"]["shop/web"]["compose_src"]["prod"]["where"] == "gw-prod → shop-prod01:/app/web-shop/docker-compose.yml"
+
+
+def test_parse_ssh_aliases():
+    from runner.conn import parse_ssh_aliases
+
+    text = (
+        "Host *\n  ServerAliveInterval 30\n"
+        "Host app-mgr mgr\n  HostName 10.0.2.1\n  User app\n"
+        "# Host old\n#  HostName 10.0.2.9\n"
+        "Host app-wrk01\n    hostname 10.0.2.2\n"
+        "Host dup\n  HostName 10.0.2.1\n"
+    )
+    assert parse_ssh_aliases(text) == {"10.0.2.1": "app-mgr", "10.0.2.2": "app-wrk01"}  # 와일드카드·주석 빼고, 같은 주소면 먼저 나온 이름
 
 
 def test_src_info_note_per_file_overrides_service_note():

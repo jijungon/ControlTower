@@ -65,6 +65,34 @@ def read_file(alias: str, path: str, timeout: int = 8) -> tuple[str | None, str 
         return None, "ssh not found"
 
 
+def parse_ssh_aliases(text: str) -> dict[str, str]:
+    """ssh 설정 글 → {HostName(주소): Host 이름}. 와일드카드(*, ?) Host 는 뺌, 같은 주소면 먼저 나온 이름."""
+    out: dict[str, str] = {}
+    names: list[str] = []
+    for line in text.splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) < 2 or parts[0].startswith("#"):
+            continue
+        key, val = parts[0].lower(), parts[1].strip()
+        if key == "host":
+            names = [n for n in val.split() if not any(c in n for c in "*?!")]
+        elif key == "hostname" and names:
+            out.setdefault(val, names[0])
+    return out
+
+
+def gateway_aliases(gateway: str, timeout: int = 8) -> dict[str, str]:
+    """게이트웨이 로그인 계정의 ~/.ssh/config 를 읽어 {주소: 이름}. 읽기만 한다(cat). 못 읽으면 {}.
+
+    gw 에 이름으로 등록된 서버는 그 이름으로 들어가야 gw 가 맞춰 둔 계정·키·지문(known_hosts)을 그대로 쓴다.
+    """
+    try:
+        r = subprocess.run([*_ssh_argv(gateway, timeout), "cat ~/.ssh/config"], capture_output=True, text=True, timeout=timeout + 15)
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return {}
+    return parse_ssh_aliases(r.stdout) if r.returncode == 0 else {}
+
+
 def read_file_via(gateway: str, target: str, path: str, timeout: int = 8, user: str | None = None) -> tuple[str | None, str | None]:
     """게이트웨이를 거쳐 안쪽 서버의 파일을 읽는다: PC → gateway(~/.ssh/config 별칭) → gw 위에서 ssh target cat.
 

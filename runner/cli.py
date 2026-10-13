@@ -37,7 +37,7 @@ from .cishape import (
     parse_targets,
 )
 from .config import RunnerConfig
-from .conn import list_upgrades, list_upgrades_yum, read_file, read_file_via, run_remote, test_ssh
+from .conn import gateway_aliases, list_upgrades, list_upgrades_yum, read_file, read_file_via, run_remote, test_ssh
 from .gitlab import fetch_latest_pipeline, fetch_repo_file, fetch_repo_tree
 from .probe import probe_ssh
 from .repoversions import extract_versions
@@ -369,6 +369,7 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
             miss_by_dir.setdefault(cdir, {}).setdefault(env, {"state": state, "reason": reason})
     plan: list[tuple[str, str, str | None, str, str, str | None]] = []  # (서비스, 환경, ssh 별칭|None, 주소, 경로, 경유 gw|None)
     by_ip: dict[str, str] = {}
+    gw_names: dict[str, dict[str, str]] = {}  # gw → {안쪽 서버 주소: gw 에 등록된 이름} (읽기 모드에서 gw 마다 한 번)
     if ssh_mode:
         api0 = CentralAPI(cfg.central_url, cfg.api_token)
         try:  # 서버 주소 → ~/.ssh/config 별칭(러너가 접속할 이름)
@@ -431,9 +432,14 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
                     _, text = _read_source(src, cfg, base_dir)
                     fail_where = f"{alias}:{path_}"
                 else:
-                    src = {"ssh": ip, "via": via, "path": path_}
-                    text, err = read_file_via(via, ip, path_, cfg.connect_timeout, gateway_user)
-                    fail_where = f"{via} → {ip}:{path_} ({err})"
+                    # gw 에 이름으로 등록된 서버면 그 이름으로(gw 의 계정·키·지문 설정을 그대로) — 없으면 주소로
+                    if via not in gw_names:
+                        gw_names[via] = gateway_aliases(via, cfg.connect_timeout)
+                    inner = gw_names[via].get(ip)
+                    src = {"ssh": inner or ip, "via": via, "path": path_}
+                    text, err = read_file_via(via, inner or ip, path_, cfg.connect_timeout, None if inner else gateway_user)
+                    hint = "" if inner else " · gw 로그인 계정의 ssh 설정에 이 서버 이름이 없음(등록하면 그 설정으로 접속)"
+                    fail_where = f"{via} → {inner or ip}:{path_} ({err}){hint}"
                 if text is None:
                     missing.append(f"{svc['name']}:compose.{env}(ssh {alias or via})")
                     miss(cdir, env, "fail", f"SSH 로 못 읽음(접속·권한·파일 없음) — {fail_where}")
