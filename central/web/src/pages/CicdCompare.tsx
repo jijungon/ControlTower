@@ -8,21 +8,21 @@ const ENV_ORDER = ['dev', 'lab', 'stg', 'preview', 'prod']
 const TYPE_ORDER = ['web', 'was']
 
 // 배포 칸 — 짧은 글자 + 마우스를 올리면 뜻
-const PATH: Record<string, { label: string; title: string }> = {
-  'direct:repo': { label: '파일 복사 · repo', title: '예전 직배포 — repo CI 가 빌드 결과물을 서버로 바로 복사 (center 를 안 거침, 옮길 대상)' },
-  'direct:center': { label: '파일 복사 · center', title: 'repo 가 center 로 넘기고, center CI 가 빌드 결과물을 서버로 복사 (이미지는 안 만듦)' },
+const PATH: Record<string, { label: string; sub?: string; title: string }> = {
+  'direct:repo': { label: '파일 복사', sub: 'repo', title: '예전 직배포 — repo CI 가 빌드 결과물을 서버로 바로 복사 (center 를 안 거침, 옮길 대상)' },
+  'direct:center': { label: '파일 복사', sub: 'center', title: 'repo 가 center 로 넘기고, center CI 가 빌드 결과물을 서버로 복사 (이미지는 안 만듦)' },
   image: { label: '이미지', title: 'center 가 만든 도커 이미지를 서버가 받아서 실행' },
   build: { label: '빌드만', title: '빌드만 하고 배포는 안 함' },
-  'direct:compose': { label: '파일 복사 (compose 기준)', title: 'CI 에는 이 환경 배포가 없어서, 서버 compose 모양(베이스 이미지 + 폴더 마운트)으로 짐작 — 손으로 배포하는 곳일 수 있음' },
-  'image:compose': { label: '이미지 (compose 기준)', title: 'CI 에는 이 환경 배포가 없어서, 서버 compose 모양(서비스 이미지 태그)으로 짐작' },
+  'direct:compose': { label: '파일 복사', sub: 'compose 기준', title: 'CI 에는 이 환경 배포가 없어서, 서버 compose 모양(베이스 이미지 + 폴더 마운트)으로 짐작 — 손으로 배포하는 곳일 수 있음' },
+  'image:compose': { label: '이미지', sub: 'compose 기준', title: 'CI 에는 이 환경 배포가 없어서, 서버 compose 모양(서비스 이미지 태그)으로 짐작' },
 }
 const pathKey = (c: DeployCell) =>
   c.by === 'compose' ? `${c.path}:compose` : c.path === 'direct' ? `direct:${c.by ?? 'repo'}` : c.path
 
 // start.sh 칸 — config 폴더 기준 상태(있으면) 또는 있음/없음
 const START: Record<string, { label: string; tone: string; title: string }> = {
-  legacy: { label: '있음 · 실행에 씀', tone: 'danger', title: '아직 start.sh 로 앱을 실행 — Dockerfile CMD 로 바꿀 대상' },
-  leftover: { label: '있음 · 안 씀', tone: 'warn', title: 'Dockerfile 이 이미 실행 명령(CMD)을 가짐 — 남은 start.sh 는 지워도 됨' },
+  legacy: { label: '사용 중', tone: 'danger', title: '아직 start.sh 로 앱을 실행 — Dockerfile CMD 로 바꿀 대상' },
+  leftover: { label: '파일만 남음', tone: 'warn', title: 'Dockerfile 이 이미 실행 명령(CMD)을 가짐 — 남은 start.sh 는 지워도 됨' },
   done: { label: '없음', tone: 'ok', title: 'Dockerfile CMD 로 실행, start.sh 없음' },
   base: { label: '해당 없음', tone: 'muted', title: '베이스 이미지가 알아서 실행(예: springboot)' },
 }
@@ -43,25 +43,21 @@ function deployCell(c?: DeployCell) {
   if (!c) return <span className="muted">—</span>
   const p = PATH[pathKey(c)] ?? { label: c.path, title: '' }
   const other = c.path === 'image' ? '파일 복사(베이스 이미지 + 폴더 마운트)' : '이미지(서비스 이미지 태그)'
+  const sub = [p.sub, c.manual ? '수동' : null].filter(Boolean).join(' · ')
   return (
-    <>
-      <span title={p.title}>{p.label}</span>
-      {c.manual && (
-        <span className="muted" title="사람이 GitLab 에서 버튼을 눌러야 배포">
-          {' '}
-          · 수동
-        </span>
-      )}
+    <span title={`${p.title}${c.manual ? ' · 수동: 사람이 GitLab 에서 버튼을 눌러야 배포' : ''}`}>
+      {p.label}
       {c.mismatch && (
         <span
           className="badge badge--warn"
-          style={{ marginLeft: 6 }}
+          style={{ marginLeft: 4 }}
           title={`CI 파일은 '${p.label}' 인데, 서버 compose 파일은 ${other} 모양이에요 — 둘 중 하나가 옛날 상태`}
         >
-          ⚠ 서버 compose 다름
+          ⚠ compose 다름
         </span>
       )}
-    </>
+      {sub && <span className="cell-sub">{sub}</span>}
+    </span>
   )
 }
 
@@ -73,7 +69,8 @@ function execText(e?: ExecutorCell) {
       className="muted"
       title={`러너 태그(${(e.tags ?? []).join(', ') || '없음'})가 runners 표에 없어 짐작한 값 — 확인되면 shape-targets.yml 의 runners: 에 적으면 확정돼요`}
     >
-      {e.value} (추정)
+      {e.value}
+      <small> (추정)</small>
     </span>
   )
 }
@@ -112,19 +109,19 @@ function Legend() {
       <summary>표 읽는 법</summary>
       <ul>
         <li>
-          <b>dev · stg · prod 칸</b> = 그 환경에 어떻게 배포하나 — <b>파일 복사 · repo</b>(예전 직배포: repo 가 서버에 바로 복사, 옮길 대상) ·{' '}
-          <b>파일 복사 · center</b>(center 를 거쳐 파일로 복사, 이미지 안 만듦) · <b>이미지</b>(center 가 만든 도커 이미지로 배포) ·{' '}
-          <b>빌드만</b>(배포 안 함) · <b>수동</b>(사람이 버튼을 눌러야 함) · <b>(compose 기준)</b>(CI 에 없어서 서버 compose 로 짐작)
+          <b>dev · stg · prod 칸</b> = 그 환경에 어떻게 배포하나. 윗줄은 방식, 아랫줄은 누가 — <b>파일 복사 / repo</b>(예전 직배포: repo 가 서버에 바로 복사, 옮길 대상) ·{' '}
+          <b>파일 복사 / center</b>(center 를 거쳐 파일로 복사, 이미지 안 만듦) · <b>이미지</b>(center 가 만든 도커 이미지로 배포) ·{' '}
+          <b>빌드만</b>(배포 안 함) · <b>수동</b>(사람이 버튼을 눌러야 함) · <b>compose 기준</b>(CI 에 없어서 서버 compose 로 짐작)
         </li>
         <li>
-          <b>⚠ 서버 compose 다름</b> = CI 파일에 적힌 배포 방식과 서버의 docker-compose 모양이 서로 달라요 (예: CI 는 이미지인데 서버는 아직 파일 복사 방식)
+          <b>⚠ compose 다름</b> = CI 파일에 적힌 배포 방식과 서버의 docker-compose 모양이 서로 달라요 (예: CI 는 이미지인데 서버는 아직 파일 복사 방식)
         </li>
         <li>
-          <b>executor</b> = CI 를 돌리는 방식 — <b>shell</b>(러너 서버에서 바로) · <b>docker</b>(깨끗한 컨테이너 안에서). <b>(추정)</b> = 확인 안 된 짐작값
+          <b>executor</b> = CI 를 돌리는 방식 — <b>shell</b>(러너 서버에서 바로) · <b>docker</b>(깨끗한 컨테이너 안에서). <b>(추정)</b> = 확인 안 된 짐작값(마우스를 올리면 이유)
         </li>
         <li>
-          <b>start.sh</b> — <span className="badge badge--danger">있음 · 실행에 씀</span> 바꿀 대상 ·{' '}
-          <span className="badge badge--warn">있음 · 안 씀</span> 파일만 남음 · <span className="badge badge--ok">없음</span> 완료
+          <b>start.sh</b> — <span className="badge badge--danger">사용 중</span> 아직 start.sh 로 실행(바꿀 대상) ·{' '}
+          <span className="badge badge--warn">파일만 남음</span> 안 쓰는데 남음(지워도 됨) · <span className="badge badge--ok">없음</span> 완료
         </li>
         <li>
           <b>CI 변수</b> = .gitlab-ci.yml 의 변수 개수. 값은 보지 않고, 바뀌면 "N일 전 바뀜"
@@ -217,7 +214,7 @@ export default function CicdCompare() {
       </div>
 
       <div className="card" style={{ overflowX: 'auto' }}>
-        <table className="grid grid--nowrap">
+        <table className="grid grid--nowrap grid--dense">
           <thead>
             <tr>
               <th>그룹</th>

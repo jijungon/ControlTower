@@ -43,7 +43,7 @@ button { font-family: inherit; cursor: pointer; }
 .tab--active { color: var(--primary); background: var(--canvas); }
 
 /* content */
-.content { flex: 1; width: 100%; max-width: 1440px; margin: 0 auto; padding: var(--space-lg) var(--space-lg) 64px; }
+.content { flex: 1; width: 100%; max-width: 1920px; margin: 0 auto; padding: var(--space-lg) var(--space-lg) 64px; }
 .page-head { margin: var(--space-xs) 0 var(--space-lg); }
 .page-head--row { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
 .page-title { font-family: var(--font-display); font-size: 28px; font-weight: 600; letter-spacing: -0.28px; margin: 0; }
@@ -166,8 +166,16 @@ table.subgrid { width: 100%; border-collapse: collapse; font-size: 13px; }
 .ver--eol { color: var(--danger); }
 /* 서비스 비교표: 같은 종류 중 최신이 아닌 버전 */
 .ver--old { color: var(--danger); background: var(--danger-bg); padding: 2px 8px; border-radius: 6px; font-weight: 600; white-space: nowrap; }
-/* 칸이 많은 비교표: 줄바꿈 대신 카드 안에서 가로 스크롤 */
+/* 칸이 많은 비교표: 줄바꿈 대신 카드 안에서 가로 스크롤(정말 좁을 때만) */
 .grid--nowrap th, .grid--nowrap td { white-space: nowrap; }
+/* 촘촘한 표: 글자·여백을 줄여 가로 스크롤 없이 보이게 */
+.grid--dense { font-size: 13px; }
+.grid--dense thead th { padding: 8px 10px; font-size: 12px; }
+.grid--dense tbody td { padding: 7px 10px; }
+.grid--dense .ver, .grid--dense .mono { font-size: 12px; }
+.grid--dense .badge { font-size: 11px; }
+.cell-sub { display: block; font-size: 11px; color: var(--ink-muted-48); line-height: 1.3; }
+@media (max-width: 1400px) { .grid--dense thead th, .grid--dense tbody td { padding-left: 6px; padding-right: 6px; } }
 .ver--none { color: var(--ink-muted-48); }
 
 /* 버튼 (conf 적용 등) */

@@ -113,7 +113,7 @@ export default function ConfigRepo() {
       </details>
 
       <div className="card" style={{ overflowX: 'auto' }}>
-        <table className="grid grid--nowrap">
+        <table className="grid grid--nowrap grid--dense">
           <thead>
             <tr>
               <th>서비스</th>

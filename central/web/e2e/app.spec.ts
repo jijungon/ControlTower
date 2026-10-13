@@ -170,7 +170,7 @@ test('빌드·배포 탭 서비스 비교표 — 오래된 버전은 빨간 칸'
   await expect(page.getByText('shop admin')).toBeVisible()
   await expect(page.getByText('⚠ node 18')).toHaveClass(/ver--old/)
   await expect(page.locator('table.grid--nowrap').getByText('node 20', { exact: true })).not.toHaveClass(/ver--old/)
-  await expect(page.locator('table.grid--nowrap').getByText('파일 복사 · repo', { exact: true })).toBeVisible()
+  await expect(page.locator('table.grid--nowrap').getByText('repo', { exact: true })).toBeVisible()
   await expect(page.getByText('표 읽는 법')).toBeVisible()
 })
 

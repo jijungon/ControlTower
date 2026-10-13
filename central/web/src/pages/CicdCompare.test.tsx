@@ -55,12 +55,16 @@ test('배포·executor·start.sh·CI 변수 칸 — 쉬운 말 + 마우스 올�
   stub(ROWS)
   render(<CicdCompare />)
   const table = within(await screen.findByRole('table'))
-  expect(table.getByText('파일 복사 · repo')).toHaveAttribute('title', expect.stringContaining('직배포'))
-  expect(table.getByText('파일 복사 · center')).toHaveAttribute('title', expect.stringContaining('center CI'))
+  // 배포 칸: 윗줄 방식 + 아랫줄 누가(repo/center) — 칸 전체에 마우스를 올리면 뜻
+  const repoCell = table.getByText('repo', { selector: '.cell-sub' }).parentElement!
+  expect(repoCell).toHaveTextContent('파일 복사repo')
+  expect(repoCell).toHaveAttribute('title', expect.stringContaining('직배포'))
+  expect(table.getByText('center', { selector: '.cell-sub' }).parentElement).toHaveAttribute('title', expect.stringContaining('center CI'))
+  expect(table.getAllByText('수동', { selector: '.cell-sub' }).length).toBeGreaterThan(0)
   expect(table.getByText('빌드만')).toBeInTheDocument()
-  expect(table.getByText('파일 복사 (compose 기준)')).toHaveAttribute('title', expect.stringContaining('짐작'))
-  expect(table.getByText('⚠ 서버 compose 다름')).toHaveAttribute('title', expect.stringContaining('파일 복사'))
-  expect(table.getByText('docker (추정)')).toHaveAttribute('title', expect.stringContaining('runners 표에 없어'))
+  expect(table.getByText('compose 기준', { selector: '.cell-sub' }).parentElement).toHaveAttribute('title', expect.stringContaining('짐작'))
+  expect(table.getByText('⚠ compose 다름')).toHaveAttribute('title', expect.stringContaining('파일 복사'))
+  expect(table.getByText('(추정)').parentElement).toHaveAttribute('title', expect.stringContaining('runners 표에 없어'))
   // start.sh: 있음은 노랑, 없음은 초록
   expect(table.getByText('있음')).toHaveClass('badge--warn')
   expect(table.getByText('없음')).toHaveClass('badge--ok')
@@ -92,8 +96,9 @@ test('그룹 → 서비스 → 타입: 맨 앞 그룹 칸이 그룹의 모든 �
 test('config 연결 시 start.sh 상태 색', async () => {
   stub([{ service: 'x web', type: 'web', start_state: 'legacy', startup: true }, { service: 'y web', type: 'web', start_state: 'leftover', startup: true }])
   render(<CicdCompare />)
-  expect(await screen.findByText('있음 · 실행에 씀')).toHaveClass('badge--danger')
-  expect(screen.getAllByText('있음 · 안 씀').find((e) => e.closest('td'))).toHaveClass('badge--warn')
+  const table = within(await screen.findByRole('table'))
+  expect(await table.findByText('사용 중')).toHaveClass('badge--danger')
+  expect(table.getByText('파일만 남음')).toHaveClass('badge--warn')
 })
 
 test('런타임 필터', async () => {
