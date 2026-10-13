@@ -134,7 +134,7 @@ export default function ConfigRepo() {
                   const base = baseOf(r)
                   const st = STATE[r.state] ?? STATE.none
                   return (
-                    <tr key={r.path} className={i === 0 ? 'group-start' : undefined}>
+                    <tr key={r.path} className={i === 0 ? 'svc-start' : undefined}>
                       {i === 0 && (
                         <td className="svc-cell" rowSpan={rs.length}>
                           {svc}

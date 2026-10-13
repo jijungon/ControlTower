@@ -190,7 +190,6 @@ export default function CicdCompare() {
     }))
   const groupNames = [...new Set(all.map((r) => r.group || '기타'))].sort()
   const appCount = ordered.reduce((n, g) => n + g.apps.length, 0)
-  const colCount = 7 + envs.length
 
   return (
     <div>
@@ -221,6 +220,7 @@ export default function CicdCompare() {
         <table className="grid grid--nowrap">
           <thead>
             <tr>
+              <th>그룹</th>
               <th>서비스</th>
               <th>타입</th>
               <th>런타임</th>
@@ -234,62 +234,70 @@ export default function CicdCompare() {
             </tr>
           </thead>
           <tbody>
-            {ordered.map((g) => (
-              <Fragment key={g.group}>
-                <tr className="group-head">
-                  <td colSpan={colCount}>
-                    {g.group} <span className="muted">· 서비스 {g.apps.length}개</span>
-                  </td>
-                </tr>
-                {g.apps.map((a) =>
-                  a.rows.map((r, i) => {
-                    const rt = runtimeOf(r)
-                    const base = baseOf(r)
-                    return (
-                      <tr key={r.service} className={i === 0 ? 'group-start' : undefined}>
-                        {i === 0 && (
-                          <td className="svc-cell" rowSpan={a.rows.length}>
-                            {a.app}
-                            {r.note && (
+            {ordered.map((g) => {
+              const total = g.apps.reduce((n, a) => n + a.rows.length, 0)
+              return (
+                <Fragment key={g.group}>
+                  {g.apps.map((a, ai) =>
+                    a.rows.map((r, i) => {
+                      const rt = runtimeOf(r)
+                      const base = baseOf(r)
+                      const groupFirst = ai === 0 && i === 0
+                      // 경계: 그룹이 바뀌면 진한 선, 서비스가 바뀌면 보통 선, 타입끼리는 얇은 선
+                      return (
+                        <tr key={r.service} className={groupFirst ? 'grp-start' : i === 0 ? 'svc-start' : undefined}>
+                          {groupFirst && (
+                            <td className="grp-cell" rowSpan={total}>
+                              {g.group}
                               <div className="muted" style={{ fontWeight: 400, fontSize: 12 }}>
-                                {r.note}
+                                서비스 {g.apps.length}개
                               </div>
+                            </td>
+                          )}
+                          {i === 0 && (
+                            <td className="svc-cell" rowSpan={a.rows.length}>
+                              {a.app}
+                              {r.note && (
+                                <div className="muted" style={{ fontWeight: 400, fontSize: 12 }}>
+                                  {r.note}
+                                </div>
+                              )}
+                            </td>
+                          )}
+                          <td>{split(r).kind}</td>
+                          <td>
+                            {r.runtime ? (
+                              <Ver text={runtimeLabel(r)} old={isOld(rt, newestRuntime)} newest={rt ? `${rt[0]} ${newestRuntime.get(rt[0])}` : undefined} />
+                            ) : (
+                              <span className="muted">—</span>
                             )}
                           </td>
-                        )}
-                        <td>{split(r).kind}</td>
-                        <td>
-                          {r.runtime ? (
-                            <Ver text={runtimeLabel(r)} old={isOld(rt, newestRuntime)} newest={rt ? `${rt[0]} ${newestRuntime.get(rt[0])}` : undefined} />
-                          ) : (
-                            <span className="muted">—</span>
-                          )}
-                        </td>
-                        <td>
-                          {r.base_image ? (
-                            <Ver
-                              text={`${r.base_image}${r.base_tag ? `:${r.base_tag}` : ''}`}
-                              old={isOld(base, newestBase)}
-                              newest={base ? `${base[0]}:${newestBase.get(base[0])}` : undefined}
-                            />
-                          ) : (
-                            <span className="muted">—</span>
-                          )}
-                        </td>
-                        {envs.map((e) => (
-                          <td key={e}>{deployCell(r.deploy?.[e])}</td>
-                        ))}
-                        <td>
-                          {execText(r.executor_repo)} / {execText(r.executor_center)}
-                        </td>
-                        <td>{startCell(r)}</td>
-                        <td>{envText(r)}</td>
-                      </tr>
-                    )
-                  }),
-                )}
-              </Fragment>
-            ))}
+                          <td>
+                            {r.base_image ? (
+                              <Ver
+                                text={`${r.base_image}${r.base_tag ? `:${r.base_tag}` : ''}`}
+                                old={isOld(base, newestBase)}
+                                newest={base ? `${base[0]}:${newestBase.get(base[0])}` : undefined}
+                              />
+                            ) : (
+                              <span className="muted">—</span>
+                            )}
+                          </td>
+                          {envs.map((e) => (
+                            <td key={e}>{deployCell(r.deploy?.[e])}</td>
+                          ))}
+                          <td>
+                            {execText(r.executor_repo)} / {execText(r.executor_center)}
+                          </td>
+                          <td>{startCell(r)}</td>
+                          <td>{envText(r)}</td>
+                        </tr>
+                      )
+                    }),
+                  )}
+                </Fragment>
+              )
+            })}
           </tbody>
         </table>
 

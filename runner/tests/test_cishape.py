@@ -402,3 +402,16 @@ def test_center_copies_files_for_dev_stg():
     assert dep["lab"]["by"] == "center"  # deploy-dev 안의 따로 적힌 lab 규칙은 남는다
     assert dep["stg"]["by"] == "center" and "dev" in dep  # deploy-stg 의 넓은 규칙은 stg 로만
     assert dep["prod"] == {"path": "image", "manual": True, "mismatch": False}
+
+
+def test_comment_lines_do_not_count():
+    ci = r"""
+deploy-dev:
+  script:
+    - |
+      # 나중에 scp+ssh 방식으로 바꿀 예정 (메모)
+      ssh app@10.0.0.40 "sed -i s/^TAG_INFO=.*/TAG_INFO=$CI_COMMIT_TAG/ .env && docker compose pull && docker compose up -d"
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^dev-web-v\d+/'
+"""
+    assert analyze_ci(ci, "web")["envs"]["dev"] == {"deploy_image": False}  # 주석의 scp 는 무시 → 이미지 배포

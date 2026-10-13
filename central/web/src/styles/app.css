@@ -116,12 +116,11 @@ table.grid { width: 100%; border-collapse: collapse; font-size: 15px; }
 .legend summary { cursor: pointer; font-weight: 600; color: var(--ink-muted-80); }
 .legend ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.7; }
 .legend b { color: var(--ink); font-weight: 600; }
-/* 서비스별로 묶은 표: 서비스가 바뀌는 줄에 굵은 구분선 */
-.grid tbody tr.group-start td { border-top: 2px solid var(--hairline); }
-.grid td.svc-cell { font-weight: 600; vertical-align: top; }
-/* 그룹(프로젝트 묶음) 머리줄 — 서비스보다 큰 묶음 */
-.grid tbody tr.group-head td { background: var(--canvas-parchment); font-weight: 700; font-size: 14px; padding: 8px 16px; border-top: 2px solid var(--hairline); }
-.grid tbody tr.group-head:hover { background: none; }
+/* 묶은 표의 경계: 그룹(진한 선) → 서비스(보통 선) → 타입(기본 얇은 선) */
+.grid tbody tr.grp-start td { border-top: 2px solid var(--ink-muted-48); }
+.grid tbody tr.svc-start td { border-top: 2px solid var(--hairline); }
+.grid td.grp-cell { font-weight: 700; vertical-align: top; background: var(--canvas-parchment); border-right: 1px solid var(--hairline); }
+.grid td.svc-cell { font-weight: 600; vertical-align: top; border-right: 1px solid var(--divider-soft); }
 /* 좌우 2단(넓을 때만). 좁으면 위아래로 */
 .split { display: grid; grid-template-columns: 1fr; gap: 0 24px; }
 @media (min-width: 1100px) { .split { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }

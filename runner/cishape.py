@@ -166,8 +166,14 @@ def _job_envs(name: str, job: dict, svc_type: str) -> dict[str, bool]:
     return {e: m for e, (_, m) in hits.items()}
 
 
+def _strip_comments(script: str) -> str:
+    """셸 주석 줄은 뺀다 — '# scp 방식으로 이전 예정' 같은 메모가 판독을 흔들지 않게."""
+    return "\n".join(line for line in script.splitlines() if not line.lstrip().startswith("#"))
+
+
 def _job_kind(name: str, job: dict, env: dict[str, str]) -> str:
-    text = _expand("\n".join(_flatten([job.get("before_script"), job.get("script"), job.get("after_script")])), env)
+    raw = "\n".join(_flatten([job.get("before_script"), job.get("script"), job.get("after_script")]))
+    text = _expand(_strip_comments(raw), env)
     lname = name.lower()
     if re.search(r"\b(scp|rsync)\b", text):
         return "direct"            # 빌드 결과물을 서버로 바로 복사

@@ -71,20 +71,22 @@ test('배포·executor·start.sh·CI 변수 칸 — 쉬운 말 + 마우스 올�
   expect(screen.queryByRole('columnheader', { name: 'lab' })).toBeNull()
 })
 
-test('그룹 → 서비스 → 타입으로 묶음', async () => {
+test('그룹 → 서비스 → 타입: 맨 앞 그룹 칸이 그룹의 모든 줄을 덮음', async () => {
   stub([...ROWS, { service: 'shop web', group: 'outlet', type: 'web', note: '옛 사본' }])
   render(<CicdCompare />)
   const table = within(await screen.findByRole('table'))
-  // 그룹 머리줄: 이름순, 그룹 없는 건 맨 끝 '기타'
-  const heads = [...document.querySelectorAll('tr.group-head')].map((tr) => tr.textContent)
-  expect(heads).toEqual(['mall · 서비스 1개', 'outlet · 서비스 1개', '기타 · 서비스 1개'])
+  expect(screen.getAllByRole('columnheader').slice(0, 3).map((h) => h.textContent)).toEqual(['그룹', '서비스', '타입'])
+  // 그룹 칸: 이름순, 그룹 없는 건 맨 끝 '기타'. rowspan = 그 그룹의 줄 수
+  const groups = [...document.querySelectorAll('td.grp-cell')].map((td) => [td.firstChild?.textContent, td.getAttribute('rowspan')])
+  expect(groups).toEqual([['mall', '2'], ['outlet', '1'], ['기타', '1']])
   // mall 안의 shop 서비스는 web·admin 두 줄을 한 칸으로
-  const shops = table.getAllByText('shop')
-  expect(shops[0].closest('td')).toHaveAttribute('rowspan', '2')
+  expect(table.getAllByText('shop')[0].closest('td')).toHaveAttribute('rowspan', '2')
   expect(table.getByText('옛 사본')).toBeInTheDocument()
+  // 경계 줄: 그룹 시작 3개, 그룹 안에서 서비스가 바뀌는 곳은 없음(각 그룹 서비스 1개)
+  expect(document.querySelectorAll('tr.grp-start').length).toBe(3)
   // 그룹 필터
   fireEvent.change(screen.getByLabelText('그룹 필터'), { target: { value: 'outlet' } })
-  expect([...document.querySelectorAll('tr.group-head')].map((tr) => tr.textContent)).toEqual(['outlet · 서비스 1개'])
+  expect([...document.querySelectorAll('td.grp-cell')].map((td) => td.firstChild?.textContent)).toEqual(['outlet'])
 })
 
 test('config 연결 시 start.sh 상태 색', async () => {
