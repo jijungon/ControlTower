@@ -132,6 +132,10 @@ table.subgrid { width: 100%; border-collapse: collapse; font-size: 13px; }
 /* version matrix cells */
 .ver { font-family: var(--font-mono); font-size: 13px; }
 .ver--eol { color: var(--danger); }
+/* 서비스 비교표: 같은 종류 중 최신이 아닌 버전 */
+.ver--old { color: var(--danger); background: var(--danger-bg); padding: 2px 8px; border-radius: 6px; font-weight: 600; white-space: nowrap; }
+/* 칸이 많은 비교표: 줄바꿈 대신 카드 안에서 가로 스크롤 */
+.grid--nowrap th, .grid--nowrap td { white-space: nowrap; }
 .ver--none { color: var(--ink-muted-48); }
 
 /* 버튼 (conf 적용 등) */

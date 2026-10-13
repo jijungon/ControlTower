@@ -136,6 +136,17 @@ CI/CD 파이프라인 상태와 repo 선언본 버전(node/nest/java)은 GitLab 
 
 > GitLab 이 아직이면 이 두 기능만 비어 있고, 나머지(서버·conf·업데이트·툴체인·작업이력)는 그대로 동작한다. 토큰은 **러너 로컬에만** 두며 중앙 DB엔 결과 상태만 저장된다.
 
+### 서비스 비교표 (CI/CD 탭)
+
+서비스를 한 줄씩 놓고 **런타임·베이스 이미지 · 환경별 배포 경로(직배포/이미지/빌드만) · executor(repo/center) · start.sh · env 변경**을 나란히 비교한다. 같은 종류(예: node) 중 **최신이 아닌 버전은 빨간 칸**.
+
+1. `cp runner/shape-targets.example.yml shape-targets.yml` 후 서비스마다 읽을 파일을 적는다 (커밋 안 됨).
+   - GitLab: `{gitlab: repo|center, project, path}` — center 는 별도 인스턴스라 `CT_GITLAB_CENTER_URL/TOKEN`
+   - 토큰이 아직이면 로컬 사본: `{file: 경로}`
+2. `python -m runner.cli shape` (`make collect` 도 대상 파일이 있으면 포함)
+
+> 읽기 전용. env 는 **값을 보내지 않고** 개수 + 해시만 보내서 "언제 바뀌었나"만 보여준다. executor 는 GitLab 이 알려주지 않으므로 대상 파일의 `runners:` 표(태그→shell/docker)로 정하고, 표에 없는 태그는 `shell?` 처럼 추정 표시.
+
 ## 저장소 구조
 
 ```

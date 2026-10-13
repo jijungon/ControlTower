@@ -189,6 +189,33 @@ export async function fetchCicd(): Promise<CicdRow[]> {
 export const addCicdTarget = (service: string, project: string) =>
   postJsonServer('/api/cicd/targets', { service, project })
 
+// 서비스 비교표 — 러너가 .gitlab-ci.yml·Dockerfile·compose 를 읽어 만든 한 행
+export type DeployCell = { path: 'direct' | 'image' | 'build'; manual: boolean | null; mismatch?: boolean }
+export type ExecutorCell = { value: string; guess: boolean } | null
+
+export type ShapeRow = {
+  service: string
+  group?: string | null
+  type?: string | null
+  runtime?: string | null
+  runtime_version?: string | null
+  base_image?: string | null
+  base_tag?: string | null
+  deploy?: Record<string, DeployCell>
+  executor_repo?: ExecutorCell
+  executor_center?: ExecutorCell
+  startup?: boolean | null
+  env_keys?: number | null
+  env_changed_at?: string | null
+  collected_at?: string | null
+}
+
+export async function fetchShapes(): Promise<ShapeRow[]> {
+  const res = await fetch('/api/cicd/shape')
+  if (!res.ok) throw new Error(`GET /api/cicd/shape ${res.status}`)
+  return res.json()
+}
+
 export type RepoTarget = { repo: string; project: string }
 
 export async function fetchRepoTargets(): Promise<RepoTarget[]> {

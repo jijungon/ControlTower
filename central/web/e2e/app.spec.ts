@@ -83,6 +83,17 @@ test.beforeAll(async () => {
     data: { statuses: [{ service: 'admin', has_cicd: true, status: 'success', ref: 'main', web_url: 'http://gl/p/1' }] },
   })
 
+  // 서비스 비교표 시드(러너 shape 역할): node 18 vs 20 → 18 이 빨간 칸
+  const shape = await api.post('/api/cicd/shape', {
+    data: {
+      shapes: [
+        { service: 'shop web', group: 'shop', data: { runtime: 'node', runtime_version: '18', deploy: { dev: { path: 'direct', manual: false } }, startup: true } },
+        { service: 'shop admin', group: 'shop', data: { runtime: 'node', runtime_version: '20', deploy: { dev: { path: 'image', manual: false } }, startup: false } },
+      ],
+    },
+  })
+  expect(shape.ok(), await shape.text()).toBeTruthy()
+
   await api.dispose()
 })
 
@@ -138,6 +149,15 @@ test('CI/CD 탭에 파이프라인 상태가 보인다', async ({ page }) => {
   await page.getByRole('button', { name: 'CI/CD' }).click()
   await expect(page.getByRole('link', { name: 'admin', exact: true })).toBeVisible()
   await expect(page.getByText('성공')).toBeVisible()
+})
+
+test('CI/CD 탭 서비스 비교표 — 오래된 버전은 빨간 칸', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'CI/CD' }).click()
+  await expect(page.getByText('shop admin')).toBeVisible()
+  await expect(page.getByText('⚠ node 18')).toHaveClass(/ver--old/)
+  await expect(page.locator('table.grid--nowrap').getByText('node 20', { exact: true })).not.toHaveClass(/ver--old/)
+  await expect(page.getByRole('cell', { name: '직배포' })).toBeVisible()
 })
 
 test('CI/CD 탭에서 서비스(대상) 추가', async ({ page }) => {

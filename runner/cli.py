@@ -8,6 +8,7 @@
   python -m runner.cli versions # 빌드 서버 툴체인 버전(node/java/docker 등) 수집
   python -m runner.cli versions-repo # GitLab repo 선언본 버전 수집(CT_GITLAB_URL/TOKEN)
   python -m runner.cli cicd     # GitLab 파이프라인 상태 수집(CT_GITLAB_URL/TOKEN)
+  python -m runner.cli shape    # 서비스 비교표(배포 경로·executor·런타임·start.sh·env) 수집(shape-targets.yml)
   python -m runner.cli all      # 모든 수집기 1회(--loop --interval N 로 주기 실행)
   python -m runner.cli apply    # 승인된 conf 를 서버에 실제 적용(--dry-run/--rollback ID)
 
@@ -23,6 +24,7 @@ import time
 from . import applier
 from .api import CentralAPI
 from .apt import parse_upgradable
+from .cishape import build_row, parse_targets
 from .config import RunnerConfig
 from .conn import list_upgrades, list_upgrades_yum, read_file, run_remote, test_ssh
 from .gitlab import fetch_latest_pipeline, fetch_repo_file
@@ -223,6 +225,72 @@ def cmd_cicd(cfg: RunnerConfig) -> None:
         api.close()
 
 
+def _read_source(src: object, cfg: RunnerConfig, base_dir: str) -> tuple[bool, str | None]:
+    """비교표 소스 1개 읽기 → (읽기 시도함?, 원문|None).
+
+    {file: 경로}(대상 파일 기준 상대경로 가능) 또는 {gitlab: repo|center, project, path, ref?}.
+    해당 GitLab 이 설정 안 돼 있으면 (False, None) — '없음'과 '못 봄'을 구분하려고.
+    """
+    if not isinstance(src, dict):
+        return False, None
+    if src.get("file"):
+        path = os.path.join(base_dir, os.path.expanduser(str(src["file"])))
+        try:
+            with open(path, encoding="utf-8") as f:
+                return True, f.read()
+        except OSError:
+            return True, None
+    url, token = (
+        (cfg.gitlab_center_url, cfg.gitlab_center_token)
+        if src.get("gitlab") == "center"
+        else (cfg.gitlab_url, cfg.gitlab_token)
+    )
+    if not url or not token or not src.get("project") or not src.get("path"):
+        return False, None
+    text = fetch_repo_file(
+        url, token, str(src["project"]), str(src["path"]), str(src.get("ref") or cfg.gitlab_ref), cfg.connect_timeout
+    )
+    return True, text
+
+
+def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None) -> None:
+    path = targets_path or cfg.shape_targets
+    if not os.path.exists(path):
+        print(f"비교표 대상 파일 없음({path}) — runner/shape-targets.example.yml 을 복사해 채우세요.")
+        return
+    with open(path, encoding="utf-8") as f:
+        runners, services = parse_targets(f.read())
+    if not services:
+        print(f"비교표 대상이 비어 있음 — {path} 의 services: 를 채우세요.")
+        return
+    base_dir = os.path.dirname(os.path.abspath(path))
+    rows, missing = [], []
+    for svc in services:
+        files: dict = {}
+        for key in ("repo_ci", "center_ci", "dockerfile", "startup"):
+            tried, text = _read_source(svc.get(key), cfg, base_dir)
+            if tried:
+                files[key] = text
+                if text is None and key != "startup":  # start.sh 는 '없음'이 정상 결과
+                    missing.append(f"{svc['name']}:{key}")
+        compose = {}
+        for env, src in (svc.get("compose") or {}).items():
+            tried, text = _read_source(src, cfg, base_dir)
+            if tried and text is None:
+                missing.append(f"{svc['name']}:compose.{env}")
+            compose[str(env)] = text
+        files["compose"] = compose
+        rows.append(build_row(svc, files, runners))
+    api = CentralAPI(cfg.central_url, cfg.api_token)
+    try:
+        res = api.upload_shapes(rows, replace=True)  # 대상 파일이 기준 — 빠진 서비스는 표에서 내림
+    finally:
+        api.close()
+    print(f"비교표 수집: {res['accepted']}개 서비스")
+    if missing:
+        print(f"  못 읽은 파일 {len(missing)}개: {', '.join(missing)}")
+
+
 def cmd_apply(cfg: RunnerConfig, dry_run: bool = False, rollback_id: int | None = None) -> None:
     api = CentralAPI(cfg.central_url, cfg.api_token)
     try:
@@ -303,6 +371,8 @@ def run_all_once(cfg: RunnerConfig) -> None:
     ]
     if cfg.gitlab_url and cfg.gitlab_token:
         steps += [("versions-repo", cmd_versions_repo), ("cicd", cmd_cicd)]
+    if os.path.exists(cfg.shape_targets):
+        steps.append(("shape", cmd_shape))
     for name, fn in steps:
         try:
             fn(cfg)
@@ -337,6 +407,8 @@ def main() -> None:
     _flt(sub.add_parser("probe", help="접속 점검(접속 여부 + 2FA 추정)"))
     sub.add_parser("versions-repo", help="GitLab repo 선언본 버전 수집(CT_GITLAB_URL/TOKEN 필요)")
     sub.add_parser("cicd", help="GitLab 파이프라인 상태 수집(CT_GITLAB_URL/TOKEN 필요)")
+    shp = sub.add_parser("shape", help="서비스 비교표 수집(shape-targets.yml — GitLab 또는 로컬 파일)")
+    shp.add_argument("--targets", help="대상 파일 경로(기본 CT_SHAPE_TARGETS 또는 ./shape-targets.yml)")
     allp = sub.add_parser("all", help="모든 수집기 1회 실행(--loop 로 주기 반복)")
     allp.add_argument("--loop", action="store_true", help="간격을 두고 반복 실행")
     allp.add_argument("--interval", type=int, default=300, help="반복 간격(초, 기본 300)")
@@ -362,6 +434,8 @@ def main() -> None:
         cmd_versions_repo(cfg)
     elif args.cmd == "cicd":
         cmd_cicd(cfg)
+    elif args.cmd == "shape":
+        cmd_shape(cfg, args.targets)
     elif args.cmd == "all":
         cmd_all(cfg, loop=args.loop, interval=args.interval)
     elif args.cmd == "apply":

@@ -1,4 +1,5 @@
 asyncssh>=2.14
 httpx>=0.27
 python-dotenv>=1.0        # .env 주입
+PyYAML>=6                 # .gitlab-ci.yml · compose 판독(비교표)
 # tomllib 은 표준 라이브러리(Python 3.11+)

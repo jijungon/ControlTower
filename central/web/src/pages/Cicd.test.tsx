@@ -2,19 +2,21 @@ import { render, screen } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import Cicd from './Cicd'
 
-test('파이프라인 상태 배지 렌더', async () => {
+// 비교표(/api/cicd/shape)는 빈 목록, 나머지(/api/cicd)는 주어진 응답
+function stubCicd(body: string) {
   vi.stubGlobal(
     'fetch',
-    vi.fn(async () =>
-      new Response(
-        JSON.stringify([
-          { service: 'admin', project: 'group/aggregator-admin', has_cicd: true, status: 'success', ref: 'main', collected_at: '2026-09-14T00:00:00+00:00' },
-          { service: 'pnl', project: 'group/pnl', has_cicd: true, status: 'failed', ref: 'main' },
-          { service: 'legacy', project: 'group/legacy', has_cicd: false, status: null },
-        ]),
-        { status: 200 },
-      ),
-    ),
+    vi.fn(async (url: string) => new Response(String(url).includes('/shape') ? '[]' : body, { status: 200 })),
+  )
+}
+
+test('파이프라인 상태 배지 렌더', async () => {
+  stubCicd(
+    JSON.stringify([
+      { service: 'admin', project: 'group/aggregator-admin', has_cicd: true, status: 'success', ref: 'main', collected_at: '2026-09-14T00:00:00+00:00' },
+      { service: 'pnl', project: 'group/pnl', has_cicd: true, status: 'failed', ref: 'main' },
+      { service: 'legacy', project: 'group/legacy', has_cicd: false, status: null },
+    ]),
   )
   render(<Cicd />)
   expect(await screen.findByText('admin')).toBeInTheDocument()
@@ -25,7 +27,7 @@ test('파이프라인 상태 배지 렌더', async () => {
 })
 
 test('빈 상태 안내', async () => {
-  vi.stubGlobal('fetch', vi.fn(async () => new Response('[]', { status: 200 })))
+  stubCicd('[]')
   render(<Cicd />)
   expect(await screen.findByText(/등록된 서비스가 없습니다/)).toBeInTheDocument()
 })

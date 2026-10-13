@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { addCicdTarget, fetchCicd, type CicdRow } from '../api'
+import CicdCompare from './CicdCompare'
 
 function statusBadge(r: CicdRow) {
   if (!r.has_cicd) return <span className="badge badge--muted">없음</span>
@@ -52,9 +53,14 @@ export default function Cicd() {
       <div className="page-head">
         <h1 className="page-title">CI/CD 현황</h1>
         <p className="page-sub">
-          서비스별 GitLab 파이프라인 상태{rows ? ` · 실패 ${failed}건` : ''}
+          서비스끼리 비교(배포 경로·executor·런타임·start.sh·env) + GitLab 파이프라인 상태
+          {rows ? ` · 실패 ${failed}건` : ''}
         </p>
       </div>
+
+      <CicdCompare />
+
+      <div className="subhead">파이프라인 상태</div>
 
       <div className="toolbar" style={{ flexWrap: 'wrap' }}>
         <input className="search" style={{ minWidth: 160 }} placeholder="서비스 이름" value={svc} onChange={(e) => setSvc(e.target.value)} />

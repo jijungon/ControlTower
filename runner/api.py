@@ -93,5 +93,10 @@ class CentralAPI:
         r.raise_for_status()
         return r.json()
 
+    def upload_shapes(self, shapes: list[dict[str, Any]], replace: bool = False) -> dict[str, Any]:
+        r = self._client.post("/api/cicd/shape", json={"shapes": shapes, "replace": replace})
+        r.raise_for_status()
+        return r.json()
+
     def close(self) -> None:
         self._client.close()

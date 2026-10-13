@@ -191,6 +191,21 @@ class PipelineStatus(Base):
     collected_at: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
+class ServiceShape(Base):
+    """서비스 비교표 한 행(러너 판독 결과). service 당 하나, 수집 때마다 덮어씀.
+
+    env 는 값 없이 해시만 받는다 — 해시가 바뀐 시각(env_changed_at)으로 '언제 바뀌었나'를 보여준다.
+    """
+    __tablename__ = "service_shapes"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    service: Mapped[str] = mapped_column(String, unique=True)
+    group_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    data: Mapped[str] = mapped_column(Text, default="{}")                 # JSON: 런타임·배포·executor·start.sh…
+    env_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    env_changed_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    collected_at: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
 # ── 작업이력 / 감사 로그 ─────────────────────────────────────────────
 
 class AuditLog(Base):
