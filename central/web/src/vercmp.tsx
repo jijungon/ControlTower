@@ -32,11 +32,26 @@ export function isOld(kv: [string, string] | null, newest: Map<string, string>):
   return !!top && verParts(kv[1]).length > 0 && cmpVer(verParts(kv[1]), verParts(top)) < 0
 }
 
-// 빨간 칸(오래됨) 또는 일반 버전 글자
-export function Ver({ text, old, newest }: { text: string; old: boolean; newest?: string }) {
+// 빨간 칸(오래됨) 또는 일반 버전 글자. split = 'image:tag' 를 두 줄로(긴 이미지 이름이 칸을 넓히지 않게)
+export function Ver({ text, old, newest, split }: { text: string; old: boolean; newest?: string; split?: boolean }) {
+  const i = split ? text.lastIndexOf(':') : -1
+  const body =
+    i > 0 ? (
+      <>
+        {text.slice(0, i)}
+        <br />
+        {text.slice(i)}
+      </>
+    ) : (
+      text
+    )
   return old ? (
-    <span className="ver ver--old" title={`최신(${newest})보다 오래됨`}>⚠ {text}</span>
+    <span className="ver ver--old" title={`최신(${newest})보다 오래됨`} style={i > 0 ? { display: 'inline-block' } : undefined}>
+      ⚠ {body}
+    </span>
   ) : (
-    <span className="ver">{text}</span>
+    <span className="ver" style={i > 0 ? { display: 'inline-block' } : undefined}>
+      {body}
+    </span>
   )
 }

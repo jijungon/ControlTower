@@ -28,12 +28,21 @@ test('처음 실행할 명령(이미지·서버)·정리할 것 — 한 가지 �
   expect(table.getAllByText('node 22')[0]).not.toHaveClass('ver--old')
   // 머리줄: 칸 이름이 모두 '처음 실행할 명령' 하나의 말
   const heads = screen.getAllByRole('columnheader').map((h) => h.textContent)
-  expect(heads).toEqual(expect.arrayContaining(['처음 실행할 명령 (이미지)', '처음 실행할 명령 (서버)', '정리할 것', 'dev', 'prod']))
+  for (const h of ['처음 실행할 명령 (이미지)', '처음 실행할 명령 (서버)', '정리할 것', 'dev', 'prod'])
+    expect(heads.some((x) => x?.startsWith(h))).toBe(true)
   expect(heads).not.toContain('start.sh 파일')
   // (이미지): start.sh / Dockerfile CMD / 베이스 기본값 / 없음 → 서버가 줌
   expect(table.getAllByText('start.sh', { selector: '.badge' })[0]).toHaveClass('badge--warn')
   expect(table.getAllByText('Dockerfile CMD', { selector: '.badge' }).length).toBe(2)
-  expect(table.getByText('베이스 기본값')).toBeInTheDocument()
+  expect(table.getByText('베이스 이미지', { selector: '.badge' })).toBeInTheDocument()
+  // java(베이스 이미지가 jar 실행)는 start.sh 를 안 쓰니 정리할 것 '없음'(초록)
+  const javaRow = table.getByText('java 17').closest('tr')!
+  expect(within(javaRow).getByText('없음', { selector: '.badge' })).toHaveClass('badge--ok')
+  // 그래서 서버 칸도 '안 읽음'(할 일) 대신 '—'(읽을 필요 없음)
+  expect(within(javaRow).queryByText('안 읽음')).toBeNull()
+  // 맨 위 묶음 머리: 버전 / start.sh
+  expect(screen.getByRole('columnheader', { name: /^버전$/ })).toBeInTheDocument()
+  expect(screen.getByRole('columnheader', { name: /start\.sh — 앱을 처음 띄우는 명령은 어디에\?/ })).toBeInTheDocument()
   expect(table.getByText('없음 → 서버가 줌')).toBeInTheDocument()
   // (서버): dev·stg·prod 열로 나뉨 — 읽었거나 읽으려 한 환경만. compose 가 명령을 주면 '서버 compose', start.sh 마운트면 'start.sh'
   expect(heads).toContain('stg') // dev·stg·prod 는 항상
@@ -51,7 +60,7 @@ test('처음 실행할 명령(이미지·서버)·정리할 것 — 한 가지 �
   expect(table.getByText('CMD 로 옮기기')).toHaveClass('badge--danger')
   expect(table.getByText('start.sh 지우기')).toHaveAttribute('title', expect.stringContaining('node-startup.sh'))
   // 이미지 그대로 쓰는 서버: 서버 칸은 '← 이미지', (이미지) 칸에 '● 실행: prod'
-  const apiRow = table.getByText('없음', { selector: '.badge' }).closest('tr')!
+  const apiRow = table.getByText('← 이미지').closest('tr')!
   expect(apiRow).toHaveTextContent('← 이미지')
   expect(apiRow).toHaveTextContent('안 읽음') // dev: 아직 읽으려고 하지 않음
   // stg: 읽으려 했는데 실패 → '못 읽음' + 짧은 이유, 마우스를 올리면 전체 이유

@@ -177,6 +177,9 @@ table.subgrid { width: 100%; border-collapse: collapse; font-size: 13px; }
 .grid--dense thead th { white-space: normal; } /* 긴 머리글은 두 줄로(칸 폭을 머리글이 잡아먹지 않게) */
 .grid thead th.th-group { text-align: center; border-bottom: 1px solid var(--hairline); padding-bottom: 4px; }
 .grid thead th.th-sub { padding-top: 4px; }
+.grid thead th .th-flow { display: block; font-weight: 400; font-size: 11px; color: var(--ink-muted-48); margin-top: 2px; }
+.grid thead tr.th-band th.th-group { color: var(--ink); font-size: 12px; }
+.grid thead th.th-start { background: var(--canvas-parchment); }
 .grid--dense tbody td { padding: 7px 10px; }
 .grid--dense .ver, .grid--dense .mono { font-size: 12px; }
 .grid--dense .badge { font-size: 11px; }

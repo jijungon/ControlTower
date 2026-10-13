@@ -9,7 +9,7 @@ const RUN: Record<Run, { label: string; tone: string; title: string }> = {
   'start.sh': { label: 'start.sh', tone: 'warn', title: 'start.sh 스크립트가 앱을 띄움' },
   cmd: { label: 'Dockerfile CMD', tone: 'ok', title: 'Dockerfile 안의 CMD 가 앱을 띄움 — start.sh 필요 없음' },
   compose: { label: '서버 compose', tone: 'ok', title: '서버 docker-compose 의 command: 가 앱을 띄움 — start.sh 필요 없음' },
-  base: { label: '베이스 기본값', tone: 'muted', title: '베이스 이미지가 알아서 띄움(예: springboot)' },
+  base: { label: '베이스 이미지', tone: 'muted', title: '베이스 이미지가 알아서 띄움 — 예: springboot 이미지가 SPRING_FILE(jar) 을 실행, start.sh 안 씀' },
   server: { label: '없음 → 서버가 줌', tone: 'warn', title: 'Dockerfile 에 CMD 도 없고 start.sh 도 안 넣음 — 이미지 혼자서는 못 띄우고 서버 compose 가 명령을 줘야 함' },
 }
 
@@ -38,7 +38,7 @@ const TODO: Record<ConfigRow['state'], { label: string; tone: string; title: str
   leftover: { label: 'start.sh 지우기', tone: 'warn', title: '이미 Dockerfile CMD 가 앱을 띄움 — 폴더에 남은 start.sh 는 안 쓰임' },
   server: { label: 'CMD 넣기', tone: 'warn', title: '지금은 서버 compose 가 명령을 줌 — 이미지 혼자 뜨도록 CMD 를 넣으면 깔끔' },
   done: { label: '없음', tone: 'ok', title: 'Dockerfile CMD 로 뜨고 start.sh 도 없음' },
-  base: { label: '—', tone: 'muted', title: '베이스 이미지가 알아서 띄움 — 할 일 없음' },
+  base: { label: '없음', tone: 'ok', title: '베이스 이미지가 앱을 띄움(예: springboot 가 jar 실행) — start.sh 안 씀, 할 일 없음' },
   none: { label: 'Dockerfile 없음', tone: 'muted', title: '폴더에 Dockerfile 이 없음' },
 }
 
@@ -118,6 +118,13 @@ export function missShort(reason: string): string {
 //   칸 아래 작은 글씨 = 어디서 읽었나(서버 / 서버 자동 / gw 경유 / 사본 / 옛 사본)
 function serverEnvCell(r: ConfigRow, env: string) {
   const c = r.compose?.[env]
+  // start.sh 를 아예 안 쓰는 이미지(예: springboot 가 jar 실행)는 서버를 안 읽어도 됨 → 할 일처럼 보이지 않게 '—'
+  if (!c && r.start === 'base')
+    return (
+      <span className="muted" title="베이스 이미지가 앱을 띄워서(start.sh 안 씀) 서버 compose 를 읽을 필요 없음">
+        —
+      </span>
+    )
   if (!c) {
     const m = r.compose_miss?.[env]
     if (m?.state === 'fail') {
@@ -160,7 +167,7 @@ function serverEnvCell(r: ConfigRow, env: string) {
 
 // '기타' 칸 — lab·preview 같은 환경을 한 줄씩 짧게(자세한 건 마우스)
 function extraCell(r: ConfigRow, extras: string[]) {
-  const lines = extras.filter((e) => r.compose?.[e] || r.compose_miss?.[e])
+  const lines = r.start === 'base' ? extras.filter((e) => r.compose?.[e]) : extras.filter((e) => r.compose?.[e] || r.compose_miss?.[e])
   if (lines.length === 0) return <span className="muted">—</span>
   return lines.map((e) => {
     const c = r.compose?.[e]
@@ -281,13 +288,13 @@ export default function ConfigRepo() {
             <b>처음 실행할 명령</b> = 컨테이너가 켜질 때 앱을 띄우는 명령이 어디 있나. 모든 칸이 이 말만 써요 —{' '}
             <span className="badge badge--warn">start.sh</span> 별도 스크립트 · <span className="badge badge--ok">Dockerfile CMD</span> 이미지 안 ·{' '}
             <span className="badge badge--ok">서버 compose</span> 서버의 <span className="mono">command:</span> ·{' '}
-            <span className="badge badge--muted">베이스 기본값</span> springboot 처럼 이미지가 알아서 ·{' '}
+            <span className="badge badge--muted">베이스 이미지</span> springboot 처럼 이미지가 알아서(jar 실행, start.sh 안 씀) ·{' '}
             <span className="badge badge--warn">없음 → 서버가 줌</span> 이미지 혼자 못 띄움
           </li>
           <li>
             <b>(서버) 칸 모양 4가지</b> — <span className="run-dot" />
             <span className="badge badge--ok">서버 compose</span> 서버가 덮어씀 · <span className="st-asis">← 이미지</span> 확인됨(이미지 명령 그대로) ·{' '}
-            <span className="st-unread">안 읽음</span> 아직 안 봄 · <span className="miss-fail st-fail">못 읽음</span> 읽으려다 실패(이유는 아래)
+            <span className="st-unread">안 읽음</span> 아직 안 봄 · <span className="muted">—</span> 읽을 필요 없음(start.sh 를 안 쓰는 이미지) · <span className="miss-fail st-fail">못 읽음</span> 읽으려다 실패(이유는 아래)
           </li>
           <li>
             <span className="run-dot" /> = 그 서버에서 <b>실제로 실행되는</b> 명령. 기본은 이미지 안의 명령(Dockerfile)이 실행되고, 서버 compose 가 <span className="mono">command:</span> 를 주거나
@@ -332,14 +339,27 @@ export default function ConfigRepo() {
       <div className="card" style={{ overflowX: 'auto' }}>
         <table className="grid grid--nowrap grid--dense">
           <thead>
+            <tr className="th-band">
+              <th rowSpan={3}>서비스</th>
+              <th rowSpan={3}>타입</th>
+              <th colSpan={3} className="th-group">버전</th>
+              <th colSpan={2 + envs.length + (extras.length ? 1 : 0)} className="th-group th-start">
+                start.sh — 앱을 처음 띄우는 명령은 어디에?
+                <span className="th-flow">config 의 Dockerfile → 이미지 → 서버의 docker-compose (덮어쓸 수 있음)</span>
+              </th>
+            </tr>
             <tr>
-              <th rowSpan={2}>서비스</th>
-              <th rowSpan={2}>타입</th>
               <th rowSpan={2}>코드에 적힌 버전</th>
               <th rowSpan={2}>런타임 (이미지)</th>
               <th rowSpan={2}>베이스 이미지</th>
-              <th rowSpan={2}>처음 실행할 명령 (이미지)</th>
-              <th colSpan={envs.length + (extras.length ? 1 : 0)} className="th-group">처음 실행할 명령 (서버)</th>
+              <th rowSpan={2}>
+                처음 실행할 명령 (이미지)
+                <span className="th-flow">config 의 Dockerfile</span>
+              </th>
+              <th colSpan={envs.length + (extras.length ? 1 : 0)} className="th-group">
+                처음 실행할 명령 (서버)
+                <span className="th-flow">서버의 docker-compose</span>
+              </th>
               <th rowSpan={2}>정리할 것</th>
             </tr>
             <tr>
@@ -382,6 +402,7 @@ export default function ConfigRepo() {
                       <td>
                         {r.base_image ? (
                           <Ver
+                            split
                             text={`${r.base_image}${r.base_tag ? `:${r.base_tag}` : ''}`}
                             old={!r.merged_into && isOld(base, newestBase)}
                             newest={base ? `${base[0]}:${newestBase.get(base[0])}` : undefined}
