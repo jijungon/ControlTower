@@ -354,6 +354,12 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
     rows, missing = [], []
     compose_by_dir: dict[str, dict[str, str | None]] = {}
     src_by_dir: dict[str, dict[str, dict]] = {}  # config 폴더 → 환경 → 어디서 읽었나
+    miss_by_dir: dict[str, dict[str, dict]] = {}  # config 폴더 → 환경 → 못 읽음(이유) / 위치만 찾음
+
+    def miss(cdir: str | None, env: str, state: str, reason: str) -> None:
+        """화면에 '안 읽음'(시도 안 함)과 구분해서 보여줄 것: fail = 읽으려다 실패, planned = 위치만 찾음."""
+        if cdir:
+            miss_by_dir.setdefault(cdir, {}).setdefault(env, {"state": state, "reason": reason})
     plan: list[tuple[str, str, str | None, str, str]] = []  # (서비스, 환경, ssh 별칭|None, 주소, 경로)
     by_ip: dict[str, str] = {}
     if ssh_mode:
@@ -368,6 +374,7 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
             tried, text = _read_source(src, cfg, base_dir)
             if tried and text is None:
                 missing.append(f"config {cdir}:compose.{env}")
+                miss(str(cdir), str(env), "fail", "적어 둔 파일을 못 읽음(없음·권한·접속 실패)")
             compose_by_dir.setdefault(str(cdir), {})[str(env)] = text
             if text:
                 src_by_dir.setdefault(str(cdir), {})[str(env)] = _src_info(src)
@@ -389,6 +396,7 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
             tried, text = _read_source(src, cfg, base_dir)
             if tried and text is None:
                 missing.append(f"{svc['name']}:compose.{env}")
+                miss(cdir, str(env), "fail", "적어 둔 파일을 못 읽음(없음·권한·접속 실패)")
             compose[str(env)] = text
             if cdir and text:
                 compose_by_dir.setdefault(cdir, {}).setdefault(str(env), text)
@@ -402,12 +410,17 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
                 alias = by_ip.get(ip)
                 path_ = f"{t['dir']}/docker-compose.yml"
                 plan.append((str(svc["name"]), env, alias, ip, path_))
-                if ssh_mode != "read" or not alias:
+                if ssh_mode != "read":
+                    miss(cdir, env, "planned", f"위치는 찾음: {alias or '(SSH 설정에 없는 서버)'}:{path_} — --ssh 로 읽기")
+                    continue
+                if not alias:
+                    miss(cdir, env, "fail", f"~/.ssh/config 에 직접 등록 안 된 서버 — 게이트웨이를 거쳐야 할 수 있음(지금은 직접 접속만 함) — {path_}")
                     continue
                 src = {"ssh": alias, "path": path_}
                 _, text = _read_source(src, cfg, base_dir)
                 if text is None:
                     missing.append(f"{svc['name']}:compose.{env}(ssh {alias})")
+                    miss(cdir, env, "fail", f"SSH 로 못 읽음(접속·권한·파일 없음) — {alias}:{path_}")
                     continue
                 compose[env] = text
                 if cdir:
@@ -431,6 +444,7 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
         moves = {env: (analyze_compose(t) or {}).get("start") for env, t in compose_by_dir.get(cdir, {}).items() if t}
         data["compose"] = {env: m for env, m in moves.items() if m}
         data["compose_src"] = {env: src_by_dir.get(cdir, {}).get(env) for env in data["compose"]}  # 칸마다 어디서 읽었나
+        data["compose_miss"] = {e: m for e, m in miss_by_dir.get(cdir, {}).items() if e not in data["compose"]}
         data["code"] = code_by_dir.get(cdir)  # 코드에 적힌 버전(없으면 None)
         items.append({"path": cdir, "data": data})
 
@@ -446,9 +460,9 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
         api.close()
     if plan:
         found = sum(1 for p in plan if p[2])
-        print(f"서버 compose 자동 찾기: {len(plan)}곳 (접속 가능 {found} · 인벤토리에 없는 서버 {len(plan) - found})")
+        print(f"서버 compose 자동 찾기: {len(plan)}곳 (접속 가능 {found} · 직접 등록 안 된 서버 {len(plan) - found})")
         for name, env, alias, ip, path_ in plan:
-            where = f"{alias}:{path_}" if alias else f"(~/.ssh/config 에 없는 서버 {ip}) {path_}"
+            where = f"{alias}:{path_}" if alias else f"(~/.ssh/config 에 직접 등록 안 된 서버 {ip}) {path_}"
             print(f"  {name:22} {env:8} → {where}")
         if ssh_mode == "plan":
             print("  ※ 목록만 보여줬어요(접속 안 함). 실제로 읽으려면: python -m runner.cli shape --ssh")

@@ -169,7 +169,8 @@ table.subgrid { width: 100%; border-collapse: collapse; font-size: 13px; }
 .ver--old { color: var(--danger); background: var(--danger-bg); padding: 2px 8px; border-radius: 6px; font-weight: 600; white-space: nowrap; }
 /* 칸이 많은 비교표: 줄바꿈 대신 카드 안에서 가로 스크롤(정말 좁을 때만) */
 .grid--nowrap th, .grid--nowrap td { white-space: nowrap; }
-.grid--nowrap td.wrap { white-space: normal; min-width: 150px; } /* 배지 여러 개는 좁으면 줄바꿈 */
+.grid--nowrap td.wrap { white-space: normal; min-width: 150px; }
+.grid--nowrap td.wrap-sm { white-space: normal; min-width: 70px; } /* 배지 여러 개는 좁으면 줄바꿈 */
 /* 촘촘한 표: 글자·여백을 줄여 가로 스크롤 없이 보이게 */
 .grid--dense { font-size: 13px; }
 .grid--dense thead th { padding: 8px 10px; font-size: 12px; }
@@ -189,6 +190,8 @@ table.subgrid { width: 100%; border-collapse: collapse; font-size: 13px; }
   background: var(--canvas-parchment); border: 1px solid var(--hairline); border-radius: 8px; color: var(--ink); }
 .memo-body ul, .memo-body ol { margin: 4px 0 8px; padding-left: 18px; }
 /* ● 실제로 실행되는 명령 표시 */
+.miss-fail { color: var(--danger); }
+.extra-line { font-size: 12px; line-height: 1.5; }
 .run-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--danger); margin-right: 4px; vertical-align: middle; }
 .exec-pair { display: inline-flex; align-items: flex-start; gap: 2px; }
 .cell-sub { display: block; font-size: 11px; color: var(--ink-muted-48); line-height: 1.3; }

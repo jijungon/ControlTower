@@ -554,15 +554,20 @@ def test_cmd_shape_ssh_plan_and_read(monkeypatch, tmp_path, capsys):
     cli.cmd_shape(cfg, ssh_mode="plan")
     out = capsys.readouterr().out
     assert reads == []
-    assert "서버 compose 자동 찾기: 3곳 (접속 가능 1 · 인벤토리에 없는 서버 2)" in out  # stg·preview·prod (dev 는 이미 적힘)
+    assert "서버 compose 자동 찾기: 3곳 (접속 가능 1 · 직접 등록 안 된 서버 2)" in out  # stg·preview·prod (dev 는 이미 적힘)
     assert "shop-stg:/app/web-shop/docker-compose.yml" in out and "접속 안 함" in out
     assert sent["config"]["shop/web"]["compose_src"] == {"dev": {"kind": "file", "note": None, "where": "dev-compose.yml"}}
+    # 계획만: 위치를 찾은 환경은 '안 읽음' 이 아니라 'planned'
+    assert {e: m["state"] for e, m in sent["config"]["shop/web"]["compose_miss"].items()} == {"stg": "planned", "preview": "planned", "prod": "planned"}
     # 2) 실제로 읽기: 인벤토리에 있는 stg 만 SSH
     cli.cmd_shape(cfg, ssh_mode="read")
     assert reads == [("shop-stg", "/app/web-shop/docker-compose.yml")]
     data = sent["config"]["shop/web"]
     assert data["compose"] == {"dev": "mount", "stg": "image"}
     assert data["compose_src"]["stg"] == {"kind": "ssh", "auto": True, "where": "shop-stg:/app/web-shop/docker-compose.yml"}
+    # 실제로 읽기: SSH 설정에 없는 서버(preview·prod)는 '못 읽음' + 이유
+    assert {e: m["state"] for e, m in data["compose_miss"].items()} == {"preview": "fail", "prod": "fail"}
+    assert "직접 등록 안 된" in data["compose_miss"]["prod"]["reason"] and "게이트웨이" in data["compose_miss"]["prod"]["reason"]
 
 
 def test_src_info_note_per_file_overrides_service_note():

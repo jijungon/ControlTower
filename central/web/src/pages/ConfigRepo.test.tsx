@@ -10,7 +10,10 @@ const ROWS: ConfigRow[] = [
     code: { node: '22', node_from: '.nvmrc', node_rule: 'exact', nest: '11.0.1' } }, // 코드 22 ≠ 이미지 18 → ⚠
   { path: 'shop/admin', runtime: 'node', runtime_version: '22', base_image: 'node', base_tag: '22-slim', start: 'dockerfile', start_files: ['node-startup.sh'], state: 'leftover',
     code: { node: '20', node_from: 'package.json', node_rule: 'min' } }, // ≥20 이고 이미지 22 → 괜찮음
-  { path: 'shop/api', runtime: 'node', runtime_version: '22', base_image: 'node', base_tag: '22-slim', start: 'dockerfile', start_files: [], state: 'done', compose: { prod: 'image' } },
+  { path: 'shop/api', runtime: 'node', runtime_version: '22', base_image: 'node', base_tag: '22-slim', start: 'dockerfile', start_files: [], state: 'done', compose: { prod: 'image' },
+    compose_miss: {
+      stg: { state: 'fail', reason: '~/.ssh/config 에 직접 등록 안 된 서버 — 게이트웨이를 거쳐야 할 수 있음 — /app/api/docker-compose.yml' },
+    } },
   { path: 'shop/was', runtime: 'java', runtime_version: '17', base_image: 'infra/springboot', base_tag: '0.1.3-java17', start: 'base', start_files: [], state: 'base' },
   { path: 'shop/empty', state: 'none' },
   { path: 'shop/job', runtime: 'node', runtime_version: '22', base_image: 'infra/nodejs', base_tag: 'v22', start: 'server', start_files: ['node-startup.sh'], state: 'server', compose: { dev: 'command' } },
@@ -32,27 +35,33 @@ test('처음 실행할 명령(이미지·서버)·정리할 것 — 한 가지 �
   expect(table.getAllByText('Dockerfile CMD', { selector: '.badge' }).length).toBe(2)
   expect(table.getByText('베이스 기본값')).toBeInTheDocument()
   expect(table.getByText('없음 → 서버가 줌')).toBeInTheDocument()
-  // (서버): dev·stg·prod 열로 나뉨 — 데이터에 있는 환경만(여기선 dev·prod). compose 가 명령을 주면 '서버 compose', start.sh 마운트면 'start.sh'
-  expect(heads).not.toContain('stg')
-  const webRow = table.getByText('start.sh → CMD 로 옮기기').closest('tr')!
+  // (서버): dev·stg·prod 열로 나뉨 — 읽었거나 읽으려 한 환경만. compose 가 명령을 주면 '서버 compose', start.sh 마운트면 'start.sh'
+  expect(heads).toContain('stg') // dev·stg·prod 는 항상
+  expect(heads).not.toContain('기타') // lab·preview 데이터가 없으면 '기타' 열도 없음
+  const webRow = table.getByText('CMD 로 옮기기').closest('tr')!
   const cells = [...webRow.querySelectorAll('td')].map((td) => td.textContent)
   // ● = 실제로 실행되는 명령: dev 는 compose 가 덮어씀, prod 는 start.sh 를 넣음 → 둘 다 서버 칸에 ●
   expect(cells).toContain('서버 compose덮어씀 · 서버·자동') // dev: 실서버에서 자동으로 읽음
   expect(cells).toContain('start.sh서버가 넣음 · 옛 사본') // prod: 옛 하네스 파일
   expect(webRow.querySelectorAll('.run-dot').length).toBe(2)
-  // (이미지) 칸: 확인된 서버가 모두 덮어써서 '확인된 서버에선 안 씀'
-  expect(cells).toContain('start.sh확인된 서버에선 안 씀')
+  // (이미지) 칸: 읽은 서버가 모두 덮어써서 '서버에선 안 씀'
+  expect(cells).toContain('start.sh서버에선 안 씀')
   expect(table.getAllByText('서버 compose').length).toBe(2) // shop/web dev + shop/job dev
   // 정리할 것
-  expect(table.getByText('start.sh → CMD 로 옮기기')).toHaveClass('badge--danger')
-  expect(table.getByText('start.sh 파일 지우기')).toHaveAttribute('title', expect.stringContaining('node-startup.sh'))
+  expect(table.getByText('CMD 로 옮기기')).toHaveClass('badge--danger')
+  expect(table.getByText('start.sh 지우기')).toHaveAttribute('title', expect.stringContaining('node-startup.sh'))
   // 이미지 그대로 쓰는 서버: 서버 칸은 '← 이미지', (이미지) 칸에 '● 실행: prod'
   const apiRow = table.getByText('없음', { selector: '.badge' }).closest('tr')!
   expect(apiRow).toHaveTextContent('← 이미지')
-  expect(apiRow).toHaveTextContent('안 읽음') // dev: 서버 compose 를 아직 못 읽음
+  expect(apiRow).toHaveTextContent('안 읽음') // dev: 아직 읽으려고 하지 않음
+  // stg: 읽으려 했는데 실패 → '못 읽음' + 짧은 이유, 마우스를 올리면 전체 이유
+  const fail = within(apiRow).getByText('못 읽음')
+  expect(fail).toHaveClass('miss-fail')
+  expect(fail).toHaveTextContent('못 읽음직접 접속 안 됨')
+  expect(fail).toHaveAttribute('title', expect.stringContaining('/app/api/docker-compose.yml'))
   expect(apiRow).toHaveTextContent('Dockerfile CMD실행: prod')
   expect(apiRow.querySelectorAll('.run-dot').length).toBe(1)
-  expect(table.getByText('Dockerfile 에 CMD 넣기')).toBeInTheDocument()
+  expect(table.getByText('CMD 넣기')).toBeInTheDocument()
   expect(table.getByText('Dockerfile 없음')).toBeInTheDocument()
   expect(screen.getByText(/CMD 로 옮기기 1 · 파일 지우기 1 · CMD 넣기 1 · 코드↔이미지 다름 1 · 오래된 버전 \d+칸/)).toBeInTheDocument()
   // 코드에 적힌 버전: 이미지와 다르면 ⚠, '≥' 는 최소 버전이라 이미지가 더 높으면 괜찮음
@@ -85,4 +94,17 @@ test('빈 상태 안내', async () => {
   render(<ConfigRepo />)
   expect(await screen.findByText(/아직 config 를 읽지 않았습니다/)).toBeInTheDocument()
   expect(screen.getByText('아직 수집 없음')).toBeInTheDocument()
+})
+
+test("lab·preview 는 '기타' 한 열에 모음", async () => {
+  const rows: ConfigRow[] = [
+    { path: 'shop/web', runtime: 'node', runtime_version: '22', base_image: 'node', base_tag: '22-slim', start: 'dockerfile', start_files: [], state: 'done',
+      compose: { dev: 'image', lab: 'command' }, compose_miss: { preview: { state: 'fail', reason: 'SSH 설정에 없는 서버' } } },
+  ]
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(rows), { status: 200 })))
+  render(<ConfigRepo />)
+  const table = within(await screen.findByRole('table'))
+  expect(screen.getByRole('columnheader', { name: '기타' })).toBeInTheDocument()
+  expect(table.getByText('lab ● 서버 compose')).toBeInTheDocument()
+  expect(table.getByText('preview 못 읽음')).toHaveClass('miss-fail')
 })

@@ -214,6 +214,7 @@ export type ConfigRow = {
   state: 'legacy' | 'leftover' | 'server' | 'done' | 'base' | 'none' // 정리할 것
   code?: { node?: string; node_from?: string; node_rule?: 'exact' | 'min'; nest?: string; java?: string } | null // 코드에 적힌 버전
   compose_src?: Record<string, ComposeSrc | null> // 환경별 서버 compose 를 어디서 읽었나
+  compose_miss?: Record<string, { state: 'fail' | 'planned'; reason: string }> // 못 읽음(이유) / 위치만 찾음
   compose?: Record<string, 'mount' | 'command' | 'image'> // start.sh 형태(서버 compose): shell(마운트) / compose(command:) / Dockerfile(이미지 CMD)
   collected_at?: string | null
 }

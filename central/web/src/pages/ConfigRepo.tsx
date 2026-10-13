@@ -34,9 +34,9 @@ function serverRun(r: ConfigRow, env: string): Run | null {
 
 // 정리할 것 — '처음 실행할 명령' 기준으로 다음에 할 일
 const TODO: Record<ConfigRow['state'], { label: string; tone: string; title: string }> = {
-  legacy: { label: 'start.sh → CMD 로 옮기기', tone: 'danger', title: '지금은 start.sh 가 앱을 띄움 — Dockerfile 에 CMD 를 넣고 start.sh 를 없애면 끝' },
-  leftover: { label: 'start.sh 파일 지우기', tone: 'warn', title: '이미 Dockerfile CMD 가 앱을 띄움 — 폴더에 남은 start.sh 는 안 쓰임' },
-  server: { label: 'Dockerfile 에 CMD 넣기', tone: 'warn', title: '지금은 서버 compose 가 명령을 줌 — 이미지 혼자 뜨도록 CMD 를 넣으면 깔끔' },
+  legacy: { label: 'CMD 로 옮기기', tone: 'danger', title: '지금은 start.sh 가 앱을 띄움 — Dockerfile 에 CMD 를 넣고 start.sh 를 없애면 끝' },
+  leftover: { label: 'start.sh 지우기', tone: 'warn', title: '이미 Dockerfile CMD 가 앱을 띄움 — 폴더에 남은 start.sh 는 안 쓰임' },
+  server: { label: 'CMD 넣기', tone: 'warn', title: '지금은 서버 compose 가 명령을 줌 — 이미지 혼자 뜨도록 CMD 를 넣으면 깔끔' },
   done: { label: '없음', tone: 'ok', title: 'Dockerfile CMD 로 뜨고 start.sh 도 없음' },
   base: { label: '—', tone: 'muted', title: '베이스 이미지가 알아서 띄움 — 할 일 없음' },
   none: { label: 'Dockerfile 없음', tone: 'muted', title: '폴더에 Dockerfile 이 없음' },
@@ -106,12 +106,27 @@ function srcLabel(info?: ComposeSrc | null): { text: string; title: string } | n
 //   칸 아래 작은 글씨 = 어디서 읽었나(서버 / 서버·자동 / 사본 / 옛 사본)
 function serverEnvCell(r: ConfigRow, env: string) {
   const c = r.compose?.[env]
-  if (!c)
+  if (!c) {
+    const m = r.compose_miss?.[env]
+    if (m?.state === 'fail') {
+      const short = m.reason.includes('직접 등록 안 된') ? '직접 접속 안 됨' : m.reason.includes('적어 둔 파일') ? '파일 못 읽음' : 'SSH 실패'
+      return (
+        <span className="miss-fail" title={`못 읽음 — ${m.reason}`}>
+          못 읽음
+          <span className="cell-sub">{short}</span>
+        </span>
+      )
+    }
     return (
-      <span className="muted" title={`${env} 서버 compose 를 아직 안 읽음 — runner shape --ssh 로 실서버에서 읽거나 대상 파일에 적으면 표시`}>
+      <span
+        className="muted"
+        title={m?.state === 'planned' ? `안 읽음 — ${m.reason}` : `${env} 서버 compose 를 아직 읽으려고 하지 않음 — runner shape --ssh 로 실서버에서 읽거나 대상 파일에 적으면 표시`}
+      >
         안 읽음
+        {m?.state === 'planned' && <span className="cell-sub">위치 찾음</span>}
       </span>
     )
+  }
   const src = srcLabel(r.compose_src?.[env])
   if (c === 'image')
     return (
@@ -134,6 +149,23 @@ function serverEnvCell(r: ConfigRow, env: string) {
   )
 }
 
+// '기타' 칸 — lab·preview 같은 환경을 한 줄씩 짧게(자세한 건 마우스)
+function extraCell(r: ConfigRow, extras: string[]) {
+  const lines = extras.filter((e) => r.compose?.[e] || r.compose_miss?.[e])
+  if (lines.length === 0) return <span className="muted">—</span>
+  return lines.map((e) => {
+    const c = r.compose?.[e]
+    const m = r.compose_miss?.[e]
+    const text = c ? (c === 'image' ? '← 이미지' : `● ${RUN[serverRun(r, e)!].label}`) : m?.state === 'fail' ? '못 읽음' : '안 읽음'
+    const title = c ? `${e}: ${text}` : `${e}: ${m?.reason ?? ''}`
+    return (
+      <div key={e} className={`extra-line${!c && m?.state === 'fail' ? ' miss-fail' : ''}`} title={title}>
+        {e} {text}
+      </div>
+    )
+  })
+}
+
 // (이미지) 칸 — 어느 서버에서 이 명령이 그대로 실행되나(● 실행: dev·prod)
 function imageCell(r: ConfigRow, envs: string[]) {
   const run = imageRun(r)
@@ -146,7 +178,7 @@ function imageCell(r: ConfigRow, envs: string[]) {
       {runBadge(run)}
       {asIs.length > 0 && <span className="cell-sub" title="이 서버들은 이미지 명령을 그대로 실행">실행: {asIs.join('·')}</span>}
       {asIs.length === 0 && known.length > 0 && (
-        <span className="cell-sub" title="읽은 서버는 모두 compose 가 덮어써서 이 명령은 안 쓰여요">확인된 서버에선 안 씀</span>
+        <span className="cell-sub" title="읽은 서버는 모두 compose 가 덮어써서 이 명령은 안 쓰여요">서버에선 안 씀</span>
       )}
     </span>
   )
@@ -200,9 +232,9 @@ export default function ConfigRepo() {
     bySvc.set(svc, [...(bySvc.get(svc) ?? []), r])
   }
   const svcs = [...bySvc.entries()].sort(([a], [b]) => a.localeCompare(b))
-  // (서버) 열: 데이터에 있는 환경만, 없으면 dev·stg·prod 기본
-  const seen = ENV_ORDER.filter((e) => all.some((r) => r.compose?.[e]))
-  const envs = seen.length ? seen : ['dev', 'stg', 'prod']
+  // (서버) 열: dev·stg·prod 는 항상, lab·preview 처럼 가끔 있는 환경은 '기타' 한 열에 모음
+  const envs = ['dev', 'stg', 'prod']
+  const extras = ENV_ORDER.filter((e) => !envs.includes(e) && all.some((r) => r.compose?.[e] || r.compose_miss?.[e]))
 
   return (
     <div>
@@ -242,15 +274,16 @@ export default function ConfigRepo() {
           </li>
           <li>
             <b>(서버) 칸 아래 작은 글씨 = 어디서 읽었나</b> — <b>서버</b>: 실서버에서 직접 읽음(믿을 수 있음) · <b>서버·자동</b>: center CI 의 배포 서버·폴더로 찾아서 읽음 ·{' '}
-            <b>사본</b>: 복사해 둔 파일(실서버와 다를 수 있음) · <b>옛 사본</b>: 옛날 하네스 파일 · <b>안 읽음</b>: 아직 못 읽음
+            <b>사본</b>: 복사해 둔 파일(실서버와 다를 수 있음) · <b>옛 사본</b>: 옛날 하네스 파일 · <b>안 읽음</b>: 아직 읽으려고 하지 않음(<b>위치 찾음</b> = 서버·경로는 찾아 둠) ·{' '}
+            <b className="miss-fail">못 읽음</b>: 읽으려 했는데 실패(이유는 칸 아래·마우스)
           </li>
           <li>
             <b>(이미지)</b> = Dockerfile 이 이미지에 넣어 둔 명령 · <b>(서버) dev·stg·prod</b> = 그 서버에서 실제로 앱을 띄우는 명령 (서버 compose 가 명령을 주거나
             start.sh 를 넣으면 그게 우선, 아니면 이미지 그대로) — 파일 복사로 배포하는 서버는 이미지를 안 써서 둘이 달라질 수 있어요
           </li>
           <li>
-            <b>정리할 것</b> — <span className="badge badge--danger">start.sh → CMD 로 옮기기</span> ·{' '}
-            <span className="badge badge--warn">start.sh 파일 지우기</span> 안 쓰는 파일 · <span className="badge badge--warn">Dockerfile 에 CMD 넣기</span> 지금은 서버가 띄움 ·{' '}
+            <b>정리할 것</b> — <span className="badge badge--danger">CMD 로 옮기기</span> start.sh 를 Dockerfile CMD 로 ·{' '}
+            <span className="badge badge--warn">start.sh 지우기</span> 안 쓰는 파일 · <span className="badge badge--warn">CMD 넣기</span> 지금은 서버가 띄움 ·{' '}
             <span className="badge badge--ok">없음</span>
           </li>
           <li>
@@ -282,13 +315,18 @@ export default function ConfigRepo() {
               <th rowSpan={2}>런타임 (이미지)</th>
               <th rowSpan={2}>베이스 이미지</th>
               <th rowSpan={2}>처음 실행할 명령 (이미지)</th>
-              <th colSpan={envs.length} className="th-group">처음 실행할 명령 (서버)</th>
+              <th colSpan={envs.length + (extras.length ? 1 : 0)} className="th-group">처음 실행할 명령 (서버)</th>
               <th rowSpan={2}>정리할 것</th>
             </tr>
             <tr>
               {envs.map((e) => (
                 <th key={e} className="th-sub">{e}</th>
               ))}
+              {extras.length > 0 && (
+                <th className="th-sub" title={`그 밖의 환경: ${extras.join(', ')}`}>
+                  기타
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -332,6 +370,7 @@ export default function ConfigRepo() {
                       {envs.map((e) => (
                         <td key={e}>{serverEnvCell(r, e)}</td>
                       ))}
+                      {extras.length > 0 && <td className="wrap-sm">{extraCell(r, extras)}</td>}
                       <td>{todoCell(r)}</td>
                     </tr>
                   )
