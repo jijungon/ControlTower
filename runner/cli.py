@@ -405,7 +405,7 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
             compose[str(env)] = text
             if cdir and text:
                 compose_by_dir.setdefault(cdir, {}).setdefault(str(env), text)
-                src_by_dir.setdefault(cdir, {}).setdefault(str(env), _src_info(src, svc.get("note")))
+                src_by_dir.setdefault(cdir, {}).setdefault(str(env), _src_info(src, svc.get("source_note")))
         # center CI 에 적힌 배포 서버·폴더로 나머지 환경의 서버 compose 를 찾는다
         if ssh_mode and files.get("center_ci"):
             for env, t in deploy_targets(files["center_ci"], str(svc.get("type") or "web")).items():
@@ -458,6 +458,9 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
         data["compose"] = {env: m for env, m in moves.items() if m}
         data["compose_src"] = {env: src_by_dir.get(cdir, {}).get(env) for env in data["compose"]}  # 칸마다 어디서 읽었나
         data["compose_miss"] = {e: m for e, m in miss_by_dir.get(cdir, {}).items() if e not in data["compose"]}
+        merged = ((config or {}).get("merged") or {}).get(cdir)
+        if merged:  # 다른 폴더로 합쳐져 안 쓰는 폴더(예: repo 둘이 center 에서 하나로)
+            data["merged_into"] = str(merged)
         data["code"] = code_by_dir.get(cdir)  # 코드에 적힌 버전(없으면 None)
         items.append({"path": cdir, "data": data})
 

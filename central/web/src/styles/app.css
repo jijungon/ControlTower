@@ -192,6 +192,7 @@ table.subgrid { width: 100%; border-collapse: collapse; font-size: 13px; }
 /* ● 실제로 실행되는 명령 표시 */
 .miss-fail { color: var(--danger); }
 /* (서버) 칸 상태 4가지가 한눈에 갈리게: 덮어씀(배지) · 확인됨(초록) · 안 읽음(점선 회색) · 못 읽음(빨간 알약) */
+.grid tbody tr.row-merged td:not(.svc-cell) { opacity: 0.5; }
 .st-asis { color: var(--ok); font-weight: 600; }
 .st-unread { display: inline-block; color: var(--ink-muted-48); border: 1px dashed var(--hairline); border-radius: 999px; padding: 0 8px; font-size: 12px; }
 .st-unread-text { color: var(--ink-muted-48); }

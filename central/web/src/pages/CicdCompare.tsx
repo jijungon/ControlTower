@@ -229,14 +229,12 @@ export default function CicdCompare() {
                           {i === 0 && (
                             <td className="svc-cell" rowSpan={a.rows.length}>
                               {a.app}
-                              {r.note && (
-                                <div className="muted" style={{ fontWeight: 400, fontSize: 12 }}>
-                                  {r.note}
-                                </div>
-                              )}
                             </td>
                           )}
-                          <td>{split(r).kind}</td>
+                          <td>
+                          {split(r).kind}
+                          {r.note && <span className="cell-sub">{r.note}</span>}
+                        </td>
                           {envs.map((e) => (
                             <td key={e}>{deployCell(r.deploy?.[e])}</td>
                           ))}

@@ -119,3 +119,18 @@ test('못 읽음 이유를 짧게', () => {
   expect(missShort('SSH 로 못 읽음 — gw → x (ssh: connect to host x port 22: Connection timed out)')).toBe('네트워크 안 닿음')
   expect(missShort('SSH 로 못 읽음 — gw → x (cat: /app/x: No such file or directory)')).toBe('파일 없음')
 })
+
+test('합쳐진 폴더는 흐리게 + 사용 안 함 → 합쳐진 곳, 요약에서 빠짐', async () => {
+  const rows: ConfigRow[] = [
+    { path: 'chat/was', runtime: 'node', runtime_version: '22', base_image: 'node', base_tag: '22-slim', start: 'dockerfile', start_files: [], state: 'done' },
+    { path: 'cm/was', runtime: 'node', runtime_version: '18', base_image: 'node', base_tag: '18-slim', start: 'start.sh', start_files: ['start.sh'], state: 'legacy', merged_into: 'chat/was' },
+  ]
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(rows), { status: 200 })))
+  render(<ConfigRepo />)
+  const table = within(await screen.findByRole('table'))
+  const badge = table.getByText('사용 안 함 → chat/was')
+  expect(badge.closest('tr')).toHaveClass('row-merged')
+  expect(table.queryByText('CMD 로 옮기기')).toBeNull() // 할 일 대신 '사용 안 함'
+  expect(table.getByText('node 18')).not.toHaveClass('ver--old') // 비교에서 빠져서 빨간 칸 아님
+  expect(screen.getByText(/CMD 로 옮기기 0 · 파일 지우기 0 · CMD 넣기 0 · 코드↔이미지 다름 0 · 오래된 버전 0칸/)).toBeInTheDocument()
+})

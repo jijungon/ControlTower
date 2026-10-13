@@ -335,6 +335,7 @@ def test_cmd_shape_scans_config_dir_and_links_services(monkeypatch, tmp_path, ca
     targets.write_text(
         "config:\n"
         "  file: config\n"
+        "  merged: {shop/old: shop/web}\n"   # shop/old 는 shop/web 으로 합쳐져 안 씀
         "  compose:\n"
         "    shop/old: {dev: {file: dev-compose.yml}}\n"
         "services:\n"
@@ -369,6 +370,7 @@ def test_cmd_shape_scans_config_dir_and_links_services(monkeypatch, tmp_path, ca
     assert set(items) == {"shop/web", "shop/old"} and sent["replace"] is True
     assert items["shop/web"]["state"] == "leftover" and items["shop/web"]["compose"] == {}
     assert items["shop/web"]["code"] == {"node": "22", "node_from": ".nvmrc", "node_rule": "exact"}
+    assert items["shop/old"]["merged_into"] == "shop/web" and "merged_into" not in items["shop/web"]
     assert items["shop/old"]["code"] is None  # 연결된 서비스(repo)가 없음
     assert items["shop/old"]["state"] == "legacy" and items["shop/old"]["compose"] == {"dev": "mount"}  # start.sh 형태 = shell
     web = sent["shapes"][0]["data"]

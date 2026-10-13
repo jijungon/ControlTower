@@ -34,7 +34,8 @@ config:
 services:
   - name: shop web          # 표에 보이는 이름
     group: shop             # 서비스보다 큰 묶음(프로젝트 그룹) — 표에서 그룹별로 나뉨
-    note: 옛 사본            # (선택) 서비스 이름 밑에 작게 붙는 메모
+    note: 옛 사본            # (선택) 표에 작게 붙는 서비스 메모(예: repo: other-repo)
+    source_note: 옛 사본     # (선택) 이 서비스 파일들의 출처 메모 — config 탭 (서버) 칸 아래에 표시
     type: web               # web | was — 태그 정규식(<env>-<type>-v1.2.3) 판정용
     repo_ci:    {gitlab: repo,   project: shop/shop-web, path: .gitlab-ci.yml}
     center_ci:  {gitlab: center, project: shop/shop,     path: .gitlab-ci.yml}

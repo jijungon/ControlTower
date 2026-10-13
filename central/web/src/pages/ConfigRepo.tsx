@@ -194,6 +194,12 @@ function imageCell(r: ConfigRow, envs: string[]) {
 }
 
 function todoCell(r: ConfigRow) {
+  if (r.merged_into)
+    return (
+      <span className="badge badge--muted" title={`이 폴더는 ${r.merged_into} 로 합쳐져 안 쓰여요 — 대상 파일의 config.merged`}>
+        {`사용 안 함 → ${r.merged_into}`}
+      </span>
+    )
   const t = TODO[r.state] ?? TODO.none
   if (t.label === '—') return <span className="muted" title={t.title}>—</span>
   const files = r.start_files?.length ? ` · 폴더의 파일: ${r.start_files.join(', ')}` : ''
@@ -223,17 +229,18 @@ export default function ConfigRepo() {
   }, [])
 
   const all = rows ?? []
-  const newestRuntime = newestBy(all, runtimeOf)
-  const newestBase = newestBy(all, baseOf)
-  const count = (s: ConfigRow['state']) => all.filter((r) => r.state === s).length
+  const active = all.filter((r) => !r.merged_into) // 합쳐져 안 쓰는 폴더는 비교·요약에서 뺀다
+  const newestRuntime = newestBy(active, runtimeOf)
+  const newestBase = newestBy(active, baseOf)
+  const count = (s: ConfigRow['state']) => active.filter((r) => r.state === s).length
   const runtimeLabel = (r: ConfigRow) => (r.runtime ? `${r.runtime}${r.runtime_version ? ` ${r.runtime_version}` : ''}` : '')
   const runtimes = [...new Set(all.map(runtimeLabel).filter(Boolean))].sort()
-  const oldCount = all.reduce(
+  const oldCount = active.reduce(
     (n, r) => n + (isOld(runtimeOf(r), newestRuntime) ? 1 : 0) + (isOld(baseOf(r), newestBase) ? 1 : 0),
     0,
   )
   const latest = [...newestRuntime].map(([k, v]) => `${k} ${v}`).join(' · ')
-  const codeDiff = all.filter((r) => codeMismatch(r)).length
+  const codeDiff = active.filter((r) => codeMismatch(r)).length
   // 서비스별로 묶기: 'admin/web' → admin 의 web
   const bySvc = new Map<string, ConfigRow[]>()
   for (const r of runtime ? all.filter((x) => runtimeLabel(x) === runtime) : all) {
@@ -301,6 +308,9 @@ export default function ConfigRepo() {
             <span className="badge badge--ok">없음</span>
           </li>
           <li>
+            흐린 줄 + <span className="badge badge--muted">사용 안 함 → chat/was</span> = 다른 폴더로 합쳐져 안 쓰는 폴더(요약 숫자에서 빠짐)
+          </li>
+          <li>
             <b>코드에 적힌 버전</b> = repo 코드의 <span className="mono">.nvmrc</span>·<span className="mono">package.json</span>·<span className="mono">pom.xml</span> 에 "이 버전으로
             빌드해라" 고 적힌 값 (<b>≥20</b> = 20 이상이면 됨). 옆의 런타임(이미지)과 다르면 <span className="badge badge--warn">⚠ 이미지와 다름</span>
           </li>
@@ -350,7 +360,7 @@ export default function ConfigRepo() {
                   const rt = runtimeOf(r)
                   const base = baseOf(r)
                   return (
-                    <tr key={r.path} className={i === 0 ? 'svc-start' : undefined}>
+                    <tr key={r.path} className={[i === 0 ? 'svc-start' : '', r.merged_into ? 'row-merged' : ''].join(' ').trim() || undefined}>
                       {i === 0 && (
                         <td className="svc-cell" rowSpan={rs.length}>
                           {svc}
@@ -362,7 +372,7 @@ export default function ConfigRepo() {
                         {r.runtime ? (
                           <Ver
                             text={`${r.runtime}${r.runtime_version ? ` ${r.runtime_version}` : ''}`}
-                            old={isOld(rt, newestRuntime)}
+                            old={!r.merged_into && isOld(rt, newestRuntime)}
                             newest={rt ? `${rt[0]} ${newestRuntime.get(rt[0])}` : undefined}
                           />
                         ) : (
@@ -373,7 +383,7 @@ export default function ConfigRepo() {
                         {r.base_image ? (
                           <Ver
                             text={`${r.base_image}${r.base_tag ? `:${r.base_tag}` : ''}`}
-                            old={isOld(base, newestBase)}
+                            old={!r.merged_into && isOld(base, newestBase)}
                             newest={base ? `${base[0]}:${newestBase.get(base[0])}` : undefined}
                           />
                         ) : (
