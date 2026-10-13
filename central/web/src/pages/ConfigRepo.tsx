@@ -50,6 +50,7 @@ export default function ConfigRepo() {
   const [rows, setRows] = useState<ConfigRow[] | null>(null)
   const [err, setErr] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [runtime, setRuntime] = useState('')
 
   const load = () =>
     fetchConfig()
@@ -67,9 +68,16 @@ export default function ConfigRepo() {
   const newestRuntime = newestBy(all, runtimeOf)
   const newestBase = newestBy(all, baseOf)
   const count = (s: ConfigRow['state']) => all.filter((r) => r.state === s).length
+  const runtimeLabel = (r: ConfigRow) => (r.runtime ? `${r.runtime}${r.runtime_version ? ` ${r.runtime_version}` : ''}` : '')
+  const runtimes = [...new Set(all.map(runtimeLabel).filter(Boolean))].sort()
+  const oldCount = all.reduce(
+    (n, r) => n + (isOld(runtimeOf(r), newestRuntime) ? 1 : 0) + (isOld(baseOf(r), newestBase) ? 1 : 0),
+    0,
+  )
+  const latest = [...newestRuntime].map(([k, v]) => `${k} ${v}`).join(' · ')
   // 서비스별로 묶기: 'admin/web' → admin 의 web
   const bySvc = new Map<string, ConfigRow[]>()
-  for (const r of all) {
+  for (const r of runtime ? all.filter((x) => runtimeLabel(x) === runtime) : all) {
     const svc = r.path.split('/')[0]
     bySvc.set(svc, [...(bySvc.get(svc) ?? []), r])
   }
@@ -86,7 +94,11 @@ export default function ConfigRepo() {
 
       <SectionHead
         title="config 폴더"
-        sub={rows ? `구형 ${count('legacy')} · 잔재 ${count('leftover')} · 완료 ${count('done')}` : undefined}
+        sub={
+          rows
+            ? `start.sh 구형 ${count('legacy')} · 잔재 ${count('leftover')} · 완료 ${count('done')} · 오래된 버전 ${oldCount}칸${latest ? ` · 최신: ${latest}` : ''}`
+            : undefined
+        }
         asOf={latestTime(all.map((r) => r.collected_at))}
         onRefresh={() => runAll(setBusy, [load])}
         busy={busy}
@@ -114,6 +126,15 @@ export default function ConfigRepo() {
           </li>
         </ul>
       </details>
+
+      <div className="toolbar" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
+        <select className="search" style={{ minWidth: 140 }} value={runtime} onChange={(e) => setRuntime(e.target.value)} aria-label="런타임 필터">
+          <option value="">런타임: 전체</option>
+          {runtimes.map((r) => (
+            <option key={r} value={r}>{r}</option>
+          ))}
+        </select>
+      </div>
 
       <div className="card" style={{ overflowX: 'auto' }}>
         <table className="grid grid--nowrap grid--dense">

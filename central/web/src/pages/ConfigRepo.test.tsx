@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expect, test, vi } from 'vitest'
 import ConfigRepo from './ConfigRepo'
@@ -30,12 +30,22 @@ test('폴더별 실행 명령 위치·상태·start.sh 형태 + 오래된 버전
   expect(badges).toEqual(['dev compose', 'prod shell'])
   expect(table.getByText('prod shell')).toHaveClass('badge--warn')
   expect(table.getByText('dev compose')).toHaveClass('badge--ok')
-  expect(screen.getByText('구형 1 · 잔재 1 · 완료 1')).toBeInTheDocument()
+  expect(screen.getByText(/start\.sh 구형 1 · 잔재 1 · 완료 1 · 오래된 버전 1칸 · 최신: node 22 · java 17/)).toBeInTheDocument()
   // 서비스별로 묶음: shop 의 5개 폴더가 한 칸
   expect(table.getByText('shop').closest('td')).toHaveAttribute('rowspan', '5')
   // 새로고침 = 다시 불러오기
   await userEvent.click(screen.getByRole('button', { name: 'config 폴더 새로고침' }))
   expect(fetchMock).toHaveBeenCalledTimes(2)
+})
+
+test('런타임 필터 — node 18 만 보기', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(ROWS), { status: 200 })))
+  render(<ConfigRepo />)
+  const table = within(await screen.findByRole('table'))
+  await table.findByText('⚠ node 18')
+  fireEvent.change(screen.getByLabelText('런타임 필터'), { target: { value: 'node 18' } })
+  expect(table.getAllByText('web').length).toBe(1)
+  expect(table.queryByText('was')).toBeNull()
 })
 
 test('빈 상태 안내', async () => {

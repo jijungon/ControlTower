@@ -37,21 +37,7 @@ test('버전 비교 헬퍼 — 3.10 > 3.9, v18 < 20', () => {
   expect(m.get('java')).toBe('17')
 })
 
-test('같은 종류 중 최신이 아닌 버전만 빨간 칸', async () => {
-  stub(ROWS)
-  render(<CicdCompare />)
-  const old = await screen.findByText('⚠ node 18')
-  expect(old).toHaveClass('ver--old')
-  expect(old).toHaveAttribute('title', '최신(node 20)보다 오래됨')
-  const table = within(screen.getByRole('table'))
-  expect(table.getByText('node 20')).not.toHaveClass('ver--old') // 최신
-  expect(table.getByText('java 17')).not.toHaveClass('ver--old') // 혼자라 비교 대상 없음
-  // 베이스 이미지는 '이미지 이름이 같은 것끼리'만 비교 → 여기선 다 혼자라 빨간 칸 없음
-  expect(table.getByText('infra/nodejs:v18')).not.toHaveClass('ver--old')
-  expect(screen.getByText(/오래된 버전 1칸/)).toBeInTheDocument()
-})
-
-test('배포·executor·start.sh·CI 변수 칸 — 쉬운 말 + 마우스 올리면 뜻', async () => {
+test('배포·executor·CI 변수 칸 — 쉬운 말 + 마우스 올리면 뜻', async () => {
   stub(ROWS)
   render(<CicdCompare />)
   const table = within(await screen.findByRole('table'))
@@ -65,9 +51,12 @@ test('배포·executor·start.sh·CI 변수 칸 — 쉬운 말 + 마우스 올�
   expect(table.getByText('compose 기준', { selector: '.cell-sub' }).parentElement).toHaveAttribute('title', expect.stringContaining('짐작'))
   expect(table.getByText('⚠ compose 다름')).toHaveAttribute('title', expect.stringContaining('파일 복사'))
   expect(table.getByText('(추정)').parentElement).toHaveAttribute('title', expect.stringContaining('runners 표에 없어'))
-  // start.sh: 있음은 노랑, 없음은 초록
-  expect(table.getByText('있음')).toHaveClass('badge--warn')
-  expect(table.getByText('없음')).toHaveClass('badge--ok')
+  // 런타임·베이스 이미지·start.sh 는 config 탭 몫 — 이 표엔 없음
+  const heads = screen.getAllByRole('columnheader').map((h) => h.textContent)
+  expect(heads).not.toContain('런타임')
+  expect(heads).not.toContain('베이스 이미지')
+  expect(heads).not.toContain('start.sh')
+  expect(table.queryByText(/node 18/)).toBeNull()
   expect(table.getByText('오늘 바뀜')).toBeInTheDocument()
   expect(screen.getByText('표 읽는 법')).toBeInTheDocument()
   // 데이터에 있는 환경만 칸으로(dev·stg·prod), 없는 환경(lab)은 칸 없음
@@ -91,23 +80,6 @@ test('그룹 → 서비스 → 타입: 맨 앞 그룹 칸이 그룹의 모든 �
   // 그룹 필터
   fireEvent.change(screen.getByLabelText('그룹 필터'), { target: { value: 'outlet' } })
   expect([...document.querySelectorAll('td.grp-cell')].map((td) => td.firstChild?.textContent)).toEqual(['outlet'])
-})
-
-test('config 연결 시 start.sh 상태 색', async () => {
-  stub([{ service: 'x web', type: 'web', start_state: 'legacy', startup: true }, { service: 'y web', type: 'web', start_state: 'leftover', startup: true }])
-  render(<CicdCompare />)
-  const table = within(await screen.findByRole('table'))
-  expect(await table.findByText('사용 중')).toHaveClass('badge--danger')
-  expect(table.getByText('파일만 남음')).toHaveClass('badge--warn')
-})
-
-test('런타임 필터', async () => {
-  stub(ROWS)
-  render(<CicdCompare />)
-  await screen.findByText('shop')
-  fireEvent.change(screen.getByLabelText('런타임 필터'), { target: { value: 'java 17' } })
-  expect(within(screen.getByRole('table')).queryByText('shop')).toBeNull()
-  expect(screen.getByText('billing')).toBeInTheDocument()
 })
 
 test('빈 상태 안내', async () => {
