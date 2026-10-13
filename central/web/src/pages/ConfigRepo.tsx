@@ -94,8 +94,8 @@ function codeCell(r: ConfigRow) {
 // 서버 compose 를 어디서 읽었나 — 칸 아래 작은 글씨. 서버 = 실서버에서 직접(SSH), 사본 = 복사해 둔 파일(다를 수 있음)
 function srcLabel(info?: ComposeSrc | null): { text: string; title: string } | null {
   if (!info) return null
-  if (info.kind === 'ssh' && info.via) return { text: '서버·gw 경유', title: `게이트웨이를 거쳐 실서버에서 읽음 (${info.where}) — center CI 의 배포 서버·폴더로 자동으로 찾음` }
-  if (info.kind === 'ssh') return { text: info.auto ? '서버·자동' : '서버', title: `실서버에서 SSH 로 읽음 (${info.where})${info.auto ? ' — center CI 의 배포 서버·폴더로 자동으로 찾음' : ''}` }
+  if (info.kind === 'ssh' && info.via) return { text: 'gw 경유', title: `게이트웨이를 거쳐 실서버에서 읽음 (${info.where}) — center CI 의 배포 서버·폴더로 자동으로 찾음` }
+  if (info.kind === 'ssh') return { text: info.auto ? '서버 자동' : '서버', title: `실서버에서 SSH 로 읽음 (${info.where})${info.auto ? ' — center CI 의 배포 서버·폴더로 자동으로 찾음' : ''}` }
   if (info.kind === 'file') return { text: info.note || '사본', title: `복사해 둔 파일을 읽음 — 실서버와 다를 수 있음 (${info.where})` }
   if (info.kind === 'gitlab') return { text: 'GitLab', title: `GitLab 파일을 읽음 (${info.where})` }
   return null
@@ -115,7 +115,7 @@ export function missShort(reason: string): string {
 // (서버) 환경 한 칸 — ● = 실제로 실행되는 명령
 //   compose 가 command: 를 주거나 start.sh 를 넣으면 → 이 칸이 이김(●)
 //   아무것도 안 하면 → (이미지) 칸의 명령이 그대로 실행 → '← 이미지'
-//   칸 아래 작은 글씨 = 어디서 읽었나(서버 / 서버·자동 / 사본 / 옛 사본)
+//   칸 아래 작은 글씨 = 어디서 읽었나(서버 / 서버 자동 / gw 경유 / 사본 / 옛 사본)
 function serverEnvCell(r: ConfigRow, env: string) {
   const c = r.compose?.[env]
   if (!c) {
@@ -123,18 +123,15 @@ function serverEnvCell(r: ConfigRow, env: string) {
     if (m?.state === 'fail') {
       const short = missShort(m.reason)
       return (
-        <span className="miss-fail" title={`못 읽음 — ${m.reason}`}>
-          못 읽음
+        <span title={`못 읽음 — ${m.reason}`}>
+          <span className="miss-fail st-fail">못 읽음</span>
           <span className="cell-sub">{short}</span>
         </span>
       )
     }
     return (
-      <span
-        className="muted"
-        title={m?.state === 'planned' ? `안 읽음 — ${m.reason}` : `${env} 서버 compose 를 아직 읽으려고 하지 않음 — runner shape --ssh 로 실서버에서 읽거나 대상 파일에 적으면 표시`}
-      >
-        안 읽음
+      <span title={m?.state === 'planned' ? `안 읽음 — ${m.reason}` : `${env} 서버 compose 를 아직 읽으려고 하지 않음 — runner shape --ssh 로 실서버에서 읽거나 대상 파일에 적으면 표시`}>
+        <span className="st-unread">안 읽음</span>
         {m?.state === 'planned' && <span className="cell-sub">위치 찾음</span>}
       </span>
     )
@@ -142,8 +139,8 @@ function serverEnvCell(r: ConfigRow, env: string) {
   const src = srcLabel(r.compose_src?.[env])
   if (c === 'image')
     return (
-      <span className="muted" title={`${env} 서버는 compose 에 실행 명령이 없어서 (이미지) 칸의 명령이 그대로 실행돼요${src ? ` · 출처: ${src.title}` : ''}`}>
-        ← 이미지
+      <span title={`${env} 서버는 compose 에 실행 명령이 없어서 (이미지) 칸의 명령이 그대로 실행돼요${src ? ` · 출처: ${src.title}` : ''}`}>
+        <span className="st-asis">← 이미지</span>
         {src && <span className="cell-sub">{src.text}</span>}
       </span>
     )
@@ -154,7 +151,7 @@ function serverEnvCell(r: ConfigRow, env: string) {
       <span className="run-dot" aria-label="실행됨" />
       {runBadge(run)}
       <span className="cell-sub">
-        {c === 'command' ? '덮어씀' : '서버가 넣음'}
+        {c === 'command' ? '덮어씀' : '넣음'}
         {src ? ` · ${src.text}` : ''}
       </span>
     </span>
@@ -171,7 +168,7 @@ function extraCell(r: ConfigRow, extras: string[]) {
     const text = c ? (c === 'image' ? '← 이미지' : `● ${RUN[serverRun(r, e)!].label}`) : m?.state === 'fail' ? '못 읽음' : '안 읽음'
     const title = c ? `${e}: ${text}` : `${e}: ${m?.reason ?? ''}`
     return (
-      <div key={e} className={`extra-line${!c && m?.state === 'fail' ? ' miss-fail' : ''}`} title={title}>
+      <div key={e} className={`extra-line ${c ? (c === 'image' ? 'st-asis' : '') : m?.state === 'fail' ? 'miss-fail' : 'st-unread-text'}`} title={title}>
         {e} {text}
       </div>
     )
@@ -281,11 +278,16 @@ export default function ConfigRepo() {
             <span className="badge badge--warn">없음 → 서버가 줌</span> 이미지 혼자 못 띄움
           </li>
           <li>
+            <b>(서버) 칸 모양 4가지</b> — <span className="run-dot" />
+            <span className="badge badge--ok">서버 compose</span> 서버가 덮어씀 · <span className="st-asis">← 이미지</span> 확인됨(이미지 명령 그대로) ·{' '}
+            <span className="st-unread">안 읽음</span> 아직 안 봄 · <span className="miss-fail st-fail">못 읽음</span> 읽으려다 실패(이유는 아래)
+          </li>
+          <li>
             <span className="run-dot" /> = 그 서버에서 <b>실제로 실행되는</b> 명령. 기본은 이미지 안의 명령(Dockerfile)이 실행되고, 서버 compose 가 <span className="mono">command:</span> 를 주거나
             start.sh 를 넣으면 그게 <b>덮어써서</b> 실행돼요. <b>← 이미지</b> = 그 서버는 (이미지) 칸 명령을 그대로 씀
           </li>
           <li>
-            <b>(서버) 칸 아래 작은 글씨 = 어디서 읽었나</b> — <b>서버</b>: 실서버에서 직접 읽음(믿을 수 있음) · <b>서버·자동</b>: center CI 의 배포 서버·폴더로 찾아서 읽음 · <b>서버·gw 경유</b>: 게이트웨이를 거쳐 읽음 ·{' '}
+            <b>(서버) 칸 아래 작은 글씨 = 어디서 읽었나</b> — <b>서버</b>: 실서버에서 직접 읽음(믿을 수 있음) · <b>덮어씀 / 넣음</b>: compose 가 command: 를 줌 / start.sh 를 넣음 · <b>서버 자동</b>: center CI 의 배포 서버·폴더로 찾아서 읽음 · <b>gw 경유</b>: 게이트웨이를 거쳐 실서버에서 읽음 ·{' '}
             <b>사본</b>: 복사해 둔 파일(실서버와 다를 수 있음) · <b>옛 사본</b>: 옛날 하네스 파일 · <b>안 읽음</b>: 아직 읽으려고 하지 않음(<b>위치 찾음</b> = 서버·경로는 찾아 둠) ·{' '}
             <b className="miss-fail">못 읽음</b>: 읽으려 했는데 실패(이유는 칸 아래·마우스)
           </li>

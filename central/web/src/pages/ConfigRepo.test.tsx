@@ -41,8 +41,8 @@ test('처음 실행할 명령(이미지·서버)·정리할 것 — 한 가지 �
   const webRow = table.getByText('CMD 로 옮기기').closest('tr')!
   const cells = [...webRow.querySelectorAll('td')].map((td) => td.textContent)
   // ● = 실제로 실행되는 명령: dev 는 compose 가 덮어씀, prod 는 start.sh 를 넣음 → 둘 다 서버 칸에 ●
-  expect(cells).toContain('서버 compose덮어씀 · 서버·gw 경유') // dev: 게이트웨이를 거쳐 실서버에서 읽음
-  expect(cells).toContain('start.sh서버가 넣음 · 옛 사본') // prod: 옛 하네스 파일
+  expect(cells).toContain('서버 compose덮어씀 · gw 경유') // dev: 게이트웨이를 거쳐 실서버에서 읽음
+  expect(cells).toContain('start.sh넣음 · 옛 사본') // prod: 옛 하네스 파일
   expect(webRow.querySelectorAll('.run-dot').length).toBe(2)
   // (이미지) 칸: 읽은 서버가 모두 덮어써서 '서버에선 안 씀'
   expect(cells).toContain('start.sh서버에선 안 씀')
@@ -56,9 +56,12 @@ test('처음 실행할 명령(이미지·서버)·정리할 것 — 한 가지 �
   expect(apiRow).toHaveTextContent('안 읽음') // dev: 아직 읽으려고 하지 않음
   // stg: 읽으려 했는데 실패 → '못 읽음' + 짧은 이유, 마우스를 올리면 전체 이유
   const fail = within(apiRow).getByText('못 읽음')
-  expect(fail).toHaveClass('miss-fail')
-  expect(fail).toHaveTextContent('못 읽음직접 접속 안 됨')
-  expect(fail).toHaveAttribute('title', expect.stringContaining('/app/api/docker-compose.yml'))
+  expect(fail).toHaveClass('st-fail') // 빨간 알약
+  expect(fail.parentElement).toHaveTextContent('못 읽음직접 접속 안 됨')
+  // 상태마다 모양이 다름: ← 이미지(초록) · 안 읽음(점선)
+  expect(within(apiRow).getByText('← 이미지')).toHaveClass('st-asis')
+  expect(within(apiRow).getByText('안 읽음')).toHaveClass('st-unread')
+  expect(fail.parentElement).toHaveAttribute('title', expect.stringContaining('/app/api/docker-compose.yml'))
   expect(apiRow).toHaveTextContent('Dockerfile CMD실행: prod')
   expect(apiRow.querySelectorAll('.run-dot').length).toBe(1)
   expect(table.getByText('CMD 넣기')).toBeInTheDocument()
@@ -107,6 +110,7 @@ test("lab·preview 는 '기타' 한 열에 모음", async () => {
   expect(screen.getByRole('columnheader', { name: '기타' })).toBeInTheDocument()
   expect(table.getByText('lab ● 서버 compose')).toBeInTheDocument()
   expect(table.getByText('preview 못 읽음')).toHaveClass('miss-fail')
+  expect(table.getByText('lab ● 서버 compose')).not.toHaveClass('st-unread-text')
 })
 
 test('못 읽음 이유를 짧게', () => {

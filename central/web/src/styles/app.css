@@ -191,6 +191,11 @@ table.subgrid { width: 100%; border-collapse: collapse; font-size: 13px; }
 .memo-body ul, .memo-body ol { margin: 4px 0 8px; padding-left: 18px; }
 /* ● 실제로 실행되는 명령 표시 */
 .miss-fail { color: var(--danger); }
+/* (서버) 칸 상태 4가지가 한눈에 갈리게: 덮어씀(배지) · 확인됨(초록) · 안 읽음(점선 회색) · 못 읽음(빨간 알약) */
+.st-asis { color: var(--ok); font-weight: 600; }
+.st-unread { display: inline-block; color: var(--ink-muted-48); border: 1px dashed var(--hairline); border-radius: 999px; padding: 0 8px; font-size: 12px; }
+.st-unread-text { color: var(--ink-muted-48); }
+.st-fail { display: inline-block; background: var(--danger-bg); border-radius: 999px; padding: 0 8px; font-size: 12px; font-weight: 600; }
 .extra-line { font-size: 12px; line-height: 1.5; }
 .run-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--danger); margin-right: 4px; vertical-align: middle; }
 .exec-pair { display: inline-flex; align-items: flex-start; gap: 2px; }
