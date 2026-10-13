@@ -5,8 +5,10 @@ import ConfigRepo from './ConfigRepo'
 import type { ConfigRow } from '../api'
 
 const ROWS: ConfigRow[] = [
-  { path: 'shop/web', runtime: 'node', runtime_version: '18', base_image: 'infra/nodejs', base_tag: 'v18', start: 'start.sh', start_files: ['node-startup.sh'], state: 'legacy', compose: { prod: 'mount', dev: 'command' }, collected_at: '2026-10-13T03:00:00+00:00' },
-  { path: 'shop/admin', runtime: 'node', runtime_version: '22', base_image: 'node', base_tag: '22-slim', start: 'dockerfile', start_files: ['node-startup.sh'], state: 'leftover' },
+  { path: 'shop/web', runtime: 'node', runtime_version: '18', base_image: 'infra/nodejs', base_tag: 'v18', start: 'start.sh', start_files: ['node-startup.sh'], state: 'legacy', compose: { prod: 'mount', dev: 'command' }, collected_at: '2026-10-13T03:00:00+00:00',
+    code: { node: '22', node_from: '.nvmrc', node_rule: 'exact', nest: '11.0.1' } }, // 코드 22 ≠ 이미지 18 → ⚠
+  { path: 'shop/admin', runtime: 'node', runtime_version: '22', base_image: 'node', base_tag: '22-slim', start: 'dockerfile', start_files: ['node-startup.sh'], state: 'leftover',
+    code: { node: '20', node_from: 'package.json', node_rule: 'min' } }, // ≥20 이고 이미지 22 → 괜찮음
   { path: 'shop/api', runtime: 'node', runtime_version: '22', base_image: 'node', base_tag: '22-slim', start: 'dockerfile', start_files: [], state: 'done' },
   { path: 'shop/was', runtime: 'java', runtime_version: '17', base_image: 'infra/springboot', base_tag: '0.1.3-java17', start: 'base', start_files: [], state: 'base' },
   { path: 'shop/empty', state: 'none' },
@@ -30,7 +32,15 @@ test('폴더별 실행 명령 위치·상태·start.sh 형태 + 오래된 버전
   expect(badges).toEqual(['dev compose', 'prod shell'])
   expect(table.getByText('prod shell')).toHaveClass('badge--warn')
   expect(table.getByText('dev compose')).toHaveClass('badge--ok')
-  expect(screen.getByText(/start\.sh 구형 1 · 잔재 1 · 완료 1 · 오래된 버전 1칸 · 최신: node 22 · java 17/)).toBeInTheDocument()
+  expect(screen.getByText(/start\.sh 구형 1 · 잔재 1 · 완료 1 · 코드↔이미지 다름 1 · 오래된 버전 1칸 · 최신: node 22 · java 17/)).toBeInTheDocument()
+  // 코드에 적힌 버전: 이미지와 다르면 ⚠, '≥' 는 최소 버전이라 이미지가 더 높으면 괜찮음
+  const diff = table.getByText('⚠ 이미지와 다름')
+  expect(diff).toHaveAttribute('title', '코드는 node 22(.nvmrc), 이미지는 node 18')
+  expect(diff.parentElement).toHaveTextContent(/^node 22⚠ 이미지와 다름nest 11\.0\.1$/)
+  expect(table.getByText('node ≥20')).toBeInTheDocument()
+  expect(table.getAllByText('⚠ 이미지와 다름').length).toBe(1)
+  expect(table.getByText('nest 11.0.1')).toBeInTheDocument()
+  expect(screen.getByText(/출처: center config repo/)).toBeInTheDocument()
   // 서비스별로 묶음: shop 의 5개 폴더가 한 칸
   expect(table.getByText('shop').closest('td')).toHaveAttribute('rowspan', '5')
   // 새로고침 = 다시 불러오기

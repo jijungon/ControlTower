@@ -149,6 +149,7 @@ export default function CicdCompare() {
         asOf={latestTime(all.map((r) => r.collected_at))}
         onRefresh={() => runAll(setBusy, [load])}
         busy={busy}
+        source="repo·center 의 .gitlab-ci.yml (+ 서버 docker-compose 로 확인) · 수집 python -m runner.cli shape · 대상 shape-targets.yml"
       />
       <Legend />
       <div className="toolbar" style={{ flexWrap: 'wrap', alignItems: 'center' }}>

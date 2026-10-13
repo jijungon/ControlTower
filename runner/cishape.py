@@ -12,6 +12,7 @@ executor 는 GitLab API 가 알려주지 않으므로 사람이 확인한 runner
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from collections import Counter
 from typing import Any
@@ -480,6 +481,39 @@ def config_dirs(paths: list[str]) -> dict[str, list[str]]:
     for svc, names in flat.items():
         if any(is_dockerfile(n) for n in names):
             out[svc] = names
+    return out
+
+
+# ── 코드에 적힌 버전(repo 의 .nvmrc · package.json · pom.xml) ─────────────
+def code_versions(files: dict[str, str | None]) -> dict:
+    """repo 코드가 '이 버전으로 빌드해라' 고 적어 둔 값.
+
+    node: .nvmrc(정확한 버전) 우선, 없으면 package.json engines.node('>=20' 은 최소 버전 → rule=min).
+    nest: @nestjs/core, java: pom.xml. 값이 하나도 없으면 빈 dict.
+    """
+    from .repoversions import _ver_or_major, parse_nvmrc, parse_pom_java
+
+    out: dict = {}
+    nvm = parse_nvmrc(files.get(".nvmrc") or "")
+    pkg: dict = {}
+    try:
+        loaded = json.loads(files.get("package.json") or "{}")
+        pkg = loaded if isinstance(loaded, dict) else {}
+    except ValueError:
+        pkg = {}
+    engines = str((pkg.get("engines") or {}).get("node") or "")
+    if nvm:
+        out.update(node=nvm, node_from=".nvmrc", node_rule="exact")
+    elif _ver_or_major(engines):
+        rule = "min" if engines.strip().startswith(">") else "exact"
+        out.update(node=_ver_or_major(engines), node_from="package.json", node_rule=rule)
+    deps = {**(pkg.get("dependencies") or {}), **(pkg.get("devDependencies") or {})}
+    nest = _ver_or_major(deps.get("@nestjs/core"))
+    if nest:
+        out["nest"] = nest
+    java = parse_pom_java(files.get("pom.xml") or "")
+    if java:
+        out["java"] = java
     return out
 
 

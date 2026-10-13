@@ -32,6 +32,7 @@ export default function Updates() {
         asOf={latestTime((rows ?? []).map((r) => r.collected_at))}
         onRefresh={() => runAll(setBusy, [() => load()])}
         busy={busy}
+        source="서버마다 SSH 로 apt(없으면 yum/dnf) 대기 패치 · 수집 python -m runner.cli updates"
       />
 
       <div className="card">

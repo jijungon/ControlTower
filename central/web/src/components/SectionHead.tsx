@@ -36,10 +36,12 @@ type Props = {
   asOf?: string | null // 데이터 기준 시각(수집 시각 중 가장 최근)
   onRefresh?: () => void | Promise<unknown>
   busy?: boolean
+  source?: string // 이 표가 어디서 온 값인지(관리할 때 헷갈리지 않게)
 }
 
-export default function SectionHead({ title, sub, asOf, onRefresh, busy }: Props) {
+export default function SectionHead({ title, sub, asOf, onRefresh, busy, source }: Props) {
   return (
+    <>
     <div className="section-head">
       <h2 className="section-title">{title}</h2>
       {sub && <span className="section-sub">{sub}</span>}
@@ -47,6 +49,8 @@ export default function SectionHead({ title, sub, asOf, onRefresh, busy }: Props
       <span className="section-asof">{asOf ? `데이터 기준 ${fmtTime(asOf)}` : '아직 수집 없음'}</span>
       {onRefresh && <RefreshButton label={`${title} 새로고침`} onClick={onRefresh} busy={busy} />}
     </div>
+    {source && <p className="section-source">출처: {source}</p>}
+    </>
   )
 }
 

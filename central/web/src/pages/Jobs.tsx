@@ -50,6 +50,7 @@ export default function Jobs() {
         asOf={latestTime((rows ?? []).map((r) => r.created_at))}
         onRefresh={() => runAll(setBusy, [load])}
         busy={busy}
+        source="중앙 API 가 러너·화면 동작을 그때그때 기록"
       />
 
       <div className="card">

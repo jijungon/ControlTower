@@ -149,9 +149,25 @@ CI/CD 파이프라인 상태와 repo 선언본 버전(node/nest/java)은 GitLab 
 
 > 읽기 전용. 읽은 파일 원문은 중앙에 올리지 않고 결과 칸만 올린다. CI 변수는 **값 없이** 개수 + 해시만 보내서 "언제 바뀌었나"만 보여준다. executor 는 GitLab 이 알려주지 않으므로 대상 파일의 `runners:` 표(태그→shell/docker)로 정하고, 표에 없는 태그는 `(추정)`.
 
-### 탭
+### 탭별 출처 — 고칠 때 어디를 보면 되나
 
-대시보드 · **서버**(목록 + 서버 `/etc` 설정 파일 비교·적용) · **빌드·배포**(서비스 비교 + 버전 + 파이프라인) · **config** · **OS 패치·작업이력**(좌우). 표마다 ↻(화면 새로고침)과 "데이터 기준" 시각.
+기준: **방식(어떻게)은 빌드·배포, 버전(무엇으로)은 config, 서버에 깔린 것은 서버 탭.** 화면의 표마다 같은 "출처" 줄이 붙어 있다.
+
+| 탭 · 표 | 무엇을 | 어디서 읽나 | 수집(러너) | API · 화면 코드 |
+|---|---|---|---|---|
+| 대시보드 | 아래 수집 결과 요약 | (각 탭 데이터) | — | `Dashboard.tsx` |
+| 서버 · 서버 목록 | 서버·접속 키·접속 확인 | 내 PC `~/.ssh/config` · SSH 접속 | `import` · `test` · `probe` | `/api/servers` · `Servers.tsx` |
+| 서버 · 깔린 도구 칸 | 서버마다 node/java/docker 버전 | 서버마다 SSH 로 `--version` | `versions` | `/api/versions` · `Servers.tsx` |
+| 서버 · 서버 설정 파일 (/etc) | 서버마다 같아야 하는 파일 비교·적용 | 서버마다 SSH 로 등록한 파일 | `conf` · `apply` | `/api/conf` · `Conf.tsx` |
+| 빌드·배포 · 서비스 비교 | 환경별 배포 방식 · executor · CI 변수 | repo·center `.gitlab-ci.yml` (+ 서버 compose 로 확인) | `shape` (대상 `shape-targets.yml`) | `/api/cicd/shape` · `CicdCompare.tsx` |
+| config · config 폴더 | 코드에 적힌 버전 · 런타임/베이스 이미지 · 실행 명령 위치 · start.sh 상태·형태 | center config repo(Dockerfile·start.sh) · repo 코드(`.nvmrc`·`package.json`·`pom.xml`) · 서버 compose | `shape` (대상 `shape-targets.yml`) | `/api/cicd/config` · `ConfigRepo.tsx` |
+| OS 패치·작업이력 · OS 패치 | 서버마다 안 깔린 패치 | 서버마다 SSH 로 apt(→yum/dnf) | `updates` | `/api/updates` · `Updates.tsx` |
+| OS 패치·작업이력 · 작업이력 | ControlTower 가 한 모든 일 | 중앙 API 가 기록 | — | `/api/audit` · `Jobs.tsx` |
+
+- 수집은 `python -m runner.cli <명령>`, 한 번에 다 돌리려면 `all` (`make collect`).
+- 판독 규칙은 `runner/cishape.py`(CI·Dockerfile·compose·코드 버전), 버전 비교(빨간 칸)는 `central/web/src/vercmp.tsx`.
+- 표마다 ↻ 는 **화면 새로고침**(중앙에 저장된 값을 다시 읽음)이다. 서버·GitLab 을 다시 읽는 건 러너 몫.
+- 쓰지 않게 된 것: 파이프라인 상태(`runner cicd`, `/api/cicd`·`/api/cicd/targets`)와 GitLab 선언본 대상(`runner versions-repo`, `/api/versions/repo-*`)은 화면에서 뺐다. 코드에 적힌 버전은 이제 `shape` 가 config 탭으로 모은다.
 
 ## 저장소 구조
 

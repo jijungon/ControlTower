@@ -25,7 +25,15 @@ import time
 from . import applier
 from .api import CentralAPI
 from .apt import parse_upgradable
-from .cishape import analyze_compose, analyze_config_dir, build_row, config_dirs, is_dockerfile, parse_targets
+from .cishape import (
+    analyze_compose,
+    analyze_config_dir,
+    build_row,
+    code_versions,
+    config_dirs,
+    is_dockerfile,
+    parse_targets,
+)
 from .config import RunnerConfig
 from .conn import list_upgrades, list_upgrades_yum, read_file, run_remote, test_ssh
 from .gitlab import fetch_latest_pipeline, fetch_repo_file, fetch_repo_tree
@@ -259,6 +267,21 @@ def _read_source(src: object, cfg: RunnerConfig, base_dir: str) -> tuple[bool, s
     return True, text
 
 
+def _sibling(src: object, name: str) -> dict | None:
+    """같은 repo 의 다른 파일을 가리키는 소스(예: .gitlab-ci.yml 옆의 .nvmrc)."""
+    if not isinstance(src, dict):
+        return None
+    if src.get("file"):
+        return {**src, "file": os.path.join(os.path.dirname(os.path.expanduser(str(src["file"]))), name)}
+    if src.get("path") is not None:
+        d = os.path.dirname(str(src["path"]))
+        return {**src, "path": f"{d}/{name}" if d else name}
+    return None
+
+
+CODE_VERSION_FILES = (".nvmrc", "package.json", "pom.xml")
+
+
 def _config_listing(config: dict, cfg: RunnerConfig, base_dir: str):
     """config 섹션 → ({'<서비스>/<타입>': [파일 이름…]}, read('<서비스>/<타입>/<파일>')) 또는 None."""
     if config.get("file"):
@@ -315,6 +338,7 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None) -> None:
 
     rows, missing = [], []
     compose_by_dir: dict[str, dict[str, str | None]] = {}
+    code_by_dir: dict[str, dict] = {}  # config 폴더 ↔ 코드에 적힌 버전(서비스의 repo CI 옆 파일들)
     for cdir, envs in ((config or {}).get("compose") or {}).items():
         for env, src in (envs or {}).items():
             tried, text = _read_source(src, cfg, base_dir)
@@ -344,6 +368,11 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None) -> None:
                 compose_by_dir.setdefault(cdir, {}).setdefault(str(env), text)
         files["compose"] = compose
         row = build_row(svc, files, runners)
+        if cdir and svc.get("repo_ci"):
+            code_files = {n: _read_source(_sibling(svc["repo_ci"], n), cfg, base_dir)[1] for n in CODE_VERSION_FILES}
+            cv = code_versions(code_files)
+            if cv:
+                code_by_dir.setdefault(cdir, cv)
         if cdir and cdir in dirs:  # start.sh 칸 색: config 폴더 기준(실행에 씀 / 파일만 남음 / 없음)
             row["data"]["start_state"] = analyze_config_dir(dirs[cdir], config_files(cdir)[0])["state"]
         rows.append(row)
@@ -354,6 +383,7 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None) -> None:
         data = analyze_config_dir(dirs[cdir], df_text)
         moves = {env: (analyze_compose(t) or {}).get("start") for env, t in compose_by_dir.get(cdir, {}).items() if t}
         data["compose"] = {env: m for env, m in moves.items() if m}
+        data["code"] = code_by_dir.get(cdir)  # 코드에 적힌 버전(없으면 None)
         items.append({"path": cdir, "data": data})
 
     api = CentralAPI(cfg.central_url, cfg.api_token)

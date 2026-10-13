@@ -5,6 +5,7 @@ from runner.cishape import (
     analyze_config_dir,
     analyze_dockerfile,
     build_row,
+    code_versions,
     config_dirs,
     detect_runtime,
     parse_targets,
@@ -322,6 +323,9 @@ def test_cmd_shape_scans_config_dir_and_links_services(monkeypatch, tmp_path, ca
     (cfgdir / "shop" / "old").mkdir()
     (cfgdir / "shop" / "old" / "Dockerfile").write_text(DOCKER_LEGACY)
     (tmp_path / "dev-compose.yml").write_text(COMPOSE_DIRECT)
+    (tmp_path / "repo").mkdir()
+    (tmp_path / "repo" / ".gitlab-ci.yml").write_text(REPO_LEGACY)
+    (tmp_path / "repo" / ".nvmrc").write_text("22\n")  # 코드는 22, 이미지는 node:20 → 화면에서 ⚠
     targets = tmp_path / "shape-targets.yml"
     targets.write_text(
         "config:\n"
@@ -331,6 +335,7 @@ def test_cmd_shape_scans_config_dir_and_links_services(monkeypatch, tmp_path, ca
         "services:\n"
         "  - name: shop web\n"
         "    config_dir: shop/web\n"   # dockerfile·startup 을 config 폴더에서
+        "    repo_ci: {file: repo/.gitlab-ci.yml}\n"
     )
     sent = {}
 
@@ -358,6 +363,8 @@ def test_cmd_shape_scans_config_dir_and_links_services(monkeypatch, tmp_path, ca
     items = {i["path"]: i["data"] for i in sent["config"]}
     assert set(items) == {"shop/web", "shop/old"} and sent["replace"] is True
     assert items["shop/web"]["state"] == "leftover" and items["shop/web"]["compose"] == {}
+    assert items["shop/web"]["code"] == {"node": "22", "node_from": ".nvmrc", "node_rule": "exact"}
+    assert items["shop/old"]["code"] is None  # 연결된 서비스(repo)가 없음
     assert items["shop/old"]["state"] == "legacy" and items["shop/old"]["compose"] == {"dev": "mount"}  # start.sh 형태 = shell
     web = sent["shapes"][0]["data"]
     assert web["runtime_version"] == "20" and web["startup"] is True  # config_dir 로 채움
@@ -415,3 +422,15 @@ deploy-dev:
     - if: '$CI_COMMIT_TAG =~ /^dev-web-v\d+/'
 """
     assert analyze_ci(ci, "web")["envs"]["dev"] == {"deploy_image": False}  # 주석의 scp 는 무시 → 이미지 배포
+
+
+def test_code_versions_nvmrc_engines_pom():
+    assert code_versions({".nvmrc": "v22\n", "package.json": '{"engines": {"node": ">=20"}}'}) == {
+        "node": "22", "node_from": ".nvmrc", "node_rule": "exact",
+    }
+    assert code_versions({"package.json": '{"engines": {"node": ">=20.0.0"}, "dependencies": {"@nestjs/core": "^11.0.1"}}'}) == {
+        "node": "20.0.0", "node_from": "package.json", "node_rule": "min", "nest": "11.0.1",
+    }
+    assert code_versions({"package.json": '{"engines": {"node": "^20"}}'})["node_rule"] == "exact"
+    assert code_versions({"pom.xml": "<properties><java.version>17</java.version></properties>"}) == {"java": "17"}
+    assert code_versions({".nvmrc": None, "package.json": "not json", "pom.xml": None}) == {}

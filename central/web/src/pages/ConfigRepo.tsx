@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from 'react'
 import { fetchConfig, type ConfigRow } from '../api'
 import SectionHead, { latestTime, runAll } from '../components/SectionHead'
-import { isOld, newestBy, Ver } from '../vercmp'
+import { isOld, newestBy, Ver, verParts } from '../vercmp'
 
 // 실행 명령이 어디 적혀 있나
 const START_LABEL: Record<string, string> = {
@@ -32,6 +32,38 @@ const ENV_ORDER = ['dev', 'lab', 'stg', 'preview', 'prod']
 const runtimeOf = (r: ConfigRow): [string, string] | null =>
   r.runtime && r.runtime_version ? [r.runtime, r.runtime_version] : null
 const baseOf = (r: ConfigRow): [string, string] | null => (r.base_image && r.base_tag ? [r.base_image, r.base_tag] : null)
+
+// 코드에 적힌 버전 vs 이미지 런타임 — 다르면 이유 문장, 같으면 null
+export function codeMismatch(r: ConfigRow): string | null {
+  const c = r.code
+  if (!c || !r.runtime || !r.runtime_version) return null
+  const img = verParts(r.runtime_version)[0]
+  if (r.runtime === 'node' && c.node) {
+    const code = verParts(c.node)[0]
+    const bad = c.node_rule === 'min' ? img < code : img !== code
+    if (bad) return `코드는 node ${c.node_rule === 'min' ? '≥' : ''}${c.node}(${c.node_from}), 이미지는 node ${r.runtime_version}`
+  }
+  if (r.runtime === 'java' && c.java && verParts(c.java)[0] !== img) return `코드는 java ${c.java}(pom.xml), 이미지는 java ${r.runtime_version}`
+  return null
+}
+
+function codeCell(r: ConfigRow) {
+  const c = r.code
+  if (!c || (!c.node && !c.java)) return <span className="muted" title="이 폴더와 연결된 repo 가 없거나, 버전을 적어 둔 파일이 없음">—</span>
+  const main = c.node ? `node ${c.node_rule === 'min' ? '≥' : ''}${c.node}` : `java ${c.java}`
+  const bad = codeMismatch(r)
+  return (
+    <span title={`출처: ${c.node ? c.node_from : 'pom.xml'}`}>
+      <span className="ver">{main}</span>
+      {bad && (
+        <span className="badge badge--warn" style={{ display: 'table', marginTop: 2 }} title={bad}>
+          ⚠ 이미지와 다름
+        </span>
+      )}
+      {c.nest && <span className="cell-sub">nest {c.nest}</span>}
+    </span>
+  )
+}
 
 function composeCell(c?: ConfigRow['compose']) {
   const envs = Object.keys(c ?? {}).sort((a, b) => ENV_ORDER.indexOf(a) - ENV_ORDER.indexOf(b))
@@ -75,6 +107,7 @@ export default function ConfigRepo() {
     0,
   )
   const latest = [...newestRuntime].map(([k, v]) => `${k} ${v}`).join(' · ')
+  const codeDiff = all.filter((r) => codeMismatch(r)).length
   // 서비스별로 묶기: 'admin/web' → admin 의 web
   const bySvc = new Map<string, ConfigRow[]>()
   for (const r of runtime ? all.filter((x) => runtimeLabel(x) === runtime) : all) {
@@ -96,12 +129,13 @@ export default function ConfigRepo() {
         title="config 폴더"
         sub={
           rows
-            ? `start.sh 구형 ${count('legacy')} · 잔재 ${count('leftover')} · 완료 ${count('done')} · 오래된 버전 ${oldCount}칸${latest ? ` · 최신: ${latest}` : ''}`
+            ? `start.sh 구형 ${count('legacy')} · 잔재 ${count('leftover')} · 완료 ${count('done')} · 코드↔이미지 다름 ${codeDiff} · 오래된 버전 ${oldCount}칸${latest ? ` · 최신: ${latest}` : ''}`
             : undefined
         }
         asOf={latestTime(all.map((r) => r.collected_at))}
         onRefresh={() => runAll(setBusy, [load])}
         busy={busy}
+        source="center config repo(Dockerfile·start.sh) · repo 코드(.nvmrc·package.json·pom.xml) · 서버 docker-compose · 수집 python -m runner.cli shape · 대상 shape-targets.yml"
       />
 
       <details className="legend" open>
@@ -110,6 +144,10 @@ export default function ConfigRepo() {
           <li>
             <b>실행 명령 위치</b> = 컨테이너가 켜질 때 앱을 실행하는 명령이 어디 적혀 있나 — <b>Dockerfile (CMD)</b>: 이미지 안에 들어 있음(=CMD 내장,
             start.sh 필요 없음) · <b>start.sh</b>: 별도 스크립트 파일로 실행 · <b>베이스 이미지 기본값</b>: 베이스 이미지가 알아서 실행(예: springboot)
+          </li>
+          <li>
+            <b>코드에 적힌 버전</b> = repo 코드의 <span className="mono">.nvmrc</span>·<span className="mono">package.json</span>·<span className="mono">pom.xml</span> 에 "이 버전으로
+            빌드해라" 고 적힌 값 (<b>≥20</b> = 20 이상이면 됨). 옆의 런타임(이미지)과 다르면 <span className="badge badge--warn">⚠ 이미지와 다름</span>
           </li>
           <li>
             <b>상태</b> — <span className="badge badge--danger">구형</span> start.sh 로 실행 ·{' '}
@@ -142,7 +180,8 @@ export default function ConfigRepo() {
             <tr>
               <th>서비스</th>
               <th>타입</th>
-              <th>런타임</th>
+              <th>코드에 적힌 버전</th>
+              <th>런타임 (이미지)</th>
               <th>베이스 이미지</th>
               <th>실행 명령 위치</th>
               <th>start.sh 파일</th>
@@ -165,6 +204,7 @@ export default function ConfigRepo() {
                         </td>
                       )}
                       <td>{r.path.split('/')[1] ?? <span className="muted">—</span>}</td>
+                      <td>{codeCell(r)}</td>
                       <td>
                         {r.runtime ? (
                           <Ver
@@ -192,7 +232,7 @@ export default function ConfigRepo() {
                       <td>
                         <span className={`badge badge--${st.tone}`} title={st.title}>{st.label}</span>
                       </td>
-                      <td>{composeCell(r.compose)}</td>
+                      <td className="wrap">{composeCell(r.compose)}</td>
                     </tr>
                   )
                 })}

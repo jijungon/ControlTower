@@ -169,27 +169,7 @@ export async function fetchVersions(): Promise<VersionRow[]> {
   return res.json()
 }
 
-export type CicdRow = {
-  service: string
-  project?: string | null
-  has_cicd: boolean
-  status?: string | null
-  ref?: string | null
-  sha?: string | null
-  web_url?: string | null
-  collected_at?: string | null
-}
-
-export async function fetchCicd(): Promise<CicdRow[]> {
-  const res = await fetch('/api/cicd')
-  if (!res.ok) throw new Error(`GET /api/cicd ${res.status}`)
-  return res.json()
-}
-
-export const addCicdTarget = (service: string, project: string) =>
-  postJsonServer('/api/cicd/targets', { service, project })
-
-// 서비스 비교표 — 러너가 .gitlab-ci.yml·Dockerfile·compose 를 읽어 만든 한 행
+// 서비스 비교표 — 러너가 .gitlab-ci.yml·compose 를 읽어 만든 한 행
 export type DeployCell = { path: 'direct' | 'image' | 'build'; by?: 'repo' | 'center' | 'compose'; manual: boolean | null; mismatch?: boolean }
 export type ExecutorCell = { value: string; guess: boolean; tags?: string[] } | null
 
@@ -222,6 +202,7 @@ export type ConfigRow = {
   start?: 'dockerfile' | 'start.sh' | 'base' | null // 실행 명령 위치
   start_files?: string[]
   state: 'legacy' | 'leftover' | 'done' | 'base' | 'none'
+  code?: { node?: string; node_from?: string; node_rule?: 'exact' | 'min'; nest?: string; java?: string } | null // 코드에 적힌 버전
   compose?: Record<string, 'mount' | 'command' | 'image'> // start.sh 형태(서버 compose): shell(마운트) / compose(command:) / Dockerfile(이미지 CMD)
   collected_at?: string | null
 }
@@ -238,13 +219,3 @@ export async function fetchShapes(): Promise<ShapeRow[]> {
   return res.json()
 }
 
-export type RepoTarget = { repo: string; project: string }
-
-export async function fetchRepoTargets(): Promise<RepoTarget[]> {
-  const res = await fetch('/api/versions/repo-targets')
-  if (!res.ok) throw new Error(`GET /api/versions/repo-targets ${res.status}`)
-  return res.json()
-}
-
-export const addRepoTarget = (repo: string, project: string) =>
-  postJsonServer('/api/versions/repo-targets', { repo, project })

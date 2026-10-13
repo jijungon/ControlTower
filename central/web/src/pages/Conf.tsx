@@ -97,6 +97,7 @@ export default function Conf() {
         asOf={latestTime((rows ?? []).map((r) => r.collected_at))}
         onRefresh={() => runAll(setRefreshing, [loadConf, loadIntents, loadTargets])}
         busy={refreshing}
+        source="서버마다 SSH 로 아래에 등록한 파일을 읽음 · 수집 python -m runner.cli conf · 적용 runner apply"
       />
 
       {msg && (

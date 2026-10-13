@@ -121,6 +121,7 @@ export default function Dashboard() {
               : '서버·설정·업데이트·버전 집계'}
             {ready && isStale && <span className="muted"> · {staleDays}일 지남</span>}
           </p>
+          <p className="section-source" style={{ marginTop: 4 }}>출처: 서버 · 서버 설정 파일 · OS 패치 · 도구 버전 수집 결과를 합친 요약</p>
         </div>
         <RefreshButton label="대시보드 새로고침" onClick={() => runAll(setBusy, [load])} busy={busy} />
       </div>

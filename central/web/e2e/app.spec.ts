@@ -67,22 +67,6 @@ test.beforeAll(async () => {
     },
   })
 
-  // 버전(선언본) 시드: aggregator_web repo node/nest
-  await api.post('/api/versions/repo-snapshots', {
-    data: {
-      snapshots: [
-        { repo: 'aggregator_web', tool: 'node', version: '20.11' },
-        { repo: 'aggregator_web', tool: 'nest', version: '10.3' },
-      ],
-    },
-  })
-
-  // CI/CD 시드(소스 무관 인제스트): admin 서비스 파이프라인 성공
-  await api.post('/api/cicd/targets', { data: { service: 'admin', project: 'group/aggregator-admin' } })
-  await api.post('/api/cicd/status', {
-    data: { statuses: [{ service: 'admin', has_cicd: true, status: 'success', ref: 'main', web_url: 'http://gl/p/1' }] },
-  })
-
   // 서비스 비교표 시드(러너 shape 역할): node 18 vs 20 → 18 이 빨간 칸
   const shape = await api.post('/api/cicd/shape', {
     data: {
@@ -98,7 +82,7 @@ test.beforeAll(async () => {
   const cfg = await api.post('/api/cicd/config', {
     data: {
       items: [
-        { path: 'shop/web', data: { runtime: 'node', runtime_version: '18', base_image: 'infra/nodejs', base_tag: 'v18', start: 'start.sh', start_files: ['node-startup.sh'], state: 'legacy', compose: { dev: 'mount' } } },
+        { path: 'shop/web', data: { runtime: 'node', runtime_version: '18', base_image: 'infra/nodejs', base_tag: 'v18', start: 'start.sh', start_files: ['node-startup.sh'], state: 'legacy', compose: { dev: 'mount' }, code: { node: '22', node_from: '.nvmrc', node_rule: 'exact' } } },
         { path: 'shop/api', data: { runtime: 'node', runtime_version: '22', base_image: 'node', base_tag: '22-slim', start: 'dockerfile', start_files: [], state: 'done', compose: { dev: 'command' } } },
       ],
     },
@@ -150,18 +134,11 @@ test('OS 패치·작업이력 탭 오른쪽에 작업이력이 쌓인다', async
   await expect(page.getByText('업데이트 수집')).toBeVisible()
 })
 
-test('빌드·배포 탭에 툴체인·선언본 버전이 보인다', async ({ page }) => {
+test('서버 탭에 서버마다 깔린 도구 버전이 보인다', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: '빌드·배포' }).click()
-  await expect(page.getByText('20.11.1')).toBeVisible() // 빌드 서버 툴체인
-  await expect(page.getByText('aggregator_web')).toBeVisible() // GitLab repo 선언본
-})
-
-test('빌드·배포 탭에 파이프라인 상태가 보인다', async ({ page }) => {
-  await page.goto('/')
-  await page.getByRole('button', { name: '빌드·배포' }).click()
-  await expect(page.getByRole('link', { name: 'admin', exact: true })).toBeVisible()
-  await expect(page.getByText('성공')).toBeVisible()
+  await page.getByRole('button', { name: '서버' }).click()
+  await expect(page.getByText('node 20.11.1')).toBeVisible() // web-01 (러너 versions 가 SSH 로 읽은 값)
+  await expect(page.getByText('docker 24.0.7')).toBeVisible()
 })
 
 test('빌드·배포 탭 서비스 비교표 — 배포 방식·범례', async ({ page }) => {
@@ -170,15 +147,6 @@ test('빌드·배포 탭 서비스 비교표 — 배포 방식·범례', async (
   await expect(page.getByText('shop admin')).toBeVisible()
   await expect(page.locator('table.grid--nowrap').getByText('repo', { exact: true })).toBeVisible()
   await expect(page.getByText('표 읽는 법')).toBeVisible()
-})
-
-test('빌드·배포 탭에서 서비스(대상) 추가', async ({ page }) => {
-  await page.goto('/')
-  await page.getByRole('button', { name: '빌드·배포' }).click()
-  await page.getByPlaceholder('서비스 이름').fill('billing')
-  await page.getByPlaceholder('GitLab 프로젝트 (group/repo 또는 id)').fill('group/billing')
-  await page.getByRole('button', { name: '서비스 추가' }).click()
-  await expect(page.getByText('billing', { exact: true })).toBeVisible() // 새 대상 행(상태 없음)
 })
 
 test('서버 탭 /etc 설정 적용: 계획 → 승인 (서버 쓰기 없음)', async ({ page }) => {
@@ -200,6 +168,7 @@ test('config 탭 — 실행 명령 위치·상태·start.sh 형태 + 새로고�
   await expect(page.locator('table.grid--nowrap').getByText('구형', { exact: true })).toBeVisible()
   await expect(page.getByText('dev shell')).toBeVisible()
   await expect(page.getByText('dev compose')).toBeVisible()
+  await expect(page.locator('table.grid--nowrap').getByText('⚠ 이미지와 다름')).toBeVisible() // 코드 node 22 ≠ 이미지 node 18
   await page.getByRole('button', { name: 'config 폴더 새로고침' }).click()
   await expect(page.getByText(/데이터 기준/)).toBeVisible()
 })
