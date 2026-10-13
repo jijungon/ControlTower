@@ -45,7 +45,7 @@ test('버전 비교 헬퍼 — 3.10 > 3.9, v18 < 20', () => {
   expect(m.get('java')).toBe('17')
 })
 
-test('배포·executor·CI 변수 칸 — 쉬운 말 + 마우스 올리면 뜻', async () => {
+test('배포·executor 칸 — 쉬운 말 + 마우스 올리면 뜻', async () => {
   stub(ROWS)
   render(<CicdCompare />)
   const table = within(await screen.findByRole('table'))
@@ -76,7 +76,7 @@ test('배포·executor·CI 변수 칸 — 쉬운 말 + 마우스 올리면 뜻',
   expect(heads).not.toContain('베이스 이미지')
   expect(heads).not.toContain('start.sh')
   expect(table.queryByText(/node 18/)).toBeNull()
-  expect(table.getByText('오늘 바뀜')).toBeInTheDocument()
+  expect(heads).not.toContain('CI 변수') // 변수 개수는 의미가 적어 뺌
   expect(screen.getByText('표 읽는 법')).toBeInTheDocument()
   // 데이터에 있는 환경만 칸으로(dev·stg·prod), 없는 환경(lab)은 칸 없음
   expect(screen.getByRole('columnheader', { name: 'dev' })).toBeInTheDocument()

@@ -200,7 +200,8 @@ table.subgrid { width: 100%; border-collapse: collapse; font-size: 13px; }
 .st-unread { display: inline-block; color: var(--ink-muted-48); border: 1px dashed var(--hairline); border-radius: 999px; padding: 0 7px; font-size: 11px; }
 .st-unread-text { color: var(--ink-muted-48); }
 .st-fail { display: inline-block; background: var(--danger-bg); border-radius: 999px; padding: 0 7px; font-size: 11px; font-weight: 600; }
-.extra-line { font-size: 11.5px; white-space: nowrap; } /* 환경 하나는 안 끊기게 — 줄바꿈은 ' · ' 사이에서만 */
+.extra-line { font-size: 11.5px; }
+.extra-part { white-space: nowrap; } /* 'lab·preview' · '● start.sh' 는 안 끊기게 — 좁으면 둘 사이에서만 줄바꿈 */
 /* 칸 안 같은 줄 끝의 작은 글씨(어디서 읽었나·못 읽은 이유) — 줄을 늘리지 않게 */
 .cell-tag { font-size: 10.5px; color: var(--ink-muted-48); margin-left: 1px; }
 .cell-tag.miss-fail { color: var(--danger); margin-left: 4px; }

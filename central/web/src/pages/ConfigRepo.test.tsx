@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expect, test, vi } from 'vitest'
 import ConfigRepo, { missShort } from './ConfigRepo'
@@ -125,6 +125,13 @@ test("lab·preview 는 '기타' 한 열에 모음", async () => {
   expect(lines[1]).toHaveClass('miss-fail')
   expect(lines[0]).not.toHaveClass('st-unread-text')
   expect(lines[0].closest('td')).toHaveTextContent('lab ● 서버 compose · preview 못 읽음')
+  cleanup()
+  // 결과가 같은 환경은 하나로 묶음
+  const same: ConfigRow[] = [{ ...rows[0], compose: { lab: 'mount', preview: 'mount' }, compose_miss: {} }]
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(same), { status: 200 })))
+  render(<ConfigRepo />)
+  await screen.findByRole('table')
+  expect([...document.querySelectorAll('.extra-line')].map((l) => l.textContent)).toEqual(['lab·preview ● start.sh'])
 })
 
 test('못 읽음 이유를 짧게', () => {
@@ -184,4 +191,20 @@ test('역할로 나뉜 폴더는 역할마다 한 줄 + 옆에 실제 폴더, �
   expect(mgr).toHaveAttribute('title', expect.stringContaining('config 폴더는 acct/web'))
   expect(table.getByText('acct').closest('td')).toHaveAttribute('rowspan', '2') // 서비스 칸 하나에 두 줄
   expect(screen.getByText(/파일 지우기 1 ·/)).toBeInTheDocument() // 같은 폴더라 한 번
+})
+
+test('그룹 칸·그룹 필터 — 빌드·배포 표처럼 그룹 → 서비스 → 타입', async () => {
+  const mk = (path: string, group: string): ConfigRow => ({ path, group, runtime: 'node', runtime_version: '22', base_image: 'node', base_tag: '22-slim', start: 'dockerfile', start_files: [], state: 'done' })
+  const rows = [mk('a/web', 'g1'), mk('a/was', 'g1'), mk('b/web', 'g1'), mk('c/web', 'g2')]
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(rows), { status: 200 })))
+  render(<ConfigRepo />)
+  const table = within(await screen.findByRole('table'))
+  const g1 = table.getByText('g1').closest('td')!
+  expect(g1).toHaveClass('grp-cell')
+  expect(g1).toHaveAttribute('rowspan', '3')
+  expect(g1).toHaveTextContent('서비스 2개')
+  expect(g1.closest('tr')).toHaveClass('grp-start')
+  fireEvent.change(screen.getByLabelText('그룹 필터'), { target: { value: 'g2' } })
+  expect(table.queryByText('g1')).toBeNull()
+  expect(table.getByText('c')).toBeInTheDocument()
 })

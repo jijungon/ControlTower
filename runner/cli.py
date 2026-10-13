@@ -21,6 +21,7 @@ import argparse
 import os
 import re
 import time
+from collections import Counter
 
 from . import applier
 from .api import CentralAPI
@@ -370,6 +371,7 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
     envs_by_dir: dict[str, set[str]] = {}  # config 폴더 → 그 서비스가 배포하는 환경(비교표 기준)
     # 폴더 하나를 폴더 이름과 다른 타입(역할)으로 쓰면 → 역할마다 한 줄 '<서비스>/<역할>' (예: web 폴더 이미지를 manager·syncer 가)
     roles_by_dir: dict[str, list[str]] = {}
+    group_by_key: dict[str, str] = {}  # config 줄 → 그룹(연결된 서비스의 group)
     for s in services:
         c, t = s.get("config_dir"), str(s.get("type") or "web")
         if c and "/" in str(c) and t != str(c).partition("/")[2]:  # 타입 폴더 없이 바로 둔 곳(예: bot/Dockerfile)은 그대로
@@ -474,6 +476,8 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
         row = build_row(svc, files, runners)
         if ckey:
             envs_by_dir.setdefault(ckey, set()).update(row["data"]["deploy"])
+            if svc.get("group"):
+                group_by_key.setdefault(ckey, str(svc["group"]))
         if ckey and svc.get("repo_ci"):
             code_files = {n: _read_source(_sibling(svc["repo_ci"], n), cfg, base_dir)[1] for n in CODE_VERSION_FILES}
             cv = code_versions(code_files)
@@ -484,6 +488,8 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
         rows.append(row)
 
     items = []
+    # 서비스와 연결 안 된 폴더의 그룹: config.group, 없으면 이 config repo 에 연결된 서비스들의 가장 많은 그룹
+    default_group = (config or {}).get("group") or (Counter(group_by_key.values()).most_common(1) or [(None, 0)])[0][0]
     for cdir in sorted(dirs):
         df_text, _ = config_files(cdir)
         svc_name = cdir.partition("/")[0]
@@ -502,6 +508,7 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
             if merged:  # 다른 폴더로 합쳐져 안 쓰는 폴더(예: repo 둘이 center 에서 하나로)
                 data["merged_into"] = str(merged)
             data["code"] = code_by_dir.get(key)  # 코드에 적힌 버전(없으면 None)
+            data["group"] = group_by_key.get(key) or default_group
             items.append({"path": key, "data": data})
 
     api = CentralAPI(cfg.central_url, cfg.api_token)

@@ -346,7 +346,7 @@ def test_cmd_shape_scans_config_dir_and_links_services(monkeypatch, tmp_path, ca
         "  - name: shop web\n"
         "    config_dir: shop/web\n"   # dockerfile·startup 을 config 폴더에서
         "    repo_ci: {file: repo/.gitlab-ci.yml}\n"
-        "  - {name: shop mgr, type: manager, config_dir: shop/job}\n"   # 폴더 하나(job)를 역할 둘이 같이 씀
+        "  - {name: shop mgr, group: shop, type: manager, config_dir: shop/job}\n"   # 폴더 하나(job)를 역할 둘이 같이 씀
         "  - {name: shop wrk, type: worker, config_dir: shop/job}\n"
         "  - {name: bot, type: bot, config_dir: bot}\n"   # 타입 폴더 없는 곳은 나누지 않음
     )
@@ -383,6 +383,8 @@ def test_cmd_shape_scans_config_dir_and_links_services(monkeypatch, tmp_path, ca
     # 역할로 나뉜 폴더는 역할마다 한 줄 — 실제 폴더는 folder, 폴더 이름 그대로면 folder 없음
     assert items["shop/manager"]["folder"] == items["shop/worker"]["folder"] == "shop/job"
     assert "folder" not in items["shop/web"] and "shop/job" not in items
+    # 그룹: 연결된 서비스의 group, 연결 안 된 폴더는 config 에 연결된 서비스들의 가장 많은 그룹
+    assert items["shop/manager"]["group"] == "shop" and items["shop/old"]["group"] == "shop"
     assert items["shop/old"]["code"] is None  # 연결된 서비스(repo)가 없음
     assert items["shop/old"]["state"] == "legacy" and items["shop/old"]["compose"] == {"dev": "mount"}  # start.sh 형태 = shell
     web = sent["shapes"][0]["data"]

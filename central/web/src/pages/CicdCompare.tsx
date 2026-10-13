@@ -49,7 +49,12 @@ function deployCell(c?: DeployCell) {
 
 // executor 한 칸: 값 + (추정)/(섞임) 이면 ▸ 를 눌러 메모를 펼친다
 function ExecCell({ e, side }: { e?: ExecutorCell; side: 'repo' | 'center' }) {
-  if (!e) return <span className="muted">—</span>
+  if (!e)
+    return (
+      <span className="muted" title={`${side} CI 를 안 읽음 — 대상 파일에 ${side}_ci 가 없거나(사본 없음) job 에 러너 태그가 없음`}>
+        —
+      </span>
+    )
   const mixed = !!e.counts
   const guessTags = (e.groups ?? []).filter((g) => g.guess).map((g) => g.tag)
   const flags = [e.guess ? '추정' : null, mixed ? '섞임' : null].filter(Boolean).join(' · ')
@@ -93,18 +98,6 @@ function ExecCell({ e, side }: { e?: ExecutorCell; side: 'repo' | 'center' }) {
   )
 }
 
-function envText(r: ShapeRow) {
-  if (r.env_keys == null) return <span className="muted">—</span>
-  const base = <span title=".gitlab-ci.yml(repo·center) 의 variables: 개수 — 값은 안 보고 '바뀌었는지'만 봐요">{r.env_keys}개</span>
-  if (!r.env_changed_at) return base
-  const days = Math.floor((Date.now() - new Date(r.env_changed_at).getTime()) / 86400000)
-  return (
-    <>
-      {base} <span className="badge badge--warn">{days <= 0 ? '오늘' : `${days}일 전`} 바뀜</span>
-    </>
-  )
-}
-
 function Legend() {
   return (
     <details className="legend" open>
@@ -120,9 +113,6 @@ function Legend() {
         </li>
         <li>
           <b>executor</b> = CI 를 돌리는 방식 — <b>shell</b>(러너 서버에서 바로) · <b>docker</b>(깨끗한 컨테이너 안에서). <b>(추정)</b> = 확인 안 된 짐작값 · <b>(섞임)</b> = job 마다 러너가 다름 — <b>▸</b> 를 누르면 메모(어떤 job 이 어떤 러너인지, 확인하는 법)
-        </li>
-        <li>
-          <b>CI 변수</b> = .gitlab-ci.yml 의 변수 개수. 값은 보지 않고, 바뀌면 "N일 전 바뀜"
         </li>
         <li className="muted">런타임·베이스 이미지·start.sh 는 <b>config</b> 탭에서 봐요 (이 표는 CI 가 어떻게 빌드·배포하나만)</li>
       </ul>
@@ -204,7 +194,6 @@ export default function CicdCompare() {
                 <th key={e}>{e}</th>
               ))}
               <th>executor (repo / center)</th>
-              <th>CI 변수</th>
             </tr>
           </thead>
           <tbody>
@@ -245,7 +234,6 @@ export default function CicdCompare() {
                             <ExecCell e={r.executor_center} side="center" />
                           </span>
                           </td>
-                          <td>{envText(r)}</td>
                         </tr>
                       )
                     }),

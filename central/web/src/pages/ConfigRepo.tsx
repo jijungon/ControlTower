@@ -173,25 +173,30 @@ function serverEnvCell(r: ConfigRow, env: string) {
   )
 }
 
-// '기타' 칸 — lab·preview 같은 환경을 한 줄에 이어서 짧게(자세한 건 마우스)
+// '기타' 칸 — lab·preview 같은 환경을 한 줄에 이어서 짧게(자세한 건 마우스). 결과가 같은 환경은 묶음: 'lab·preview ● start.sh'
 function extraCell(r: ConfigRow, extras: string[]) {
   const lines = r.start === 'base' ? extras.filter((e) => r.compose?.[e]) : extras.filter((e) => r.compose?.[e] || r.compose_miss?.[e])
   if (lines.length === 0) return <span className="muted">—</span>
-  return lines.map((e, i) => {
+  const groups = new Map<string, { envs: string[]; cls: string; titles: string[] }>()
+  for (const e of lines) {
     const c = r.compose?.[e]
     const m = r.compose_miss?.[e]
     const text = c ? (c === 'image' ? '← 이미지' : `● ${RUN[serverRun(r, e)!].label}`) : m?.state === 'fail' ? '못 읽음' : '안 읽음'
     const src = srcLabel(r.compose_src?.[e])
-    const title = c ? `${e}: ${text}${src ? ` · 출처: ${src.title}` : ''}` : `${e}: ${m?.reason ?? ''}`
-    return (
-      <Fragment key={e}>
-        {i > 0 && <span className="muted"> · </span>}
-        <span className={`extra-line ${c ? (c === 'image' ? 'st-asis' : '') : m?.state === 'fail' ? 'miss-fail' : 'st-unread-text'}`} title={title}>
-          <span className="muted">{e}</span> {text}
-        </span>
-      </Fragment>
-    )
-  })
+    const g = groups.get(text) ?? { envs: [], cls: c ? (c === 'image' ? 'st-asis' : '') : m?.state === 'fail' ? 'miss-fail' : 'st-unread-text', titles: [] }
+    g.envs.push(e)
+    g.titles.push(c ? `${e}: ${text}${src ? ` · 출처: ${src.title}` : ''}` : `${e}: ${m?.reason ?? ''}`)
+    groups.set(text, g)
+  }
+  // 환경 이름과 결과 사이에서만 줄바꿈(좁은 화면)
+  return [...groups.entries()].map(([text, g], i) => (
+    <Fragment key={text}>
+      {i > 0 && <span className="muted"> · </span>}
+      <span className={`extra-line ${g.cls}`} title={g.titles.join('\n')}>
+        <span className="muted extra-part">{g.envs.join('·')}</span> <span className="extra-part">{text}</span>
+      </span>
+    </Fragment>
+  ))
 }
 
 // (이미지) 칸 — ● = 이 명령을 그대로 실행하는 서버가 있음(어디인지는 마우스) · 흐림 = 읽은 서버가 모두 덮어써서 안 쓰임
@@ -252,6 +257,7 @@ export default function ConfigRepo() {
   const [err, setErr] = useState(false)
   const [busy, setBusy] = useState(false)
   const [runtime, setRuntime] = useState('')
+  const [groupSel, setGroupSel] = useState('')
 
   const load = () =>
     fetchConfig()
@@ -280,13 +286,19 @@ export default function ConfigRepo() {
   )
   const latest = [...newestRuntime].map(([k, v]) => `${k} ${v}`).join(' · ')
   const codeDiff = folders.filter((r) => codeMismatch(r)).length
-  // 서비스별로 묶기: 'admin/web' → admin 의 web
-  const bySvc = new Map<string, ConfigRow[]>()
-  for (const r of runtime ? all.filter((x) => runtimeLabel(x) === runtime) : all) {
+  // 그룹(프로젝트 묶음) → 서비스 → 타입 으로 묶기 (빌드·배포 표와 같은 모양): 'admin/web' → admin 의 web
+  const groupOf = (r: ConfigRow) => r.group || '기타'
+  const groupNames = [...new Set(all.map(groupOf))].sort()
+  const byGroup = new Map<string, Map<string, ConfigRow[]>>()
+  for (const r of all.filter((x) => (!runtime || runtimeLabel(x) === runtime) && (!groupSel || groupOf(x) === groupSel))) {
+    const svcMap = byGroup.get(groupOf(r)) ?? new Map<string, ConfigRow[]>()
     const svc = r.path.split('/')[0]
-    bySvc.set(svc, [...(bySvc.get(svc) ?? []), r])
+    svcMap.set(svc, [...(svcMap.get(svc) ?? []), r])
+    byGroup.set(groupOf(r), svcMap)
   }
-  const svcs = [...bySvc.entries()].sort(([a], [b]) => a.localeCompare(b))
+  const ordered = [...byGroup.entries()]
+    .sort(([a], [b]) => (a === '기타' ? 1 : b === '기타' ? -1 : a.localeCompare(b)))
+    .map(([group, m]) => ({ group, svcs: [...m.entries()].sort(([a], [b]) => a.localeCompare(b)) }))
   // (서버) 열: dev·stg·prod 는 항상, lab·preview 처럼 가끔 있는 환경은 '기타' 한 열에 모음
   const envs = ['dev', 'stg', 'prod']
   const extras = ENV_ORDER.filter((e) => !envs.includes(e) && all.some((r) => r.compose?.[e] || r.compose_miss?.[e]))
@@ -360,6 +372,12 @@ export default function ConfigRepo() {
       </details>
 
       <div className="toolbar" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
+        <select className="search" style={{ minWidth: 140 }} value={groupSel} onChange={(e) => setGroupSel(e.target.value)} aria-label="그룹 필터">
+          <option value="">그룹: 전체</option>
+          {groupNames.map((g) => (
+            <option key={g} value={g}>{g}</option>
+          ))}
+        </select>
         <select className="search" style={{ minWidth: 140 }} value={runtime} onChange={(e) => setRuntime(e.target.value)} aria-label="런타임 필터">
           <option value="">런타임: 전체</option>
           {runtimes.map((r) => (
@@ -372,6 +390,7 @@ export default function ConfigRepo() {
         <table className="grid grid--nowrap grid--dense">
           <thead>
             <tr className="th-band">
+              <th rowSpan={3}>그룹</th>
               <th rowSpan={3}>서비스</th>
               <th rowSpan={3}>타입</th>
               <th colSpan={3} className="th-group">버전</th>
@@ -406,56 +425,70 @@ export default function ConfigRepo() {
             </tr>
           </thead>
           <tbody>
-            {svcs.map(([svc, rs]) => (
-              <Fragment key={svc}>
-                {rs.map((r, i) => {
-                  const rt = runtimeOf(r)
-                  const base = baseOf(r)
-                  return (
-                    <tr key={r.path} className={[i === 0 ? 'svc-start' : '', r.merged_into ? 'row-merged' : ''].join(' ').trim() || undefined}>
-                      {i === 0 && (
-                        <td className="svc-cell" rowSpan={rs.length}>
-                          {svc}
-                        </td>
-                      )}
-                      <td>{typeCell(r)}</td>
-                      <td>{codeCell(r)}</td>
-                      <td>
-                        {r.runtime ? (
-                          <Ver
-                            text={`${r.runtime}${r.runtime_version ? ` ${r.runtime_version}` : ''}`}
-                            old={!r.merged_into && isOld(rt, newestRuntime)}
-                            newest={rt ? `${rt[0]} ${newestRuntime.get(rt[0])}` : undefined}
-                          />
-                        ) : (
-                          <span className="muted">—</span>
+            {ordered.map((g) => {
+              const total = g.svcs.reduce((n, [, rs]) => n + rs.length, 0)
+              return g.svcs.map(([svc, rs], si) => (
+                <Fragment key={`${g.group}/${svc}`}>
+                  {rs.map((r, i) => {
+                    const rt = runtimeOf(r)
+                    const base = baseOf(r)
+                    const groupFirst = si === 0 && i === 0
+                    // 경계: 그룹이 바뀌면 진한 선, 서비스가 바뀌면 보통 선
+                    const cls = [groupFirst ? 'grp-start' : i === 0 ? 'svc-start' : '', r.merged_into ? 'row-merged' : ''].join(' ').trim()
+                    return (
+                      <tr key={r.path} className={cls || undefined}>
+                        {groupFirst && (
+                          <td className="grp-cell" rowSpan={total}>
+                            {g.group}
+                            <div className="muted" style={{ fontWeight: 400, fontSize: 12 }}>
+                              서비스 {g.svcs.length}개
+                            </div>
+                          </td>
                         )}
-                      </td>
-                      <td>
-                        {r.base_image ? (
-                          // 앞의 저장소 경로(infra/ 등)는 줄여서 한 줄에 — 전체 이름은 마우스
-                          <span title={`${r.base_image}${r.base_tag ? `:${r.base_tag}` : ''}`}>
+                        {i === 0 && (
+                          <td className="svc-cell" rowSpan={rs.length}>
+                            {svc}
+                          </td>
+                        )}
+                        <td>{typeCell(r)}</td>
+                        <td>{codeCell(r)}</td>
+                        <td>
+                          {r.runtime ? (
                             <Ver
-                              text={`${r.base_image.split('/').pop()}${r.base_tag ? `:${r.base_tag}` : ''}`}
-                              old={!r.merged_into && isOld(base, newestBase)}
-                              newest={base ? `${base[0]}:${newestBase.get(base[0])}` : undefined}
+                              text={`${r.runtime}${r.runtime_version ? ` ${r.runtime_version}` : ''}`}
+                              old={!r.merged_into && isOld(rt, newestRuntime)}
+                              newest={rt ? `${rt[0]} ${newestRuntime.get(rt[0])}` : undefined}
                             />
-                          </span>
-                        ) : (
-                          <span className="muted">—</span>
-                        )}
-                      </td>
-                      <td>{imageCell(r, envs)}</td>
-                      {envs.map((e) => (
-                        <td key={e}>{serverEnvCell(r, e)}</td>
-                      ))}
-                      {extras.length > 0 && <td className="extras-cell">{extraCell(r, extras)}</td>}
-                      <td>{todoCell(r)}</td>
-                    </tr>
-                  )
-                })}
-              </Fragment>
-            ))}
+                          ) : (
+                            <span className="muted">—</span>
+                          )}
+                        </td>
+                        <td>
+                          {r.base_image ? (
+                            // 앞의 저장소 경로(infra/ 등)는 줄여서 한 줄에 — 전체 이름은 마우스
+                            <span title={`${r.base_image}${r.base_tag ? `:${r.base_tag}` : ''}`}>
+                              <Ver
+                                text={`${r.base_image.split('/').pop()}${r.base_tag ? `:${r.base_tag}` : ''}`}
+                                old={!r.merged_into && isOld(base, newestBase)}
+                                newest={base ? `${base[0]}:${newestBase.get(base[0])}` : undefined}
+                              />
+                            </span>
+                          ) : (
+                            <span className="muted">—</span>
+                          )}
+                        </td>
+                        <td>{imageCell(r, envs)}</td>
+                        {envs.map((e) => (
+                          <td key={e}>{serverEnvCell(r, e)}</td>
+                        ))}
+                        {extras.length > 0 && <td className="extras-cell">{extraCell(r, extras)}</td>}
+                        <td>{todoCell(r)}</td>
+                      </tr>
+                    )
+                  })}
+                </Fragment>
+              ))
+            })}
           </tbody>
         </table>
 
