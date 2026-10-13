@@ -543,6 +543,62 @@ def code_versions(files: dict[str, str | None]) -> dict:
     return out
 
 
+# ── center CI 에서 '어느 서버의 어느 폴더로 배포하나' 읽기(서버 compose 자동 읽기용) ──────────
+_SERVERS_VAR = re.compile(r"DEPLOY_(DEV|LAB|STG|STAGE|PREVIEW|PRIVIEW|PROD)(?:_([A-Z]+))?_SERVERS?$")
+_ENV_KEY = {"DEV": "dev", "LAB": "lab", "STG": "stg", "STAGE": "stg", "PREVIEW": "preview", "PRIVIEW": "preview", "PROD": "prod"}
+
+
+def _expand_shell(s: str, env: dict[str, str]) -> str:
+    """셸 변수 펼치기: \\${X} → ${X}, ${X:-기본값}, ${X}, $X. 모르는 변수는 그대로 둔다."""
+    s = s.replace("\\$", "$")
+    for _ in range(5):
+        new = re.sub(
+            r"\$\{(\w+):-([^{}]*)\}",
+            lambda m: env.get(m.group(1)) or m.group(2),
+            s,
+        )
+        new = re.sub(r"\$\{(\w+)\}|\$(\w+)", lambda m: env.get(m.group(1) or m.group(2), m.group(0)), new)
+        if new == s:
+            break
+        s = new
+    return s
+
+
+def deploy_targets(text: str | None, svc_type: str = "web") -> dict[str, dict]:
+    """center CI → {env: {"hosts": [주소…], "dir": "/app/…"}}.
+
+    서버: variables 의 DEPLOY_<ENV>[_<TYPE>]_SERVERS (타입이 맞는 게 우선, 없으면 타입 없는 것).
+    폴더: 스크립트의 APP_DIR="…" (주석 줄 제외) 를 SERVICE_INFO·BUILD_INFO(=타입)로 펼침. 못 펼치면 dir 없음.
+    """
+    doc = load_yaml(text)
+    if doc is None:
+        return {}
+    top = _vars(doc.get("variables"))
+    picked: dict[str, tuple[int, list[str]]] = {}  # env → (우선순위, 주소들)
+    for k, v in top.items():
+        m = _SERVERS_VAR.match(k)
+        hosts = [h for h in re.split(r"[,\s]+", v.strip()) if h]
+        if not m or not hosts:
+            continue
+        env, typ = _ENV_KEY[m.group(1)], (m.group(2) or "").lower()
+        if typ and typ != svc_type:
+            continue
+        rank = 0 if typ == svc_type else 1
+        if env not in picked or rank < picked[env][0]:
+            picked[env] = (rank, hosts)
+    scope = {**top, "BUILD_INFO": svc_type}
+    app_dir = None
+    for line in _strip_comments(text or "").splitlines():
+        m = re.search(r'\bAPP_DIR="([^"]+)"', line)
+        if not m:
+            continue
+        d = _expand_shell(m.group(1), scope)
+        if d.startswith("/") and "$" not in d:
+            app_dir = d.rstrip("/")
+            break
+    return {env: {"hosts": hosts, "dir": app_dir} for env, (_, hosts) in picked.items()}
+
+
 def parse_targets(text: str) -> tuple[dict[str, str], list[dict], dict | None]:
     """shape-targets.yml → (runners 표, 서비스 목록, config 섹션)."""
     doc = yaml.safe_load(text) or {}

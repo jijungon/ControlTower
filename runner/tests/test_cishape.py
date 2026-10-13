@@ -7,6 +7,7 @@ from runner.cishape import (
     build_row,
     code_versions,
     config_dirs,
+    deploy_targets,
     detect_runtime,
     parse_targets,
     split_image,
@@ -467,3 +468,106 @@ notify:
     ]
     r = analyze_ci(ci, "web", {"old-shell": "shell", "new-runner": "docker"})
     assert r["executor"]["value"] == "docker" and r["executor"]["guess"] is False
+
+
+CENTER_DEPLOY = r"""
+variables:
+  SERVICE_INFO: shop
+  DEPLOY_DEV_SERVERS: "10.0.0.1"
+  DEPLOY_STG_WEB_SERVERS: "10.0.0.2"
+  DEPLOY_STG_WAS_SERVERS: "10.0.0.3"
+  DEPLOY_PRIVIEW_WEB_SERVERS: "10.0.0.4"
+  DEPLOY_PROD_WEB_SERVERS: "10.0.0.5, 10.0.0.6"
+  DEPLOY_LAB_SERVERS: ""
+deploy:
+  script:
+    - |
+      # APP_DIR="/app/old-place"
+      APP_DIR="${APP_DIR_OVERRIDE:-/app/\${BUILD_INFO}-\${SERVICE_INFO}}"
+"""
+
+
+def test_deploy_targets_servers_and_dir():
+    web = deploy_targets(CENTER_DEPLOY, "web")
+    assert web == {
+        "dev": {"hosts": ["10.0.0.1"], "dir": "/app/web-shop"},
+        "stg": {"hosts": ["10.0.0.2"], "dir": "/app/web-shop"},       # 타입이 맞는 STG_WEB 우선
+        "preview": {"hosts": ["10.0.0.4"], "dir": "/app/web-shop"},   # PRIVIEW 오타도 preview
+        "prod": {"hosts": ["10.0.0.5", "10.0.0.6"], "dir": "/app/web-shop"},
+    }                                                                  # 빈 LAB 은 없음, 주석의 old-place 는 무시
+    was = deploy_targets(CENTER_DEPLOY, "was")
+    assert was["stg"]["hosts"] == ["10.0.0.3"] and "prod" not in was and was["dev"]["dir"] == "/app/was-shop"
+    assert deploy_targets("deploy:\n  script: [echo]\n") == {}
+
+
+def test_cmd_shape_ssh_plan_and_read(monkeypatch, tmp_path, capsys):
+    import types
+
+    import runner.cli as cli
+
+    (tmp_path / "config" / "shop" / "web").mkdir(parents=True)
+    (tmp_path / "config" / "shop" / "web" / "Dockerfile").write_text(DOCKER_NEW)
+    (tmp_path / "center.yml").write_text(CENTER_DEPLOY)
+    (tmp_path / "dev-compose.yml").write_text(COMPOSE_DIRECT)
+    targets = tmp_path / "shape-targets.yml"
+    targets.write_text(
+        "config: {file: config}\n"
+        "services:\n"
+        "  - name: shop web\n"
+        "    type: web\n"
+        "    config_dir: shop/web\n"
+        "    center_ci: {file: center.yml}\n"
+        "    compose: {dev: {file: dev-compose.yml}}\n"   # dev 는 대상 파일에 적혀 있음 → 자동 찾기에서 제외
+    )
+    sent: dict = {}
+
+    class FakeAPI:
+        def __init__(self, *a):
+            pass
+
+        def list_servers(self):  # 인벤토리: stg 서버만 ~/.ssh/config 에 있음
+            return [{"hostname": "shop-stg", "ip": "10.0.0.2"}]
+
+        def upload_shapes(self, shapes, replace=False):
+            return {"accepted": len(shapes), "removed": 0}
+
+        def upload_config(self, items, replace=False):
+            sent["config"] = {i["path"]: i["data"] for i in items}
+            return {"accepted": len(items), "removed": 0}
+
+        def close(self):
+            pass
+
+    reads = []
+
+    def fake_read(alias, path, timeout=8):
+        reads.append((alias, path))
+        return COMPOSE_IMAGE, None
+
+    monkeypatch.setattr(cli, "CentralAPI", FakeAPI)
+    monkeypatch.setattr(cli, "read_file", fake_read)
+    cfg = types.SimpleNamespace(
+        shape_targets=str(targets), central_url="x", api_token="t", gitlab_url="", gitlab_token="",
+        gitlab_center_url="", gitlab_center_token="", gitlab_ref="main", connect_timeout=1,
+    )
+    # 1) 계획만: 접속 안 함
+    cli.cmd_shape(cfg, ssh_mode="plan")
+    out = capsys.readouterr().out
+    assert reads == []
+    assert "서버 compose 자동 찾기: 3곳 (접속 가능 1 · 인벤토리에 없는 서버 2)" in out  # stg·preview·prod (dev 는 이미 적힘)
+    assert "shop-stg:/app/web-shop/docker-compose.yml" in out and "접속 안 함" in out
+    assert sent["config"]["shop/web"]["compose_src"] == {"dev": {"kind": "file", "note": None, "where": "dev-compose.yml"}}
+    # 2) 실제로 읽기: 인벤토리에 있는 stg 만 SSH
+    cli.cmd_shape(cfg, ssh_mode="read")
+    assert reads == [("shop-stg", "/app/web-shop/docker-compose.yml")]
+    data = sent["config"]["shop/web"]
+    assert data["compose"] == {"dev": "mount", "stg": "image"}
+    assert data["compose_src"]["stg"] == {"kind": "ssh", "auto": True, "where": "shop-stg:/app/web-shop/docker-compose.yml"}
+
+
+def test_src_info_note_per_file_overrides_service_note():
+    from runner.cli import _src_info
+
+    assert _src_info({"file": "a.yml"}, note="옛 사본") == {"kind": "file", "note": "옛 사본", "where": "a.yml"}
+    assert _src_info({"file": "a.yml", "note": ""}, note="옛 사본")["note"] is None  # 이 파일은 실제 사본
+    assert _src_info({"ssh": "h", "path": "/app/x.yml"}, auto=True) == {"kind": "ssh", "auto": True, "where": "h:/app/x.yml"}

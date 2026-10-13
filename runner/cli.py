@@ -31,6 +31,7 @@ from .cishape import (
     build_row,
     code_versions,
     config_dirs,
+    deploy_targets,
     is_dockerfile,
     parse_targets,
 )
@@ -282,6 +283,18 @@ def _sibling(src: object, name: str) -> dict | None:
 CODE_VERSION_FILES = (".nvmrc", "package.json", "pom.xml")
 
 
+def _src_info(src: object, note: str | None = None, auto: bool = False) -> dict:
+    """화면에 '어디서 읽었나' 를 보여주기 위한 짧은 정보(파일 내용은 안 담음)."""
+    if not isinstance(src, dict):
+        return {"kind": "unknown"}
+    if src.get("ssh"):
+        return {"kind": "ssh", "auto": auto, "where": f"{src['ssh']}:{src.get('path')}"}
+    note = src.get("note", note)  # 파일마다 note 를 달면 서비스 note 보다 우선(빈 값이면 메모 없음)
+    if src.get("file"):
+        return {"kind": "file", "note": note or None, "where": str(src["file"])}
+    return {"kind": "gitlab", "note": note or None, "where": f"{src.get('project')}:{src.get('path')}"}
+
+
 def _config_listing(config: dict, cfg: RunnerConfig, base_dir: str):
     """config 섹션 → ({'<서비스>/<타입>': [파일 이름…]}, read('<서비스>/<타입>/<파일>')) 또는 None."""
     if config.get("file"):
@@ -313,7 +326,9 @@ def _config_listing(config: dict, cfg: RunnerConfig, base_dir: str):
     return config_dirs(tree), lambda rel: fetch_repo_file(url, token, str(config["project"]), rel, ref, cfg.connect_timeout)
 
 
-def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None) -> None:
+def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str | None = None) -> None:
+    """ssh_mode: None = 대상 파일에 적힌 것만 / 'plan' = center CI 로 서버 compose 위치를 찾아 목록만 출력(접속 안 함)
+    / 'read' = 그 목록대로 SSH 로 실제 읽음(대상 파일에 이미 적힌 환경은 건드리지 않음)."""
     path = targets_path or cfg.shape_targets
     if not os.path.exists(path):
         print(f"비교표 대상 파일 없음({path}) — runner/shape-targets.example.yml 을 복사해 채우세요.")
@@ -338,6 +353,15 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None) -> None:
 
     rows, missing = [], []
     compose_by_dir: dict[str, dict[str, str | None]] = {}
+    src_by_dir: dict[str, dict[str, dict]] = {}  # config 폴더 → 환경 → 어디서 읽었나
+    plan: list[tuple[str, str, str | None, str, str]] = []  # (서비스, 환경, ssh 별칭|None, 주소, 경로)
+    by_ip: dict[str, str] = {}
+    if ssh_mode:
+        api0 = CentralAPI(cfg.central_url, cfg.api_token)
+        try:  # 서버 주소 → ~/.ssh/config 별칭(러너가 접속할 이름)
+            by_ip = {str(x.get("ip")): x["hostname"] for x in api0.list_servers() if x.get("ip")}
+        finally:
+            api0.close()
     code_by_dir: dict[str, dict] = {}  # config 폴더 ↔ 코드에 적힌 버전(서비스의 repo CI 옆 파일들)
     for cdir, envs in ((config or {}).get("compose") or {}).items():
         for env, src in (envs or {}).items():
@@ -345,6 +369,8 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None) -> None:
             if tried and text is None:
                 missing.append(f"config {cdir}:compose.{env}")
             compose_by_dir.setdefault(str(cdir), {})[str(env)] = text
+            if text:
+                src_by_dir.setdefault(str(cdir), {})[str(env)] = _src_info(src)
     for svc in services:
         files: dict = {}
         for key in ("repo_ci", "center_ci", "dockerfile", "startup"):
@@ -366,6 +392,27 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None) -> None:
             compose[str(env)] = text
             if cdir and text:
                 compose_by_dir.setdefault(cdir, {}).setdefault(str(env), text)
+                src_by_dir.setdefault(cdir, {}).setdefault(str(env), _src_info(src, svc.get("note")))
+        # center CI 에 적힌 배포 서버·폴더로 나머지 환경의 서버 compose 를 찾는다
+        if ssh_mode and files.get("center_ci"):
+            for env, t in deploy_targets(files["center_ci"], str(svc.get("type") or "web")).items():
+                if env in compose or not t["dir"]:
+                    continue
+                ip = t["hosts"][0]
+                alias = by_ip.get(ip)
+                path_ = f"{t['dir']}/docker-compose.yml"
+                plan.append((str(svc["name"]), env, alias, ip, path_))
+                if ssh_mode != "read" or not alias:
+                    continue
+                src = {"ssh": alias, "path": path_}
+                _, text = _read_source(src, cfg, base_dir)
+                if text is None:
+                    missing.append(f"{svc['name']}:compose.{env}(ssh {alias})")
+                    continue
+                compose[env] = text
+                if cdir:
+                    compose_by_dir.setdefault(cdir, {}).setdefault(env, text)
+                    src_by_dir.setdefault(cdir, {}).setdefault(env, _src_info(src, auto=True))
         files["compose"] = compose
         row = build_row(svc, files, runners)
         if cdir and svc.get("repo_ci"):
@@ -383,6 +430,7 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None) -> None:
         data = analyze_config_dir(dirs[cdir], df_text)
         moves = {env: (analyze_compose(t) or {}).get("start") for env, t in compose_by_dir.get(cdir, {}).items() if t}
         data["compose"] = {env: m for env, m in moves.items() if m}
+        data["compose_src"] = {env: src_by_dir.get(cdir, {}).get(env) for env in data["compose"]}  # 칸마다 어디서 읽었나
         data["code"] = code_by_dir.get(cdir)  # 코드에 적힌 버전(없으면 None)
         items.append({"path": cdir, "data": data})
 
@@ -396,6 +444,14 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None) -> None:
             print(f"config 수집: {res['accepted']}개 폴더")
     finally:
         api.close()
+    if plan:
+        found = sum(1 for p in plan if p[2])
+        print(f"서버 compose 자동 찾기: {len(plan)}곳 (접속 가능 {found} · 인벤토리에 없는 서버 {len(plan) - found})")
+        for name, env, alias, ip, path_ in plan:
+            where = f"{alias}:{path_}" if alias else f"(~/.ssh/config 에 없는 서버 {ip}) {path_}"
+            print(f"  {name:22} {env:8} → {where}")
+        if ssh_mode == "plan":
+            print("  ※ 목록만 보여줬어요(접속 안 함). 실제로 읽으려면: python -m runner.cli shape --ssh")
     if missing:
         print(f"  못 읽은 파일 {len(missing)}개: {', '.join(missing)}")
 
@@ -518,6 +574,9 @@ def main() -> None:
     sub.add_parser("cicd", help="GitLab 파이프라인 상태 수집(CT_GITLAB_URL/TOKEN 필요)")
     shp = sub.add_parser("shape", help="서비스 비교표 + center config 수집(shape-targets.yml — GitLab·로컬 파일·ssh)")
     shp.add_argument("--targets", help="대상 파일 경로(기본 CT_SHAPE_TARGETS 또는 ./shape-targets.yml)")
+    g = shp.add_mutually_exclusive_group()
+    g.add_argument("--ssh-plan", action="store_true", help="center CI 로 서버 compose 위치를 찾아 목록만 출력(접속 안 함)")
+    g.add_argument("--ssh", action="store_true", help="그 목록대로 서버에 SSH 로 접속해 compose 를 읽음(읽기만)")
     allp = sub.add_parser("all", help="모든 수집기 1회 실행(--loop 로 주기 반복)")
     allp.add_argument("--loop", action="store_true", help="간격을 두고 반복 실행")
     allp.add_argument("--interval", type=int, default=300, help="반복 간격(초, 기본 300)")
@@ -544,7 +603,7 @@ def main() -> None:
     elif args.cmd == "cicd":
         cmd_cicd(cfg)
     elif args.cmd == "shape":
-        cmd_shape(cfg, args.targets)
+        cmd_shape(cfg, args.targets, "read" if args.ssh else ("plan" if args.ssh_plan else None))
     elif args.cmd == "all":
         cmd_all(cfg, loop=args.loop, interval=args.interval)
     elif args.cmd == "apply":

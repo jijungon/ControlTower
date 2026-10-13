@@ -34,7 +34,7 @@ services:
     config_dir: shop/web    # config 폴더에서 Dockerfile·start.sh 를 알아서 읽음 (아래 두 줄 대신)
     # dockerfile: {gitlab: center, project: shop/config, path: shop/web/Dockerfile}
     # startup:    {gitlab: center, project: shop/config, path: shop/web/node-startup.sh}
-    compose:                # 선택 — CI 로 판단이 안 될 때 보조, 다르면 ⚠ 표시
+    compose:                # 선택 — 서버 compose. 파일마다 note: 를 달면 화면 출처 칸에 그대로(예: note: 옛 사본)
       prod: {gitlab: center, project: shop/deploy, path: prod/docker-compose-shop-web.yml}
 
   - name: shop was

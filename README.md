@@ -146,6 +146,10 @@ CI/CD 파이프라인 상태와 repo 선언본 버전(node/nest/java)은 GitLab 
    - 로컬 사본: `{file: 경로}` · 서버의 실제 파일(compose 등): `{ssh: 호스트별칭, path}`
    - `config:` 에 config repo 를 적으면 폴더를 자동으로 훑고, 서비스는 `config_dir:` 로 연결
 2. `python -m runner.cli shape` (`make collect` 도 대상 파일이 있으면 포함)
+3. 서버 compose 를 실서버에서 읽기(선택): center CI 의 `DEPLOY_<환경>[_<타입>]_SERVERS` 와 `APP_DIR` 로 서버·폴더를 찾아
+   - `python -m runner.cli shape --ssh-plan` — 어느 서버의 어떤 파일을 읽을지 **목록만** (접속 안 함)
+   - `python -m runner.cli shape --ssh` — 그 목록대로 SSH 로 읽음(읽기만). 서버가 `~/.ssh/config` 에 있어야 함
+   - config 탭 (서버) 칸 아래에 출처 표시: 서버 · 서버·자동 · 사본 · 옛 사본 · 안 읽음
 
 > 읽기 전용. 읽은 파일 원문은 중앙에 올리지 않고 결과 칸만 올린다. CI 변수는 **값 없이** 개수 + 해시만 보내서 "언제 바뀌었나"만 보여준다. executor 는 GitLab 이 알려주지 않으므로 대상 파일의 `runners:` 표(태그→shell/docker)로 정하고, 표에 없는 태그는 `(추정)`.
 

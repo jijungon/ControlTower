@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from 'react'
-import { fetchConfig, type ConfigRow } from '../api'
+import { fetchConfig, type ComposeSrc, type ConfigRow } from '../api'
 import SectionHead, { latestTime, runAll } from '../components/SectionHead'
 import { isOld, newestBy, Ver, verParts } from '../vercmp'
 
@@ -91,25 +91,45 @@ function codeCell(r: ConfigRow) {
   )
 }
 
+// 서버 compose 를 어디서 읽었나 — 칸 아래 작은 글씨. 서버 = 실서버에서 직접(SSH), 사본 = 복사해 둔 파일(다를 수 있음)
+function srcLabel(info?: ComposeSrc | null): { text: string; title: string } | null {
+  if (!info) return null
+  if (info.kind === 'ssh') return { text: info.auto ? '서버·자동' : '서버', title: `실서버에서 SSH 로 읽음 (${info.where})${info.auto ? ' — center CI 의 배포 서버·폴더로 자동으로 찾음' : ''}` }
+  if (info.kind === 'file') return { text: info.note || '사본', title: `복사해 둔 파일을 읽음 — 실서버와 다를 수 있음 (${info.where})` }
+  if (info.kind === 'gitlab') return { text: 'GitLab', title: `GitLab 파일을 읽음 (${info.where})` }
+  return null
+}
+
 // (서버) 환경 한 칸 — ● = 실제로 실행되는 명령
 //   compose 가 command: 를 주거나 start.sh 를 넣으면 → 이 칸이 이김(●)
 //   아무것도 안 하면 → (이미지) 칸의 명령이 그대로 실행 → '← 이미지'
+//   칸 아래 작은 글씨 = 어디서 읽었나(서버 / 서버·자동 / 사본 / 옛 사본)
 function serverEnvCell(r: ConfigRow, env: string) {
   const c = r.compose?.[env]
-  if (!c) return <span className="muted" title={`${env} 서버 compose 를 아직 안 읽음 — 대상 파일에 적으면 표시`}>—</span>
+  if (!c)
+    return (
+      <span className="muted" title={`${env} 서버 compose 를 아직 안 읽음 — runner shape --ssh 로 실서버에서 읽거나 대상 파일에 적으면 표시`}>
+        안 읽음
+      </span>
+    )
+  const src = srcLabel(r.compose_src?.[env])
   if (c === 'image')
     return (
-      <span className="muted" title={`${env} 서버는 compose 에 실행 명령이 없어서 (이미지) 칸의 명령이 그대로 실행돼요`}>
+      <span className="muted" title={`${env} 서버는 compose 에 실행 명령이 없어서 (이미지) 칸의 명령이 그대로 실행돼요${src ? ` · 출처: ${src.title}` : ''}`}>
         ← 이미지
+        {src && <span className="cell-sub">{src.text}</span>}
       </span>
     )
   const run = serverRun(r, env)!
   const why = c === 'command' ? '서버 compose 의 command: 가 이미지 명령을 덮어씀' : '서버 compose 가 start.sh 를 넣어서(마운트) 그게 실행됨'
   return (
-    <span title={`● 실제로 실행되는 명령 — ${why}`}>
+    <span title={`● 실제로 실행되는 명령 — ${why}${src ? ` · 출처: ${src.title}` : ''}`}>
       <span className="run-dot" aria-label="실행됨" />
       {runBadge(run)}
-      <span className="cell-sub">{c === 'command' ? '덮어씀' : '서버가 넣음'}</span>
+      <span className="cell-sub">
+        {c === 'command' ? '덮어씀' : '서버가 넣음'}
+        {src ? ` · ${src.text}` : ''}
+      </span>
     </span>
   )
 }
@@ -219,6 +239,10 @@ export default function ConfigRepo() {
           <li>
             <span className="run-dot" /> = 그 서버에서 <b>실제로 실행되는</b> 명령. 기본은 이미지 안의 명령(Dockerfile)이 실행되고, 서버 compose 가 <span className="mono">command:</span> 를 주거나
             start.sh 를 넣으면 그게 <b>덮어써서</b> 실행돼요. <b>← 이미지</b> = 그 서버는 (이미지) 칸 명령을 그대로 씀
+          </li>
+          <li>
+            <b>(서버) 칸 아래 작은 글씨 = 어디서 읽었나</b> — <b>서버</b>: 실서버에서 직접 읽음(믿을 수 있음) · <b>서버·자동</b>: center CI 의 배포 서버·폴더로 찾아서 읽음 ·{' '}
+            <b>사본</b>: 복사해 둔 파일(실서버와 다를 수 있음) · <b>옛 사본</b>: 옛날 하네스 파일 · <b>안 읽음</b>: 아직 못 읽음
           </li>
           <li>
             <b>(이미지)</b> = Dockerfile 이 이미지에 넣어 둔 명령 · <b>(서버) dev·stg·prod</b> = 그 서버에서 실제로 앱을 띄우는 명령 (서버 compose 가 명령을 주거나
