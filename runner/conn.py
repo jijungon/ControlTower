@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import shlex
 import subprocess
 
 from .access import ssh_access_opts
@@ -53,6 +54,35 @@ def read_file(alias: str, path: str, timeout: int = 8) -> tuple[str | None, str 
             capture_output=True,
             text=True,
             timeout=timeout + 15,
+        )
+        if r.returncode == 0:
+            return r.stdout, None
+        err = r.stderr.strip()
+        return None, (err.splitlines()[-1] if err else f"exit {r.returncode}")
+    except subprocess.TimeoutExpired:
+        return None, "timeout"
+    except FileNotFoundError:
+        return None, "ssh not found"
+
+
+def read_file_via(gateway: str, target: str, path: str, timeout: int = 8, user: str | None = None) -> tuple[str | None, str | None]:
+    """게이트웨이를 거쳐 안쪽 서버의 파일을 읽는다: PC → gateway(~/.ssh/config 별칭) → gw 위에서 ssh target cat.
+
+    안쪽 접속은 gw 자신의 ssh 설정·키를 그대로 쓴다(ControlTower 원래 설계: 서버 키는 gw 에).
+    BatchMode·ConnectTimeout 만 주고 호스트 키 정책은 gw 설정을 따른다 — gw 의 known_hosts 를 새로 쓰지 않게.
+    읽기만 한다(cat). (content, error).
+    """
+    dest = f"{user}@{target}" if user else target
+    inner = " ".join(
+        shlex.quote(a)
+        for a in ["ssh", "-o", "BatchMode=yes", "-o", f"ConnectTimeout={timeout}", dest, "cat", "--", path]
+    )
+    try:
+        r = subprocess.run(
+            [*_ssh_argv(gateway, timeout), inner],
+            capture_output=True,
+            text=True,
+            timeout=timeout * 2 + 15,
         )
         if r.returncode == 0:
             return r.stdout, None

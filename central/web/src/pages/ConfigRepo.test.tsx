@@ -6,7 +6,7 @@ import type { ConfigRow } from '../api'
 
 const ROWS: ConfigRow[] = [
   { path: 'shop/web', runtime: 'node', runtime_version: '18', base_image: 'infra/nodejs', base_tag: 'v18', start: 'start.sh', start_files: ['node-startup.sh'], state: 'legacy', compose: { prod: 'mount', dev: 'command' }, collected_at: '2026-10-13T03:00:00+00:00',
-    compose_src: { dev: { kind: 'ssh', auto: true, where: 'shop-dev:/app/web-shop/docker-compose.yml' }, prod: { kind: 'file', note: '옛 사본', where: 'old/prod.yml' } },
+    compose_src: { dev: { kind: 'ssh', auto: true, via: 'gw-dev', where: 'gw-dev → 10.0.0.1:/app/web-shop/docker-compose.yml' }, prod: { kind: 'file', note: '옛 사본', where: 'old/prod.yml' } },
     code: { node: '22', node_from: '.nvmrc', node_rule: 'exact', nest: '11.0.1' } }, // 코드 22 ≠ 이미지 18 → ⚠
   { path: 'shop/admin', runtime: 'node', runtime_version: '22', base_image: 'node', base_tag: '22-slim', start: 'dockerfile', start_files: ['node-startup.sh'], state: 'leftover',
     code: { node: '20', node_from: 'package.json', node_rule: 'min' } }, // ≥20 이고 이미지 22 → 괜찮음
@@ -41,7 +41,7 @@ test('처음 실행할 명령(이미지·서버)·정리할 것 — 한 가지 �
   const webRow = table.getByText('CMD 로 옮기기').closest('tr')!
   const cells = [...webRow.querySelectorAll('td')].map((td) => td.textContent)
   // ● = 실제로 실행되는 명령: dev 는 compose 가 덮어씀, prod 는 start.sh 를 넣음 → 둘 다 서버 칸에 ●
-  expect(cells).toContain('서버 compose덮어씀 · 서버·자동') // dev: 실서버에서 자동으로 읽음
+  expect(cells).toContain('서버 compose덮어씀 · 서버·gw 경유') // dev: 게이트웨이를 거쳐 실서버에서 읽음
   expect(cells).toContain('start.sh서버가 넣음 · 옛 사본') // prod: 옛 하네스 파일
   expect(webRow.querySelectorAll('.run-dot').length).toBe(2)
   // (이미지) 칸: 읽은 서버가 모두 덮어써서 '서버에선 안 씀'

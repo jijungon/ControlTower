@@ -16,6 +16,13 @@ runners:
   builder: docker           # (예) center 빌더 — 배포 job 이 image: 를 쓰면 docker 일 가능성이 큼
   builder-docker: docker
 
+# (선택) 배포 서버가 ~/.ssh/config 에 직접 없을 때 거칠 게이트웨이(환경 → ~/.ssh/config 별칭).
+# shape --ssh 가 PC → gw → 서버 로 들어가 compose 를 읽음(안쪽 접속은 gw 의 키·설정 사용, 읽기만).
+gateways:
+  dev: shop-gw-dev
+  prod: shop-gw-prod
+# gateway_user: app          # (선택) gw 에서 안쪽 서버로 들어갈 사용자
+
 # center config repo — <서비스>/<web|was>/ 폴더를 자동으로 훑어 config 탭을 채움
 config:
   gitlab: center

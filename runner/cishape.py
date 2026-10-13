@@ -599,6 +599,15 @@ def deploy_targets(text: str | None, svc_type: str = "web") -> dict[str, dict]:
     return {env: {"hosts": hosts, "dir": app_dir} for env, (_, hosts) in picked.items()}
 
 
+def parse_gateways(text: str) -> tuple[dict[str, str], str | None]:
+    """shape-targets.yml 의 gateways: (환경 → gw 별칭)와 gateway_user(선택). 배포 서버가 ~/.ssh/config 에 직접
+    없을 때 이 gw 를 거쳐 읽는다."""
+    doc = yaml.safe_load(text) or {}
+    gws = {str(k): str(v) for k, v in (doc.get("gateways") or {}).items() if v}
+    user = doc.get("gateway_user")
+    return gws, (str(user) if user else None)
+
+
 def parse_targets(text: str) -> tuple[dict[str, str], list[dict], dict | None]:
     """shape-targets.yml → (runners 표, 서비스 목록, config 섹션)."""
     doc = yaml.safe_load(text) or {}

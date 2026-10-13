@@ -511,6 +511,8 @@ def test_cmd_shape_ssh_plan_and_read(monkeypatch, tmp_path, capsys):
     (tmp_path / "dev-compose.yml").write_text(COMPOSE_DIRECT)
     targets = tmp_path / "shape-targets.yml"
     targets.write_text(
+        "gateways: {prod: gw-prod}\n"        # prod 서버는 직접 등록 안 됨 → gw 를 거쳐 읽음
+        "gateway_user: app\n"
         "config: {file: config}\n"
         "services:\n"
         "  - name: shop web\n"
@@ -544,8 +546,13 @@ def test_cmd_shape_ssh_plan_and_read(monkeypatch, tmp_path, capsys):
         reads.append((alias, path))
         return COMPOSE_IMAGE, None
 
+    def fake_read_via(gw, target, path, timeout=8, user=None):
+        reads.append((f"{gw}->{user}@{target}", path))
+        return COMPOSE_DIRECT, None
+
     monkeypatch.setattr(cli, "CentralAPI", FakeAPI)
     monkeypatch.setattr(cli, "read_file", fake_read)
+    monkeypatch.setattr(cli, "read_file_via", fake_read_via)
     cfg = types.SimpleNamespace(
         shape_targets=str(targets), central_url="x", api_token="t", gitlab_url="", gitlab_token="",
         gitlab_center_url="", gitlab_center_token="", gitlab_ref="main", connect_timeout=1,
@@ -554,20 +561,29 @@ def test_cmd_shape_ssh_plan_and_read(monkeypatch, tmp_path, capsys):
     cli.cmd_shape(cfg, ssh_mode="plan")
     out = capsys.readouterr().out
     assert reads == []
-    assert "서버 compose 자동 찾기: 3곳 (접속 가능 1 · 직접 등록 안 된 서버 2)" in out  # stg·preview·prod (dev 는 이미 적힘)
-    assert "shop-stg:/app/web-shop/docker-compose.yml" in out and "접속 안 함" in out
+    # stg·preview·prod (dev 는 이미 적힘): stg 직접 · prod gw 경유 · preview 길 없음
+    assert "서버 compose 자동 찾기: 3곳 (직접 1 · gw 경유 1 · 길 없음 1)" in out
+    assert "shop-stg:/app/web-shop/docker-compose.yml" in out and "gw-prod → 10.0.0.5:/app/web-shop/docker-compose.yml" in out
+    assert "접속 안 함" in out
     assert sent["config"]["shop/web"]["compose_src"] == {"dev": {"kind": "file", "note": None, "where": "dev-compose.yml"}}
     # 계획만: 위치를 찾은 환경은 '안 읽음' 이 아니라 'planned'
     assert {e: m["state"] for e, m in sent["config"]["shop/web"]["compose_miss"].items()} == {"stg": "planned", "preview": "planned", "prod": "planned"}
+    assert "gw-prod → 10.0.0.5" in sent["config"]["shop/web"]["compose_miss"]["prod"]["reason"]
     # 2) 실제로 읽기: 인벤토리에 있는 stg 만 SSH
     cli.cmd_shape(cfg, ssh_mode="read")
-    assert reads == [("shop-stg", "/app/web-shop/docker-compose.yml")]
+    assert reads == [
+        ("shop-stg", "/app/web-shop/docker-compose.yml"),
+        ("gw-prod->app@10.0.0.5", "/app/web-shop/docker-compose.yml"),  # gw 위에서 안쪽 서버로
+    ]
     data = sent["config"]["shop/web"]
-    assert data["compose"] == {"dev": "mount", "stg": "image"}
+    assert data["compose"] == {"dev": "mount", "stg": "image", "prod": "mount"}
+    assert data["compose_src"]["prod"] == {
+        "kind": "ssh", "auto": True, "via": "gw-prod", "where": "gw-prod → 10.0.0.5:/app/web-shop/docker-compose.yml",
+    }
     assert data["compose_src"]["stg"] == {"kind": "ssh", "auto": True, "where": "shop-stg:/app/web-shop/docker-compose.yml"}
-    # 실제로 읽기: SSH 설정에 없는 서버(preview·prod)는 '못 읽음' + 이유
-    assert {e: m["state"] for e, m in data["compose_miss"].items()} == {"preview": "fail", "prod": "fail"}
-    assert "직접 등록 안 된" in data["compose_miss"]["prod"]["reason"] and "게이트웨이" in data["compose_miss"]["prod"]["reason"]
+    # 실제로 읽기: 직접 등록도 gw 도 없는 preview 만 '못 읽음' + 이유
+    assert {e: m["state"] for e, m in data["compose_miss"].items()} == {"preview": "fail"}
+    assert "직접 등록 안 된" in data["compose_miss"]["preview"]["reason"] and "gateways:" in data["compose_miss"]["preview"]["reason"]
 
 
 def test_src_info_note_per_file_overrides_service_note():
@@ -576,3 +592,24 @@ def test_src_info_note_per_file_overrides_service_note():
     assert _src_info({"file": "a.yml"}, note="옛 사본") == {"kind": "file", "note": "옛 사본", "where": "a.yml"}
     assert _src_info({"file": "a.yml", "note": ""}, note="옛 사본")["note"] is None  # 이 파일은 실제 사본
     assert _src_info({"ssh": "h", "path": "/app/x.yml"}, auto=True) == {"kind": "ssh", "auto": True, "where": "h:/app/x.yml"}
+
+
+def test_read_file_via_builds_nested_ssh(monkeypatch):
+    import subprocess
+
+    import runner.conn as conn
+
+    seen = {}
+
+    def fake_run(argv, **kw):
+        seen["argv"] = argv
+        return subprocess.CompletedProcess(argv, 0, stdout="services: {}\n", stderr="")
+
+    monkeypatch.setattr(conn.subprocess, "run", fake_run)
+    text, err = conn.read_file_via("gw-prod", "10.0.0.5", "/app/web shop/docker-compose.yml", 5, user="app")
+    assert (text, err) == ("services: {}\n", None)
+    argv = seen["argv"]
+    assert argv[0] == "ssh" and "gw-prod" in argv  # 바깥: PC → gw
+    inner = argv[-1]  # 안쪽: gw 위에서 실행할 명령(따옴표 처리됨)
+    assert inner.startswith("ssh -o BatchMode=yes -o ConnectTimeout=5 app@10.0.0.5 cat -- ")
+    assert "'/app/web shop/docker-compose.yml'" in inner

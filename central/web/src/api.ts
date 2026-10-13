@@ -200,7 +200,7 @@ export type ShapeRow = {
 }
 
 // 서버 compose 를 어디서 읽었나 — ssh(서버에서 직접) / file(복사해 둔 사본) / gitlab
-export type ComposeSrc = { kind: 'ssh' | 'file' | 'gitlab' | 'unknown'; auto?: boolean; note?: string | null; where?: string }
+export type ComposeSrc = { kind: 'ssh' | 'file' | 'gitlab' | 'unknown'; auto?: boolean; via?: string; note?: string | null; where?: string } // via = 거친 게이트웨이
 
 // center config repo 폴더 하나(<서비스>/<타입>)
 export type ConfigRow = {

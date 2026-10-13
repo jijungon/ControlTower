@@ -33,10 +33,11 @@ from .cishape import (
     config_dirs,
     deploy_targets,
     is_dockerfile,
+    parse_gateways,
     parse_targets,
 )
 from .config import RunnerConfig
-from .conn import list_upgrades, list_upgrades_yum, read_file, run_remote, test_ssh
+from .conn import list_upgrades, list_upgrades_yum, read_file, read_file_via, run_remote, test_ssh
 from .gitlab import fetch_latest_pipeline, fetch_repo_file, fetch_repo_tree
 from .probe import probe_ssh
 from .repoversions import extract_versions
@@ -287,6 +288,8 @@ def _src_info(src: object, note: str | None = None, auto: bool = False) -> dict:
     """화면에 '어디서 읽었나' 를 보여주기 위한 짧은 정보(파일 내용은 안 담음)."""
     if not isinstance(src, dict):
         return {"kind": "unknown"}
+    if src.get("via"):  # 게이트웨이 경유
+        return {"kind": "ssh", "auto": auto, "via": src["via"], "where": f"{src['via']} → {src['ssh']}:{src.get('path')}"}
     if src.get("ssh"):
         return {"kind": "ssh", "auto": auto, "where": f"{src['ssh']}:{src.get('path')}"}
     note = src.get("note", note)  # 파일마다 note 를 달면 서비스 note 보다 우선(빈 값이면 메모 없음)
@@ -334,7 +337,9 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
         print(f"비교표 대상 파일 없음({path}) — runner/shape-targets.example.yml 을 복사해 채우세요.")
         return
     with open(path, encoding="utf-8") as f:
-        runners, services, config = parse_targets(f.read())
+        targets_text = f.read()
+    runners, services, config = parse_targets(targets_text)
+    gateways, gateway_user = parse_gateways(targets_text)
     if not services and not config:
         print(f"비교표 대상이 비어 있음 — {path} 의 services: / config: 를 채우세요.")
         return
@@ -360,7 +365,7 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
         """화면에 '안 읽음'(시도 안 함)과 구분해서 보여줄 것: fail = 읽으려다 실패, planned = 위치만 찾음."""
         if cdir:
             miss_by_dir.setdefault(cdir, {}).setdefault(env, {"state": state, "reason": reason})
-    plan: list[tuple[str, str, str | None, str, str]] = []  # (서비스, 환경, ssh 별칭|None, 주소, 경로)
+    plan: list[tuple[str, str, str | None, str, str, str | None]] = []  # (서비스, 환경, ssh 별칭|None, 주소, 경로, 경유 gw|None)
     by_ip: dict[str, str] = {}
     if ssh_mode:
         api0 = CentralAPI(cfg.central_url, cfg.api_token)
@@ -408,19 +413,27 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
                     continue
                 ip = t["hosts"][0]
                 alias = by_ip.get(ip)
+                via = None if alias else gateways.get(env)  # 직접 등록 안 된 서버면 그 환경의 gw 를 거침
                 path_ = f"{t['dir']}/docker-compose.yml"
-                plan.append((str(svc["name"]), env, alias, ip, path_))
+                plan.append((str(svc["name"]), env, alias, ip, path_, via))
                 if ssh_mode != "read":
-                    miss(cdir, env, "planned", f"위치는 찾음: {alias or '(SSH 설정에 없는 서버)'}:{path_} — --ssh 로 읽기")
+                    where = f"{alias}" if alias else (f"{via} → {ip}" if via else "(SSH 설정에 없는 서버)")
+                    miss(cdir, env, "planned", f"위치는 찾음: {where}:{path_} — --ssh 로 읽기")
                     continue
-                if not alias:
-                    miss(cdir, env, "fail", f"~/.ssh/config 에 직접 등록 안 된 서버 — 게이트웨이를 거쳐야 할 수 있음(지금은 직접 접속만 함) — {path_}")
+                if not alias and not via:
+                    miss(cdir, env, "fail", f"~/.ssh/config 에 직접 등록 안 된 서버 — 게이트웨이를 거쳐야 할 수 있음(gateways: 에 이 환경의 gw 를 적으면 경유) — {path_}")
                     continue
-                src = {"ssh": alias, "path": path_}
-                _, text = _read_source(src, cfg, base_dir)
+                if alias:
+                    src = {"ssh": alias, "path": path_}
+                    _, text = _read_source(src, cfg, base_dir)
+                    fail_where = f"{alias}:{path_}"
+                else:
+                    src = {"ssh": ip, "via": via, "path": path_}
+                    text, err = read_file_via(via, ip, path_, cfg.connect_timeout, gateway_user)
+                    fail_where = f"{via} → {ip}:{path_} ({err})"
                 if text is None:
-                    missing.append(f"{svc['name']}:compose.{env}(ssh {alias})")
-                    miss(cdir, env, "fail", f"SSH 로 못 읽음(접속·권한·파일 없음) — {alias}:{path_}")
+                    missing.append(f"{svc['name']}:compose.{env}(ssh {alias or via})")
+                    miss(cdir, env, "fail", f"SSH 로 못 읽음(접속·권한·파일 없음) — {fail_where}")
                     continue
                 compose[env] = text
                 if cdir:
@@ -459,10 +472,16 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
     finally:
         api.close()
     if plan:
-        found = sum(1 for p in plan if p[2])
-        print(f"서버 compose 자동 찾기: {len(plan)}곳 (접속 가능 {found} · 직접 등록 안 된 서버 {len(plan) - found})")
-        for name, env, alias, ip, path_ in plan:
-            where = f"{alias}:{path_}" if alias else f"(~/.ssh/config 에 직접 등록 안 된 서버 {ip}) {path_}"
+        direct = sum(1 for p in plan if p[2])
+        via_n = sum(1 for p in plan if not p[2] and p[5])
+        print(f"서버 compose 자동 찾기: {len(plan)}곳 (직접 {direct} · gw 경유 {via_n} · 길 없음 {len(plan) - direct - via_n})")
+        for name, env, alias, ip, path_, via in plan:
+            if alias:
+                where = f"{alias}:{path_}"
+            elif via:
+                where = f"{via} → {ip}:{path_}"
+            else:
+                where = f"(직접 등록 안 된 서버 {ip}, gateways: 에 gw 없음) {path_}"
             print(f"  {name:22} {env:8} → {where}")
         if ssh_mode == "plan":
             print("  ※ 목록만 보여줬어요(접속 안 함). 실제로 읽으려면: python -m runner.cli shape --ssh")

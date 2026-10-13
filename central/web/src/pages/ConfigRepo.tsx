@@ -94,6 +94,7 @@ function codeCell(r: ConfigRow) {
 // 서버 compose 를 어디서 읽었나 — 칸 아래 작은 글씨. 서버 = 실서버에서 직접(SSH), 사본 = 복사해 둔 파일(다를 수 있음)
 function srcLabel(info?: ComposeSrc | null): { text: string; title: string } | null {
   if (!info) return null
+  if (info.kind === 'ssh' && info.via) return { text: '서버·gw 경유', title: `게이트웨이를 거쳐 실서버에서 읽음 (${info.where}) — center CI 의 배포 서버·폴더로 자동으로 찾음` }
   if (info.kind === 'ssh') return { text: info.auto ? '서버·자동' : '서버', title: `실서버에서 SSH 로 읽음 (${info.where})${info.auto ? ' — center CI 의 배포 서버·폴더로 자동으로 찾음' : ''}` }
   if (info.kind === 'file') return { text: info.note || '사본', title: `복사해 둔 파일을 읽음 — 실서버와 다를 수 있음 (${info.where})` }
   if (info.kind === 'gitlab') return { text: 'GitLab', title: `GitLab 파일을 읽음 (${info.where})` }
@@ -273,7 +274,7 @@ export default function ConfigRepo() {
             start.sh 를 넣으면 그게 <b>덮어써서</b> 실행돼요. <b>← 이미지</b> = 그 서버는 (이미지) 칸 명령을 그대로 씀
           </li>
           <li>
-            <b>(서버) 칸 아래 작은 글씨 = 어디서 읽었나</b> — <b>서버</b>: 실서버에서 직접 읽음(믿을 수 있음) · <b>서버·자동</b>: center CI 의 배포 서버·폴더로 찾아서 읽음 ·{' '}
+            <b>(서버) 칸 아래 작은 글씨 = 어디서 읽었나</b> — <b>서버</b>: 실서버에서 직접 읽음(믿을 수 있음) · <b>서버·자동</b>: center CI 의 배포 서버·폴더로 찾아서 읽음 · <b>서버·gw 경유</b>: 게이트웨이를 거쳐 읽음 ·{' '}
             <b>사본</b>: 복사해 둔 파일(실서버와 다를 수 있음) · <b>옛 사본</b>: 옛날 하네스 파일 · <b>안 읽음</b>: 아직 읽으려고 하지 않음(<b>위치 찾음</b> = 서버·경로는 찾아 둠) ·{' '}
             <b className="miss-fail">못 읽음</b>: 읽으려 했는데 실패(이유는 칸 아래·마우스)
           </li>
