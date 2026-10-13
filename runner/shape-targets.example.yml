@@ -50,3 +50,21 @@ services:
     type: was
     repo_ci:    {file: ../ci-copies/shop/repo/shop-was.gitlab-ci.yml}
     dockerfile: {file: ../ci-copies/shop/config/shop-was.Dockerfile}
+
+  # 이미지 하나를 역할별로 나눠 띄우는 서비스(서버 compose 의 command: 로 역할을 고름)
+  #   type = 표에 보일 이름, tag_type = 태그·폴더에 쓰는 타입(<env>-app-v1.2.3, BUILD_INFO=app)
+  #   deploy_role = center CI 의 DEPLOY_<ENV>_<ROLE>_SERVERS 중 이 역할의 서버(없는 환경은 DEPLOY_<ENV>_SERVERS)
+  - name: jobs manager
+    group: shop
+    type: manager
+    tag_type: app
+    deploy_role: mgr
+    center_ci:  {gitlab: center, project: shop/jobs, path: .gitlab-ci.yml}
+    config_dir: jobs/web
+  - name: jobs worker
+    group: shop
+    type: worker
+    tag_type: app
+    deploy_role: wrk
+    center_ci:  {gitlab: center, project: shop/jobs, path: .gitlab-ci.yml}
+    config_dir: jobs/web

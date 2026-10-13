@@ -361,6 +361,7 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
     src_by_dir: dict[str, dict[str, dict]] = {}  # config 폴더 → 환경 → 어디서 읽었나
     miss_by_dir: dict[str, dict[str, dict]] = {}  # config 폴더 → 환경 → 못 읽음(이유) / 위치만 찾음
     envs_by_dir: dict[str, set[str]] = {}  # config 폴더 → 그 서비스가 배포하는 환경(비교표 기준)
+    types_by_dir: dict[str, list[str]] = {}  # config 폴더 → 이 폴더를 쓰는 서비스의 표 타입(예: web 폴더를 manager·syncer 가 같이 씀)
 
     def miss(cdir: str | None, env: str, state: str, reason: str) -> None:
         """화면에 '안 읽음'(시도 안 함)과 구분해서 보여줄 것: fail = 읽으려다 실패, planned = 위치만 찾음."""
@@ -409,7 +410,8 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
                 src_by_dir.setdefault(cdir, {}).setdefault(str(env), _src_info(src, svc.get("source_note")))
         # center CI 에 적힌 배포 서버·폴더로 나머지 환경의 서버 compose 를 찾는다
         if ssh_mode and files.get("center_ci"):
-            for env, t in deploy_targets(files["center_ci"], str(svc.get("type") or "web")).items():
+            role = str(svc["deploy_role"]).lower() if svc.get("deploy_role") else None  # 예: mgr / wrk
+            for env, t in deploy_targets(files["center_ci"], str(svc.get("tag_type") or svc.get("type") or "web"), role).items():
                 if env in compose or not t["dir"]:
                     continue
                 ip = t["hosts"][0]
@@ -444,6 +446,7 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
         row = build_row(svc, files, runners)
         if cdir:
             envs_by_dir.setdefault(cdir, set()).update(row["data"]["deploy"])
+            types_by_dir.setdefault(cdir, []).append(str(row["data"]["type"]))
         if cdir and svc.get("repo_ci"):
             code_files = {n: _read_source(_sibling(svc["repo_ci"], n), cfg, base_dir)[1] for n in CODE_VERSION_FILES}
             cv = code_versions(code_files)
@@ -463,6 +466,9 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
         data["compose_miss"] = {e: m for e, m in miss_by_dir.get(cdir, {}).items() if e not in data["compose"]}
         if envs_by_dir.get(cdir):  # 여기 없는 환경엔 배포를 안 함 → 화면에서 '안 읽음' 대신 '—' (CI 를 못 읽어 비면 안 붙임 = 모름)
             data["deploy_envs"] = sorted(envs_by_dir[cdir])
+        roles = [t for t in dict.fromkeys(types_by_dir.get(cdir, [])) if t != cdir.partition("/")[2]]
+        if roles:  # 폴더 이름(web)과 다른 이름으로 쓰임 — 이미지 하나를 역할별로 나눠 띄움
+            data["used_as"] = roles
         merged = ((config or {}).get("merged") or {}).get(cdir)
         if merged:  # 다른 폴더로 합쳐져 안 쓰는 폴더(예: repo 둘이 center 에서 하나로)
             data["merged_into"] = str(merged)

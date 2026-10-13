@@ -165,3 +165,16 @@ test("배포 안 하는 환경은 '안 읽음' 대신 '—', CI 를 못 읽어 �
   const acc = table.getByText('acc').closest('tr')!
   expect(within(acc).getAllByText('안 읽음').length).toBe(3) // 어디 배포하는지 모름 → 셋 다 '안 읽음'
 })
+
+test('폴더 하나를 역할 둘이 같이 쓰면 타입 칸에 → manager·syncer', async () => {
+  const rows: ConfigRow[] = [
+    { path: 'acct/web', runtime: 'node', runtime_version: '22', base_image: 'node', base_tag: '22-slim', start: 'dockerfile', start_files: [], state: 'done',
+      used_as: ['manager', 'syncer'], compose: { dev: 'command' } },
+  ]
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(rows), { status: 200 })))
+  render(<ConfigRepo />)
+  const table = within(await screen.findByRole('table'))
+  const cell = table.getByText('→ manager·syncer').parentElement!
+  expect(cell).toHaveTextContent(/^web → manager·syncer$/)
+  expect(cell).toHaveAttribute('title', expect.stringContaining('config 폴더 이름은 web'))
+})

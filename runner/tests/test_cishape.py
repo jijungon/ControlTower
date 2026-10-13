@@ -342,6 +342,8 @@ def test_cmd_shape_scans_config_dir_and_links_services(monkeypatch, tmp_path, ca
         "  - name: shop web\n"
         "    config_dir: shop/web\n"   # dockerfile·startup 을 config 폴더에서
         "    repo_ci: {file: repo/.gitlab-ci.yml}\n"
+        "  - {name: shop mgr, type: manager, config_dir: shop/old}\n"   # 폴더 하나를 역할 둘이 같이 씀
+        "  - {name: shop wrk, type: worker, config_dir: shop/old}\n"
     )
     sent = {}
 
@@ -373,6 +375,8 @@ def test_cmd_shape_scans_config_dir_and_links_services(monkeypatch, tmp_path, ca
     assert items["shop/old"]["merged_into"] == "shop/web" and "merged_into" not in items["shop/web"]
     assert items["shop/web"]["deploy_envs"] == ["dev", "preview", "prod", "stg"]  # 연결된 서비스(repo CI)가 배포하는 환경
     assert "deploy_envs" not in items["shop/old"]  # 연결된 서비스 없음 → 모름
+    assert "used_as" not in items["shop/web"]  # 폴더 이름(web) 그대로 쓰임
+    assert items["shop/old"]["used_as"] == ["manager", "worker"]
     assert items["shop/old"]["code"] is None  # 연결된 서비스(repo)가 없음
     assert items["shop/old"]["state"] == "legacy" and items["shop/old"]["compose"] == {"dev": "mount"}  # start.sh 형태 = shell
     web = sent["shapes"][0]["data"]
@@ -508,6 +512,29 @@ def test_deploy_targets_servers_and_dir():
     was = deploy_targets(CENTER_DEPLOY, "was")
     assert was["stg"]["hosts"] == ["10.0.0.3"] and "prod" not in was and was["dev"]["dir"] == "/app/was-shop"
     assert deploy_targets("deploy:\n  script: [echo]\n") == {}
+
+
+def test_deploy_targets_role_split_servers():
+    # 같은 이미지(app)를 prod 에서만 역할별 서버(manager·syncer)에 나눠 까는 경우 — 폴더는 BUILD_INFO(app) 그대로
+    ci = (
+        "variables:\n"
+        '  SERVICE_INFO: acct\n'
+        '  DEPLOY_DEV_SERVERS: "10.0.1.1"\n'
+        '  DEPLOY_PROD_MGR_SERVERS: "10.0.1.2"\n'
+        '  DEPLOY_PROD_WRK_SERVERS: "10.0.1.3,10.0.1.4"\n'
+        "deploy:\n"
+        "  script:\n"
+        '    - APP_DIR="/app/\\${BUILD_INFO}-\\${SERVICE_INFO}"\n'
+    )
+    mgr = deploy_targets(ci, "app", "mgr")
+    assert mgr == {"dev": {"hosts": ["10.0.1.1"], "dir": "/app/app-acct"}, "prod": {"hosts": ["10.0.1.2"], "dir": "/app/app-acct"}}
+    assert deploy_targets(ci, "app", "wrk")["prod"]["hosts"] == ["10.0.1.3", "10.0.1.4"]
+    assert "prod" not in deploy_targets(ci, "app")  # 역할을 안 정하면 prod 는 어느 서버인지 모름
+    # 표 타입(manager)과 태그 타입(app)이 다를 때: 태그 판정은 tag_type 으로
+    build = "build:\n  script:\n    - docker build -t r/x:$T .\n    - docker push r/x:$T\n  rules:\n    - if: '$CI_COMMIT_TAG =~ /^(dev|prod)-app-v/'\n"
+    row = build_row({"name": "acct manager", "type": "manager", "tag_type": "app"}, {"center_ci": build})
+    assert row["data"]["type"] == "manager" and set(row["data"]["deploy"]) == {"dev", "prod"}
+    assert build_row({"name": "acct manager", "type": "manager"}, {"center_ci": build})["data"]["deploy"] == {}  # manager 태그는 없음
 
 
 def test_cmd_shape_ssh_plan_and_read(monkeypatch, tmp_path, capsys):

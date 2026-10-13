@@ -397,13 +397,15 @@ def env_fingerprint(*cis: tuple[str, dict | None]) -> tuple[int | None, str | No
 
 
 def build_row(spec: dict, files: dict[str, Any], runners: dict[str, str] | None = None) -> dict:
-    """spec: {name, group?, type?} · files: {repo_ci, center_ci, dockerfile, startup, compose: {env: text}}.
+    """spec: {name, group?, type?, tag_type?} · files: {repo_ci, center_ci, dockerfile, startup, compose: {env: text}}.
 
     files 값이 None 이면 '못 읽음/없음'. startup 은 키가 있고 None 이면 '파일 없음(=start.sh 없음)'.
     """
     svc_type = str(spec.get("type") or "web")
-    repo = analyze_ci(files.get("repo_ci"), svc_type, runners)
-    center = analyze_ci(files.get("center_ci"), svc_type, runners)
+    # tag_type = 태그·폴더에 쓰는 타입이 표에 보일 타입과 다를 때(예: 표는 manager·syncer, 태그는 둘 다 app)
+    ci_type = str(spec.get("tag_type") or svc_type)
+    repo = analyze_ci(files.get("repo_ci"), ci_type, runners)
+    center = analyze_ci(files.get("center_ci"), ci_type, runners)
     docker = analyze_dockerfile(files.get("dockerfile"))
     composes = {env: analyze_compose(t) for env, t in (files.get("compose") or {}).items()}
     composes = {env: c for env, c in composes.items() if c}
@@ -564,10 +566,12 @@ def _expand_shell(s: str, env: dict[str, str]) -> str:
     return s
 
 
-def deploy_targets(text: str | None, svc_type: str = "web") -> dict[str, dict]:
+def deploy_targets(text: str | None, svc_type: str = "web", role: str | None = None) -> dict[str, dict]:
     """center CI → {env: {"hosts": [주소…], "dir": "/app/…"}}.
 
     서버: variables 의 DEPLOY_<ENV>[_<TYPE>]_SERVERS (타입이 맞는 게 우선, 없으면 타입 없는 것).
+      role = 같은 이미지를 역할별 서버에 나눠 까는 경우(예: prod 만 MGR·WRK 서버로 나눔) —
+      DEPLOY_<ENV>_<ROLE>_SERVERS 가 가장 우선. 폴더(BUILD_INFO)는 그대로 svc_type.
     폴더: 스크립트의 APP_DIR="…" (주석 줄 제외) 를 SERVICE_INFO·BUILD_INFO(=타입)로 펼침. 못 펼치면 dir 없음.
     """
     doc = load_yaml(text)
@@ -581,9 +585,9 @@ def deploy_targets(text: str | None, svc_type: str = "web") -> dict[str, dict]:
         if not m or not hosts:
             continue
         env, typ = _ENV_KEY[m.group(1)], (m.group(2) or "").lower()
-        if typ and typ != svc_type:
+        if typ and typ not in (svc_type, role):
             continue
-        rank = 0 if typ == svc_type else 1
+        rank = 0 if role and typ == role else 1 if typ == svc_type else 2
         if env not in picked or rank < picked[env][0]:
             picked[env] = (rank, hosts)
     # 환경마다 규칙(rules) 안에서 따로 넣는 변수 — 예: lab 태그일 때만 APP_DIR_OVERRIDE: /app/web-lab

@@ -202,6 +202,19 @@ function imageCell(r: ConfigRow, envs: string[]) {
   )
 }
 
+// 타입 칸 — 폴더 이름. 이미지 하나를 역할별로 나눠 띄우면(예: manager·syncer) 옆에 작게
+function typeCell(r: ConfigRow) {
+  const folder = r.path.split('/')[1]
+  if (!folder) return <span className="muted">—</span>
+  if (!r.used_as?.length) return folder
+  return (
+    <span title={`config 폴더 이름은 ${folder} — 이 이미지 하나를 ${r.used_as.join('·')} 가 같이 써요(서버 compose 의 command: 로 역할을 나눠 띄움)`}>
+      {folder}
+      <span className="cell-tag"> → {r.used_as.join('·')}</span>
+    </span>
+  )
+}
+
 function todoCell(r: ConfigRow) {
   if (r.merged_into)
     return (
@@ -394,7 +407,7 @@ export default function ConfigRepo() {
                           {svc}
                         </td>
                       )}
-                      <td>{r.path.split('/')[1] ?? <span className="muted">—</span>}</td>
+                      <td>{typeCell(r)}</td>
                       <td>{codeCell(r)}</td>
                       <td>
                         {r.runtime ? (
