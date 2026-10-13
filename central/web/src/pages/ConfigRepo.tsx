@@ -3,30 +3,56 @@ import { fetchConfig, type ConfigRow } from '../api'
 import SectionHead, { latestTime, runAll } from '../components/SectionHead'
 import { isOld, newestBy, Ver, verParts } from '../vercmp'
 
-// 실행 명령이 어디 적혀 있나
-const START_LABEL: Record<string, string> = {
-  dockerfile: 'Dockerfile (CMD)',
-  'start.sh': 'start.sh',
-  base: '베이스 이미지 기본값',
+// 처음 실행할 명령 = 컨테이너가 켜질 때 앱을 띄우는 명령이 어디 있나. 모든 칸이 이 말 하나만 쓴다.
+type Run = 'start.sh' | 'cmd' | 'compose' | 'base' | 'server'
+const RUN: Record<Run, { label: string; tone: string; title: string }> = {
+  'start.sh': { label: 'start.sh', tone: 'warn', title: 'start.sh 스크립트가 앱을 띄움' },
+  cmd: { label: 'Dockerfile CMD', tone: 'ok', title: 'Dockerfile 안의 CMD 가 앱을 띄움 — start.sh 필요 없음' },
+  compose: { label: '서버 compose', tone: 'ok', title: '서버 docker-compose 의 command: 가 앱을 띄움 — start.sh 필요 없음' },
+  base: { label: '베이스 기본값', tone: 'muted', title: '베이스 이미지가 알아서 띄움(예: springboot)' },
+  server: { label: '없음 → 서버가 줌', tone: 'warn', title: 'Dockerfile 에 CMD 도 없고 start.sh 도 안 넣음 — 이미지 혼자서는 못 띄우고 서버 compose 가 명령을 줘야 함' },
 }
 
-const STATE: Record<ConfigRow['state'], { label: string; tone: string; title: string }> = {
-  legacy: { label: '구형', tone: 'danger', title: 'start.sh 로 실행 — Dockerfile CMD 로 바꿀 대상' },
-  leftover: { label: 'start.sh 잔재', tone: 'warn', title: 'Dockerfile 이 이미 CMD 로 실행 — 남은 .sh 는 지워도 됨' },
-  done: { label: '완료', tone: 'ok', title: 'Dockerfile CMD 로 실행, start.sh 없음' },
-  base: { label: '해당 없음', tone: 'muted', title: '베이스 이미지 기본 실행(예: springboot)' },
+// 이미지 기준(config 의 Dockerfile 만 봤을 때)
+function imageRun(r: ConfigRow): Run | null {
+  switch (r.start) {
+    case 'dockerfile': return 'cmd'
+    case 'start.sh': return 'start.sh'
+    case 'server': return 'server'
+    case 'base': return 'base'
+    default: return null
+  }
+}
+
+// 서버 기준(환경별) — compose 가 명령을 주면 그게 이기고, 아무것도 없으면 이미지 기준을 그대로 씀
+function serverRun(r: ConfigRow, env: string): Run | null {
+  const c = r.compose?.[env]
+  if (c === 'command') return 'compose'
+  if (c === 'mount') return 'start.sh'
+  return imageRun(r)
+}
+
+// 정리할 것 — '처음 실행할 명령' 기준으로 다음에 할 일
+const TODO: Record<ConfigRow['state'], { label: string; tone: string; title: string }> = {
+  legacy: { label: 'start.sh → CMD 로 옮기기', tone: 'danger', title: '지금은 start.sh 가 앱을 띄움 — Dockerfile 에 CMD 를 넣고 start.sh 를 없애면 끝' },
+  leftover: { label: 'start.sh 파일 지우기', tone: 'warn', title: '이미 Dockerfile CMD 가 앱을 띄움 — 폴더에 남은 start.sh 는 안 쓰임' },
+  server: { label: 'Dockerfile 에 CMD 넣기', tone: 'warn', title: '지금은 서버 compose 가 명령을 줌 — 이미지 혼자 뜨도록 CMD 를 넣으면 깔끔' },
+  done: { label: '없음', tone: 'ok', title: 'Dockerfile CMD 로 뜨고 start.sh 도 없음' },
+  base: { label: '—', tone: 'muted', title: '베이스 이미지가 알아서 띄움 — 할 일 없음' },
   none: { label: 'Dockerfile 없음', tone: 'muted', title: '폴더에 Dockerfile 이 없음' },
 }
 
-// start.sh 형태(서버 compose 기준): 앱 실행 명령이 어디서 오나
-//   shell      = compose 가 start.sh 파일을 마운트해서 그 스크립트로 실행
-//   compose    = compose 의 command: 에 실행 명령을 직접 적음(start.sh 필요 없음)
-//   Dockerfile = compose 에 아무것도 없음 → 이미지 안의 CMD 를 그대로 씀
-const MOVE: Record<string, { label: string; tone: string; title: string }> = {
-  mount: { label: 'shell', tone: 'warn', title: 'compose 가 start.sh 를 마운트해서 실행 — compose 의 command: 로 옮길 대상' },
-  command: { label: 'compose', tone: 'ok', title: 'compose 의 command: 로 직접 실행 — start.sh 필요 없음' },
-  image: { label: 'Dockerfile', tone: 'muted', title: 'compose 에 실행 명령이 없음 — 이미지 안의 CMD 를 그대로 씀' },
+function runBadge(run: Run | null, prefix = '') {
+  if (!run) return <span className="muted">—</span>
+  const m = RUN[run]
+  return (
+    <span className={`badge badge--${m.tone}`} title={m.title} style={{ marginRight: 4 }}>
+      {prefix}
+      {m.label}
+    </span>
+  )
 }
+
 const ENV_ORDER = ['dev', 'lab', 'stg', 'preview', 'prod']
 
 const runtimeOf = (r: ConfigRow): [string, string] | null =>
@@ -65,17 +91,21 @@ function codeCell(r: ConfigRow) {
   )
 }
 
-function composeCell(c?: ConfigRow['compose']) {
-  const envs = Object.keys(c ?? {}).sort((a, b) => ENV_ORDER.indexOf(a) - ENV_ORDER.indexOf(b))
-  if (!c || envs.length === 0) return <span className="muted" title="서버 compose 를 대상 파일(config.compose)에 적으면 표시">—</span>
-  return envs.map((e) => {
-    const m = MOVE[c[e]] ?? { label: c[e], tone: 'muted', title: '' }
-    return (
-      <span key={e} className={`badge badge--${m.tone}`} style={{ marginRight: 4 }} title={m.title}>
-        {e} {m.label}
-      </span>
-    )
-  })
+function serverCell(r: ConfigRow) {
+  const envs = Object.keys(r.compose ?? {}).sort((a, b) => ENV_ORDER.indexOf(a) - ENV_ORDER.indexOf(b))
+  if (envs.length === 0) return <span className="muted" title="서버 compose 를 아직 안 읽음 — 대상 파일(config.compose 나 서비스의 compose)에 적으면 표시">—</span>
+  return envs.map((e) => <Fragment key={e}>{runBadge(serverRun(r, e), `${e} `)}</Fragment>)
+}
+
+function todoCell(r: ConfigRow) {
+  const t = TODO[r.state] ?? TODO.none
+  if (t.label === '—') return <span className="muted" title={t.title}>—</span>
+  const files = r.start_files?.length ? ` · 폴더의 파일: ${r.start_files.join(', ')}` : ''
+  return (
+    <span className={`badge badge--${t.tone}`} title={`${t.title}${files}`}>
+      {t.label}
+    </span>
+  )
 }
 
 export default function ConfigRepo() {
@@ -121,7 +151,7 @@ export default function ConfigRepo() {
       <div className="page-head">
         <h1 className="page-title">config</h1>
         <p className="page-sub">
-          center 가 이미지를 만들 때 참조하는 config repo — 폴더(서비스/타입)마다 베이스 이미지 · 실행 명령 위치 · start.sh · start.sh 형태
+          center 가 이미지를 만들 때 참조하는 config repo — 폴더(서비스/타입)마다 버전 · 처음 실행할 명령 · 정리할 것
         </p>
       </div>
 
@@ -129,7 +159,7 @@ export default function ConfigRepo() {
         title="config 폴더"
         sub={
           rows
-            ? `start.sh 구형 ${count('legacy')} · 잔재 ${count('leftover')} · 완료 ${count('done')} · 코드↔이미지 다름 ${codeDiff} · 오래된 버전 ${oldCount}칸${latest ? ` · 최신: ${latest}` : ''}`
+            ? `CMD 로 옮기기 ${count('legacy')} · 파일 지우기 ${count('leftover')} · CMD 넣기 ${count('server')} · 코드↔이미지 다름 ${codeDiff} · 오래된 버전 ${oldCount}칸${latest ? ` · 최신: ${latest}` : ''}`
             : undefined
         }
         asOf={latestTime(all.map((r) => r.collected_at))}
@@ -142,22 +172,23 @@ export default function ConfigRepo() {
         <summary>표 읽는 법</summary>
         <ul>
           <li>
-            <b>실행 명령 위치</b> = 컨테이너가 켜질 때 앱을 실행하는 명령이 어디 적혀 있나 — <b>Dockerfile (CMD)</b>: 이미지 안에 들어 있음(=CMD 내장,
-            start.sh 필요 없음) · <b>start.sh</b>: 별도 스크립트 파일로 실행 · <b>베이스 이미지 기본값</b>: 베이스 이미지가 알아서 실행(예: springboot)
+            <b>처음 실행할 명령</b> = 컨테이너가 켜질 때 앱을 띄우는 명령이 어디 있나. 모든 칸이 이 말만 써요 —{' '}
+            <span className="badge badge--warn">start.sh</span> 별도 스크립트 · <span className="badge badge--ok">Dockerfile CMD</span> 이미지 안 ·{' '}
+            <span className="badge badge--ok">서버 compose</span> 서버의 <span className="mono">command:</span> ·{' '}
+            <span className="badge badge--muted">베이스 기본값</span> springboot 처럼 이미지가 알아서 ·{' '}
+            <span className="badge badge--warn">없음 → 서버가 줌</span> 이미지 혼자 못 띄움
+          </li>
+          <li>
+            <b>(이미지)</b> = config 의 Dockerfile 만 봤을 때 · <b>(서버)</b> = 서버 compose 까지 본 실제 결과, 환경별 (compose 가 명령을 주면 그게 우선)
+          </li>
+          <li>
+            <b>정리할 것</b> — <span className="badge badge--danger">start.sh → CMD 로 옮기기</span> ·{' '}
+            <span className="badge badge--warn">start.sh 파일 지우기</span> 안 쓰는 파일 · <span className="badge badge--warn">Dockerfile 에 CMD 넣기</span> 지금은 서버가 띄움 ·{' '}
+            <span className="badge badge--ok">없음</span>
           </li>
           <li>
             <b>코드에 적힌 버전</b> = repo 코드의 <span className="mono">.nvmrc</span>·<span className="mono">package.json</span>·<span className="mono">pom.xml</span> 에 "이 버전으로
             빌드해라" 고 적힌 값 (<b>≥20</b> = 20 이상이면 됨). 옆의 런타임(이미지)과 다르면 <span className="badge badge--warn">⚠ 이미지와 다름</span>
-          </li>
-          <li>
-            <b>상태</b> — <span className="badge badge--danger">구형</span> start.sh 로 실행 ·{' '}
-            <span className="badge badge--warn">start.sh 잔재</span> CMD 로 실행하는데 .sh 파일만 남음(지워도 됨) ·{' '}
-            <span className="badge badge--ok">완료</span>
-          </li>
-          <li>
-            <b>start.sh 형태</b> (서버 compose 기준, 환경별) — <span className="badge badge--warn">shell</span> compose 가 start.sh 파일을 마운트해서 실행(옮길 대상) ·{' '}
-            <span className="badge badge--ok">compose</span> compose 의 <span className="mono">command:</span> 에 명령을 직접 적음(start.sh 없음) ·{' '}
-            <span className="badge badge--muted">Dockerfile</span> compose 엔 없고 이미지 안의 CMD 를 그대로 씀
           </li>
           <li>
             <span className="ver ver--old">⚠ 빨간 칸</span> = 같은 종류 중 최신이 아닌 버전
@@ -183,10 +214,9 @@ export default function ConfigRepo() {
               <th>코드에 적힌 버전</th>
               <th>런타임 (이미지)</th>
               <th>베이스 이미지</th>
-              <th>실행 명령 위치</th>
-              <th>start.sh 파일</th>
-              <th>상태</th>
-              <th>start.sh 형태 (서버)</th>
+              <th>처음 실행할 명령 (이미지)</th>
+              <th>처음 실행할 명령 (서버)</th>
+              <th>정리할 것</th>
             </tr>
           </thead>
           <tbody>
@@ -195,7 +225,6 @@ export default function ConfigRepo() {
                 {rs.map((r, i) => {
                   const rt = runtimeOf(r)
                   const base = baseOf(r)
-                  const st = STATE[r.state] ?? STATE.none
                   return (
                     <tr key={r.path} className={i === 0 ? 'svc-start' : undefined}>
                       {i === 0 && (
@@ -227,12 +256,9 @@ export default function ConfigRepo() {
                           <span className="muted">—</span>
                         )}
                       </td>
-                      <td>{r.start ? START_LABEL[r.start] ?? r.start : <span className="muted">—</span>}</td>
-                      <td>{r.start_files?.length ? <span className="mono">{r.start_files.join(', ')}</span> : <span className="muted">없음</span>}</td>
-                      <td>
-                        <span className={`badge badge--${st.tone}`} title={st.title}>{st.label}</span>
-                      </td>
-                      <td className="wrap">{composeCell(r.compose)}</td>
+                      <td>{runBadge(imageRun(r))}</td>
+                      <td className="wrap">{serverCell(r)}</td>
+                      <td>{todoCell(r)}</td>
                     </tr>
                   )
                 })}

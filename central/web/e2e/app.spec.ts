@@ -160,14 +160,15 @@ test('서버 탭 /etc 설정 적용: 계획 → 승인 (서버 쓰기 없음)', 
   await expect(page.getByText('승인됨')).toBeVisible()
 })
 
-test('config 탭 — 실행 명령 위치·상태·start.sh 형태 + 새로고침', async ({ page }) => {
+test('config 탭 — 처음 실행할 명령(이미지·서버)·정리할 것 + 새로고침', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'config' }).click()
   await expect(page.locator('table.grid--nowrap').getByText('shop', { exact: true })).toBeVisible()
   await expect(page.getByText('⚠ node 18')).toHaveClass(/ver--old/)
-  await expect(page.locator('table.grid--nowrap').getByText('구형', { exact: true })).toBeVisible()
-  await expect(page.getByText('dev shell')).toBeVisible()
-  await expect(page.getByText('dev compose')).toBeVisible()
+  const table = page.locator('table.grid--nowrap')
+  await expect(table.getByText('start.sh → CMD 로 옮기기')).toBeVisible()
+  await expect(table.getByText('dev start.sh')).toBeVisible() // 서버 compose 가 start.sh 를 마운트
+  await expect(table.getByText('dev 서버 compose')).toBeVisible() // 서버 compose 의 command:
   await expect(page.locator('table.grid--nowrap').getByText('⚠ 이미지와 다름')).toBeVisible() // 코드 node 22 ≠ 이미지 node 18
   await page.getByRole('button', { name: 'config 폴더 새로고침' }).click()
   await expect(page.getByText(/데이터 기준/)).toBeVisible()

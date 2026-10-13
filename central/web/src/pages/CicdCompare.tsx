@@ -47,23 +47,49 @@ function deployCell(c?: DeployCell) {
   )
 }
 
-function execText(e?: ExecutorCell) {
+// executor 한 칸: 값 + (추정)/(섞임) 이면 ▸ 를 눌러 메모를 펼친다
+function ExecCell({ e, side }: { e?: ExecutorCell; side: 'repo' | 'center' }) {
   if (!e) return <span className="muted">—</span>
-  // job 마다 방식이 섞여 있으면(예: 알림 job 하나만 옛 러너) 개수를 보여준다
-  const mixed = e.counts ? ` · job 마다: ${Object.entries(e.counts).map(([k, n]) => `${k} ${n}`).join(' · ')}` : ''
-  const tags = `러너 태그: ${(e.tags ?? []).join(', ') || '없음'}`
-  if (!e.guess)
-    return (
-      <span title={`${tags}${mixed}`}>
-        {e.value}
-        {e.counts && <small> (섞임)</small>}
-      </span>
-    )
+  const mixed = !!e.counts
+  const guessTags = (e.groups ?? []).filter((g) => g.guess).map((g) => g.tag)
+  const flags = [e.guess ? '추정' : null, mixed ? '섞임' : null].filter(Boolean).join(' · ')
+  if (!flags) return <span title={`러너 태그: ${(e.tags ?? []).join(', ') || '없음'}`}>{e.value}</span>
   return (
-    <span className="muted" title={`${tags} — runners 표에 없어 짐작한 값, 확인되면 shape-targets.yml 의 runners: 에 적으면 확정돼요${mixed}`}>
-      {e.value}
-      <small> (추정{e.counts ? ' · 섞임' : ''})</small>
-    </span>
+    <details className="memo">
+      <summary className={e.guess ? 'muted' : undefined} aria-label={`${side} executor 메모`}>
+        {e.value} <small>({flags})</small>
+      </summary>
+      <div className="memo-body">
+        {mixed && (
+          <>
+            <b>job 마다 쓰는 러너가 달라요</b>
+            <ul>
+              {(e.groups ?? []).map((g) => (
+                <li key={g.tag}>
+                  <span className="mono">{g.tag}</span> → {g.value}
+                  {g.guess ? ' (추정)' : ''} · {g.jobs.length}개: {g.jobs.join(', ')}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+        {guessTags.length > 0 && (
+          <>
+            <b>
+              확인 안 된 러너: <span className="mono">{guessTags.join(', ')}</span>
+            </b>
+            <ol>
+              <li>GitLab 에서 이 repo 의 최근 job 로그 맨 위 줄을 봐요 — "Using Docker executor…" 면 docker, "Using Shell executor…" 면 shell</li>
+              <li>또는 러너 서버의 /etc/gitlab-runner/config.toml 에서 executor = 값을 봐요</li>
+              <li>
+                확인되면 <span className="mono">shape-targets.yml</span> 의 runners: 에 <span className="mono">{guessTags[0]}: docker</span> 처럼 적고{' '}
+                <span className="mono">python -m runner.cli shape</span> → (추정) 이 사라져요
+              </li>
+            </ol>
+          </>
+        )}
+      </div>
+    </details>
   )
 }
 
@@ -93,7 +119,7 @@ function Legend() {
           <b>⚠ compose 다름</b> = CI 파일에 적힌 배포 방식과 서버의 docker-compose 모양이 서로 달라요 (예: CI 는 이미지인데 서버는 아직 파일 복사 방식)
         </li>
         <li>
-          <b>executor</b> = CI 를 돌리는 방식 — <b>shell</b>(러너 서버에서 바로) · <b>docker</b>(깨끗한 컨테이너 안에서). <b>(추정)</b> = 확인 안 된 짐작값(마우스를 올리면 이유)
+          <b>executor</b> = CI 를 돌리는 방식 — <b>shell</b>(러너 서버에서 바로) · <b>docker</b>(깨끗한 컨테이너 안에서). <b>(추정)</b> = 확인 안 된 짐작값 · <b>(섞임)</b> = job 마다 러너가 다름 — <b>▸</b> 를 누르면 메모(어떤 job 이 어떤 러너인지, 확인하는 법)
         </li>
         <li>
           <b>CI 변수</b> = .gitlab-ci.yml 의 변수 개수. 값은 보지 않고, 바뀌면 "N일 전 바뀜"
@@ -215,7 +241,11 @@ export default function CicdCompare() {
                             <td key={e}>{deployCell(r.deploy?.[e])}</td>
                           ))}
                           <td>
-                            {execText(r.executor_repo)} / {execText(r.executor_center)}
+                            <span className="exec-pair">
+                            <ExecCell e={r.executor_repo} side="repo" />
+                            <span className="muted"> / </span>
+                            <ExecCell e={r.executor_center} side="center" />
+                          </span>
                           </td>
                           <td>{envText(r)}</td>
                         </tr>

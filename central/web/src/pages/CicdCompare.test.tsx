@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { expect, test, vi } from 'vitest'
 import CicdCompare from './CicdCompare'
 import { cmpVer, newestBy, verParts } from '../vercmp'
@@ -8,7 +9,14 @@ const ROWS: ShapeRow[] = [
   {
     service: 'shop web', group: 'mall', type: 'web', runtime: 'node', runtime_version: '18', base_image: 'infra/nodejs', base_tag: 'v18',
     deploy: { dev: { path: 'direct', by: 'repo', manual: false }, stg: { path: 'direct', by: 'center', manual: false }, prod: { path: 'image', manual: true, mismatch: true } },
-    executor_repo: { value: 'shell', guess: false, counts: { shell: 7, docker: 1 } }, executor_center: { value: 'docker', guess: true },
+    executor_repo: {
+      value: 'shell', guess: false, counts: { shell: 7, docker: 1 },
+      groups: [
+        { tag: 'old-shell', value: 'shell', guess: false, jobs: ['build', 'push_src'] },
+        { tag: 'new-runner', value: 'docker', guess: true, jobs: ['notify'] },
+      ],
+    },
+    executor_center: { value: 'docker', guess: true, tags: ['builder'], groups: [{ tag: 'builder', value: 'docker', guess: true, jobs: ['build-image'] }] },
     startup: true, env_keys: 4, env_changed_at: new Date().toISOString(),
   },
   {
@@ -50,9 +58,18 @@ test('배포·executor·CI 변수 칸 — 쉬운 말 + 마우스 올리면 뜻',
   expect(table.getByText('빌드만')).toBeInTheDocument()
   expect(table.getByText('compose 기준', { selector: '.cell-sub' }).parentElement).toHaveAttribute('title', expect.stringContaining('짐작'))
   expect(table.getByText('⚠ compose 다름')).toHaveAttribute('title', expect.stringContaining('파일 복사'))
-  expect(table.getByText('(추정)').parentElement).toHaveAttribute('title', expect.stringContaining('runners 표에 없어'))
-  // job 마다 섞여 있으면 '(섞임)' + 개수
-  expect(table.getByText('(섞임)').parentElement).toHaveAttribute('title', expect.stringContaining('job 마다: shell 7 · docker 1'))
+  // (섞임): ▸ 를 누르면 러너별 job 목록 + 확인 안 된 러너의 확인 방법
+  const mixed = screen.getByLabelText('repo executor 메모')
+  expect(mixed).toHaveTextContent('shell (섞임)')
+  await userEvent.click(mixed)
+  const memo = mixed.closest('details')!
+  expect(memo).toHaveAttribute('open')
+  expect(memo).toHaveTextContent('old-shell → shell · 2개: build, push_src')
+  expect(memo).toHaveTextContent('new-runner → docker (추정) · 1개: notify')
+  expect(memo).toHaveTextContent('Using Docker executor')
+  // (추정)만: 확인하는 법이 들어 있음
+  await userEvent.click(screen.getByLabelText('center executor 메모'))
+  expect(screen.getByLabelText('center executor 메모').closest('details')).toHaveTextContent('builder: docker')
   // 런타임·베이스 이미지·start.sh 는 config 탭 몫 — 이 표엔 없음
   const heads = screen.getAllByRole('columnheader').map((h) => h.textContent)
   expect(heads).not.toContain('런타임')

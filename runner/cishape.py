@@ -189,28 +189,35 @@ def _job_kind(name: str, job: dict, env: dict[str, str]) -> str:
     return "other"                 # 빌드·테스트·알림 등
 
 
-def _executor(jobs: list[tuple[list[str], bool]], runners: dict[str, str]) -> dict | None:
+def _executor(jobs: list[tuple[str, list[str], bool]], runners: dict[str, str]) -> dict | None:
     """job 마다 executor 를 정하고 가장 많은 쪽을 대표로.
 
-    jobs = [(그 job 의 러너 태그들, image: 가 있나)]. 태그가 runners 표에 있으면 확정, 없으면
+    jobs = [(job 이름, 그 job 의 러너 태그들, image: 가 있나)]. 태그가 runners 표에 있으면 확정, 없으면
     image: 유무로 짐작(docker/shell). 대표값이 짐작으로만 나왔으면 guess=True.
-    여러 방식이 섞이면 counts 에 job 수를 남긴다(예: 알림 job 하나만 옛 러너).
+    여러 방식이 섞이면 counts(방식별 job 수)와 groups(러너 태그별 job 목록)를 남긴다 — 화면의 '섞임' 메모용.
     """
     votes: list[tuple[str, bool]] = []  # (값, 짐작?)
     tags: set[str] = set()
-    for jtags, has_image in jobs:
+    groups: dict[str, dict] = {}  # 러너 태그 → {value, guess, jobs}
+    for name, jtags, has_image in jobs:
         tags.update(jtags)
         known = [runners[t] for t in jtags if t in runners]
         if known:
-            votes.append((known[0], False))
+            vote = (known[0], False)
         elif jtags or has_image:
-            votes.append(("docker" if has_image else "shell", True))
+            vote = ("docker" if has_image else "shell", True)
+        else:
+            continue
+        votes.append(vote)
+        key = ", ".join(jtags) or "(태그 없음)"
+        g = groups.setdefault(key, {"tag": key, "value": vote[0], "guess": vote[1], "jobs": []})
+        g["jobs"].append(name)
     if not votes:
         return None
     counts = Counter(v for v, _ in votes)
     value = counts.most_common(1)[0][0]
     guess = all(g for v, g in votes if v == value)
-    out = {"value": value, "guess": guess, "tags": sorted(tags)}
+    out = {"value": value, "guess": guess, "tags": sorted(tags), "groups": list(groups.values())}
     if len(counts) > 1:
         out["counts"] = dict(counts)
     return out
@@ -226,7 +233,7 @@ def analyze_ci(text: str | None, svc_type: str = "web", runners: dict[str, str] 
     default = doc.get("default") if isinstance(doc.get("default"), dict) else {}
     uses_image = bool(doc.get("image") or default.get("image"))
     envs: dict[str, dict[str, bool]] = {}
-    job_runs: list[tuple[list[str], bool]] = []  # executor 판정용 (job 태그, image: 있나)
+    job_runs: list[tuple[str, list[str], bool]] = []  # executor 판정용 (job 이름, 태그, image: 있나)
     variables = {f"global:{k}": v for k, v in top.items()}
     for name in defs:
         if name.startswith("."):
@@ -235,7 +242,7 @@ def analyze_ci(text: str | None, svc_type: str = "web", runners: dict[str, str] 
         jvars = _vars(job.get("variables"))
         variables.update({f"{name}:{k}": v for k, v in jvars.items()})
         scope = {**top, **jvars}
-        job_runs.append(([_expand(t, scope) for t in _flatten(job.get("tags"))], uses_image or bool(job.get("image"))))
+        job_runs.append((name, [_expand(t, scope) for t in _flatten(job.get("tags"))], uses_image or bool(job.get("image"))))
         kind = _job_kind(name, job, scope)
         for env, manual in _job_envs(name, job, svc_type).items():
             slot = envs.setdefault(env, {})
@@ -243,7 +250,7 @@ def analyze_ci(text: str | None, svc_type: str = "web", runners: dict[str, str] 
     return {
         "envs": envs,
         "executor": _executor(job_runs, runners or {}),
-        "tags": sorted({t for jt, _ in job_runs for t in jt}),
+        "tags": sorted({t for _, jt, _ in job_runs for t in jt}),
         "variables": variables,
     }
 
@@ -450,11 +457,13 @@ def is_dockerfile(name: str) -> bool:
 def analyze_config_dir(names: list[str], dockerfile_text: str | None) -> dict:
     """config 폴더 하나 판독. names = 폴더 안 파일 이름들, dockerfile_text = Dockerfile 원문(없으면 None).
 
-    실행 명령 위치(start):
+    처음 실행할 명령 — 이미지 기준(start):
       dockerfile = Dockerfile 에 CMD/ENTRYPOINT 가 있음(이미지가 스스로 실행)
-      start.sh   = CMD 없이 start.sh 로 실행(COPY 하거나 폴더에 둠)
-      base       = 둘 다 없음 → 베이스 이미지 기본값(예: springboot)
-    상태(state): legacy(start.sh 로 실행) / leftover(CMD 있는데 start.sh 파일이 남음) / done / base / none(Dockerfile 없음)
+      start.sh   = CMD 없이 start.sh 를 이미지에 넣어(COPY) 그걸로 실행
+      server     = CMD 도 없고 start.sh 도 안 넣음(파일만 폴더에 있음) → 이미지 혼자 못 띄움, 서버가 명령을 줘야 함
+      base       = 아무것도 없음 → 베이스 이미지 기본값(예: springboot)
+    정리할 것(state): legacy(start.sh → CMD 로 옮기기) / leftover(CMD 로 뜨는데 start.sh 파일이 남음 → 지우기) /
+                     server(Dockerfile 에 CMD 넣기) / done / base / none(Dockerfile 없음)
     """
     sh_files = sorted(n for n in names if _START_SH.search(n))
     docker = analyze_dockerfile(dockerfile_text)
@@ -462,8 +471,10 @@ def analyze_config_dir(names: list[str], dockerfile_text: str | None) -> dict:
         start, state = None, "none"
     elif docker["has_cmd"]:
         start, state = "dockerfile", ("leftover" if sh_files else "done")
-    elif docker["copies_startup"] or sh_files:
+    elif docker["copies_startup"]:
         start, state = "start.sh", "legacy"
+    elif sh_files:
+        start, state = "server", "server"
     else:
         start, state = "base", "base"
     return {

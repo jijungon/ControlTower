@@ -171,7 +171,14 @@ export async function fetchVersions(): Promise<VersionRow[]> {
 
 // 서비스 비교표 — 러너가 .gitlab-ci.yml·compose 를 읽어 만든 한 행
 export type DeployCell = { path: 'direct' | 'image' | 'build'; by?: 'repo' | 'center' | 'compose'; manual: boolean | null; mismatch?: boolean }
-export type ExecutorCell = { value: string; guess: boolean; tags?: string[]; counts?: Record<string, number> } | null // counts = job 마다 섞여 있을 때 방식별 job 수
+export type ExecutorGroup = { tag: string; value: string; guess: boolean; jobs: string[] } // 러너 태그 하나와 그걸 쓰는 job 들
+export type ExecutorCell = {
+  value: string
+  guess: boolean
+  tags?: string[]
+  counts?: Record<string, number> // job 마다 섞여 있을 때 방식별 job 수
+  groups?: ExecutorGroup[]
+} | null
 
 export type ShapeRow = {
   service: string
@@ -186,7 +193,7 @@ export type ShapeRow = {
   executor_repo?: ExecutorCell
   executor_center?: ExecutorCell
   startup?: boolean | null
-  start_state?: 'legacy' | 'leftover' | 'done' | 'base' | 'none' | null // config 폴더 기준(연결된 경우)
+  start_state?: 'legacy' | 'leftover' | 'server' | 'done' | 'base' | 'none' | null // config 폴더 기준(연결된 경우)
   env_keys?: number | null
   env_changed_at?: string | null
   collected_at?: string | null
@@ -199,9 +206,9 @@ export type ConfigRow = {
   runtime_version?: string | null
   base_image?: string | null
   base_tag?: string | null
-  start?: 'dockerfile' | 'start.sh' | 'base' | null // 실행 명령 위치
+  start?: 'dockerfile' | 'start.sh' | 'server' | 'base' | null // 처음 실행할 명령(이미지 기준)
   start_files?: string[]
-  state: 'legacy' | 'leftover' | 'done' | 'base' | 'none'
+  state: 'legacy' | 'leftover' | 'server' | 'done' | 'base' | 'none' // 정리할 것
   code?: { node?: string; node_from?: string; node_rule?: 'exact' | 'min'; nest?: string; java?: string } | null // 코드에 적힌 버전
   compose?: Record<string, 'mount' | 'command' | 'image'> // start.sh 형태(서버 compose): shell(마운트) / compose(command:) / Dockerfile(이미지 CMD)
   collected_at?: string | null

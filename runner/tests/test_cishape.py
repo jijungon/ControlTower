@@ -107,7 +107,7 @@ def test_repo_ci_direct_vs_push_per_env():
     assert r["envs"]["stg"]["direct"] is True           # 수동 직배포
     assert "push" in r["envs"]["prod"] and "push" in r["envs"]["preview"]
     assert "direct" not in r["envs"]["prod"]
-    assert r["executor"] == {"value": "shell", "guess": False, "tags": ["shell-runner"]}  # ${RUNNER_TAG} 펼쳐서 표에서 찾음
+    assert (r["executor"]["value"], r["executor"]["guess"], r["executor"]["tags"]) == ("shell", False, ["shell-runner"])  # ${RUNNER_TAG} 펼쳐서 표에서 찾음
     assert r["tags"] == ["shell-runner"]
 
 
@@ -257,6 +257,9 @@ def test_config_dir_states():
     assert (done["start"], done["state"]) == ("dockerfile", "done")
     java = analyze_config_dir(["Dockerfile"], "FROM reg.example.com/infra/springboot:0.1.3-java17\nCOPY app.jar /app/\n")
     assert (java["start"], java["state"], java["runtime"]) == ("base", "base", "java")
+    # start.sh 가 폴더엔 있지만 Dockerfile 이 넣지도(COPY) CMD 도 없음 → 이미지 혼자 못 띄움, 서버 compose 가 줘야 함
+    server = analyze_config_dir(["Dockerfile", "node-startup.sh"], "FROM reg.example.com/infra/nodejs:v18\nADD src/ /app/\n")
+    assert (server["start"], server["state"]) == ("server", "server")
     nothing = analyze_config_dir([".gitkeep"], None)
     assert (nothing["start"], nothing["state"], nothing["base_image"]) == (None, "none", None)
 
@@ -455,6 +458,12 @@ notify:
 """
     r = analyze_ci(ci, "web", {"old-shell": "shell"})
     # 확인된 건 알림 job 하나(shell)뿐이지만 job 수로는 docker(짐작) 2 개가 많다
-    assert r["executor"] == {"value": "docker", "guess": True, "tags": ["new-runner", "old-shell"], "counts": {"docker": 2, "shell": 1}}
+    ex = r["executor"]
+    assert (ex["value"], ex["guess"], ex["counts"]) == ("docker", True, {"docker": 2, "shell": 1})
+    # 화면 '섞임' 메모: 러너 태그별로 어떤 job 이 쓰나
+    assert ex["groups"] == [
+        {"tag": "new-runner", "value": "docker", "guess": True, "jobs": ["build", "test"]},
+        {"tag": "old-shell", "value": "shell", "guess": False, "jobs": ["notify"]},
+    ]
     r = analyze_ci(ci, "web", {"old-shell": "shell", "new-runner": "docker"})
     assert r["executor"]["value"] == "docker" and r["executor"]["guess"] is False
