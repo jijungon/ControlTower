@@ -371,6 +371,8 @@ def test_cmd_shape_scans_config_dir_and_links_services(monkeypatch, tmp_path, ca
     assert items["shop/web"]["state"] == "leftover" and items["shop/web"]["compose"] == {}
     assert items["shop/web"]["code"] == {"node": "22", "node_from": ".nvmrc", "node_rule": "exact"}
     assert items["shop/old"]["merged_into"] == "shop/web" and "merged_into" not in items["shop/web"]
+    assert items["shop/web"]["deploy_envs"] == ["dev", "preview", "prod", "stg"]  # 연결된 서비스(repo CI)가 배포하는 환경
+    assert "deploy_envs" not in items["shop/old"]  # 연결된 서비스 없음 → 모름
     assert items["shop/old"]["code"] is None  # 연결된 서비스(repo)가 없음
     assert items["shop/old"]["state"] == "legacy" and items["shop/old"]["compose"] == {"dev": "mount"}  # start.sh 형태 = shell
     web = sent["shapes"][0]["data"]

@@ -172,17 +172,17 @@ table.subgrid { width: 100%; border-collapse: collapse; font-size: 13px; }
 .grid--nowrap td.wrap { white-space: normal; min-width: 150px; }
 .grid--nowrap td.wrap-sm { white-space: normal; min-width: 70px; } /* 배지 여러 개는 좁으면 줄바꿈 */
 /* 촘촘한 표: 글자·여백을 줄여 가로 스크롤 없이 보이게 */
-.grid--dense { font-size: 13px; }
-.grid--dense thead th { padding: 8px 10px; font-size: 12px; }
+.grid--dense { font-size: 12.5px; }
+.grid--dense thead th { padding: 6px 8px; font-size: 11.5px; }
 .grid--dense thead th { white-space: normal; } /* 긴 머리글은 두 줄로(칸 폭을 머리글이 잡아먹지 않게) */
 .grid thead th.th-group { text-align: center; border-bottom: 1px solid var(--hairline); padding-bottom: 4px; }
 .grid thead th.th-sub { padding-top: 4px; }
 .grid thead th .th-flow { display: block; font-weight: 400; font-size: 11px; color: var(--ink-muted-48); margin-top: 2px; }
 .grid thead tr.th-band th.th-group { color: var(--ink); font-size: 12px; }
 .grid thead th.th-start { background: var(--canvas-parchment); }
-.grid--dense tbody td { padding: 7px 10px; }
-.grid--dense .ver, .grid--dense .mono { font-size: 12px; }
-.grid--dense .badge { font-size: 11px; }
+.grid--dense tbody td { padding: 6px 8px; }
+.grid--dense .ver, .grid--dense .mono { font-size: 11.5px; }
+.grid--dense .badge { font-size: 10.5px; padding: 1px 7px; }
 /* 칸 안에서 ▸ 를 눌러 펼치는 메모(executor 섞임·추정) */
 .memo { display: inline-block; vertical-align: top; }
 .memo summary { cursor: pointer; list-style: none; }
@@ -197,14 +197,31 @@ table.subgrid { width: 100%; border-collapse: collapse; font-size: 13px; }
 /* (서버) 칸 상태 4가지가 한눈에 갈리게: 덮어씀(배지) · 확인됨(초록) · 안 읽음(점선 회색) · 못 읽음(빨간 알약) */
 .grid tbody tr.row-merged td:not(.svc-cell) { opacity: 0.5; }
 .st-asis { color: var(--ok); font-weight: 600; }
-.st-unread { display: inline-block; color: var(--ink-muted-48); border: 1px dashed var(--hairline); border-radius: 999px; padding: 0 8px; font-size: 12px; }
+.st-unread { display: inline-block; color: var(--ink-muted-48); border: 1px dashed var(--hairline); border-radius: 999px; padding: 0 7px; font-size: 11px; }
 .st-unread-text { color: var(--ink-muted-48); }
-.st-fail { display: inline-block; background: var(--danger-bg); border-radius: 999px; padding: 0 8px; font-size: 12px; font-weight: 600; }
-.extra-line { font-size: 12px; line-height: 1.5; }
+.st-fail { display: inline-block; background: var(--danger-bg); border-radius: 999px; padding: 0 7px; font-size: 11px; font-weight: 600; }
+.extra-line { font-size: 11.5px; }
+/* 칸 안 같은 줄 끝의 작은 글씨(어디서 읽었나·못 읽은 이유) — 줄을 늘리지 않게 */
+.cell-tag { font-size: 10.5px; color: var(--ink-muted-48); margin-left: 1px; }
+.cell-tag.miss-fail { color: var(--danger); margin-left: 4px; }
+.cell-badge { margin-left: 4px; }
+.run-unused .badge { opacity: 0.45; }
 .run-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--danger); margin-right: 4px; vertical-align: middle; }
 .exec-pair { display: inline-flex; align-items: flex-start; gap: 2px; }
 .cell-sub { display: block; font-size: 11px; color: var(--ink-muted-48); line-height: 1.3; }
-@media (max-width: 1400px) { .grid--dense thead th, .grid--dense tbody td { padding-left: 6px; padding-right: 6px; } }
+/* 좁은 화면: 글자·여백을 한 단계 더 줄여 한 줄 그대로 */
+@media (max-width: 1500px) {
+  .grid--dense { font-size: 12px; }
+  .grid--dense thead th, .grid--dense tbody td { padding-left: 5px; padding-right: 5px; }
+  .grid--dense .ver, .grid--dense .mono, .grid--dense .extra-line { font-size: 11px; }
+  .grid--dense .badge { font-size: 10px; padding: 1px 6px; }
+  .grid--dense .st-unread, .grid--dense .st-fail { font-size: 10.5px; padding: 0 6px; }
+}
+/* 1280 언저리: 여백을 더 줄이고, '기타' 칸만(환경 여러 개일 때) 두 줄 허용 — 가로 스크롤보다 낫게 */
+@media (max-width: 1360px) {
+  .grid--dense thead th, .grid--dense tbody td { padding-left: 4px; padding-right: 4px; }
+  .grid--nowrap td.extras-cell { white-space: normal; }
+}
 .ver--none { color: var(--ink-muted-48); }
 
 /* 버튼 (conf 적용 등) */

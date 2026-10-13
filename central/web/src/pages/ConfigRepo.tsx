@@ -79,29 +79,28 @@ function codeCell(r: ConfigRow) {
   const main = c.node ? `node ${c.node_rule === 'min' ? '≥' : ''}${c.node}` : `java ${c.java}`
   const bad = codeMismatch(r)
   return (
-    <span title={`출처: ${c.node ? c.node_from : 'pom.xml'}`}>
+    <span title={`출처: ${c.node ? c.node_from : 'pom.xml'}${c.nest ? ` · nest ${c.nest}` : ''}`}>
       <span className="ver">{main}</span>
       {bad && (
-        <span className="badge badge--warn" style={{ display: 'table', marginTop: 2 }} title={bad}>
-          ⚠ 이미지와 다름
+        <span className="badge badge--warn cell-badge" title={bad}>
+          ⚠ 다름
         </span>
       )}
-      {c.nest && <span className="cell-sub">nest {c.nest}</span>}
     </span>
   )
 }
 
-// 서버 compose 를 어디서 읽었나 — 칸 아래 작은 글씨. 서버 = 실서버에서 직접(SSH), 사본 = 복사해 둔 파일(다를 수 있음)
+// 서버 compose 를 어디서 읽었나 — 칸 옆 작은 글씨. 서버 = 실서버에서 직접(SSH), 사본 = 복사해 둔 파일(다를 수 있음)
 function srcLabel(info?: ComposeSrc | null): { text: string; title: string } | null {
   if (!info) return null
-  if (info.kind === 'ssh' && info.via) return { text: 'gw 경유', title: `게이트웨이를 거쳐 실서버에서 읽음 (${info.where}) — center CI 의 배포 서버·폴더로 자동으로 찾음` }
-  if (info.kind === 'ssh') return { text: info.auto ? '서버 자동' : '서버', title: `실서버에서 SSH 로 읽음 (${info.where})${info.auto ? ' — center CI 의 배포 서버·폴더로 자동으로 찾음' : ''}` }
+  if (info.kind === 'ssh' && info.via) return { text: 'gw', title: `게이트웨이를 거쳐 실서버에서 읽음 (${info.where}) — center CI 의 배포 서버·폴더로 자동으로 찾음` }
+  if (info.kind === 'ssh') return { text: info.auto ? '자동' : '서버', title: `실서버에서 SSH 로 읽음 (${info.where})${info.auto ? ' — center CI 의 배포 서버·폴더로 자동으로 찾음' : ''}` }
   if (info.kind === 'file') return { text: info.note || '사본', title: `복사해 둔 파일을 읽음 — 실서버와 다를 수 있음 (${info.where})` }
   if (info.kind === 'gitlab') return { text: 'GitLab', title: `GitLab 파일을 읽음 (${info.where})` }
   return null
 }
 
-// '못 읽음' 아래 짧은 이유 — 전체 이유는 마우스
+// '못 읽음' 옆 짧은 이유 — 전체 이유는 마우스
 export function missShort(reason: string): string {
   if (reason.includes('직접 등록 안 된')) return '직접 접속 안 됨'
   if (reason.includes('적어 둔 파일')) return '파일 못 읽음'
@@ -115,9 +114,17 @@ export function missShort(reason: string): string {
 // (서버) 환경 한 칸 — ● = 실제로 실행되는 명령
 //   compose 가 command: 를 주거나 start.sh 를 넣으면 → 이 칸이 이김(●)
 //   아무것도 안 하면 → (이미지) 칸의 명령이 그대로 실행 → '← 이미지'
-//   칸 아래 작은 글씨 = 어디서 읽었나(서버 / 서버 자동 / gw 경유 / 사본 / 옛 사본)
+//   칸 옆 작은 글씨 = 어디서 읽었나(서버 / 자동 / gw / 사본 / 옛 사본) — 모든 칸이 한 줄
 function serverEnvCell(r: ConfigRow, env: string) {
   const c = r.compose?.[env]
+  const m = r.compose_miss?.[env]
+  // 그 서비스가 이 환경엔 배포를 안 함(빌드·배포 표 기준) → 읽을 게 없음
+  if (!c && m?.state !== 'fail' && r.deploy_envs?.length && !r.deploy_envs.includes(env))
+    return (
+      <span className="muted" title={`이 서비스는 ${env} 에 배포 안 함 (배포하는 환경: ${r.deploy_envs.join(', ')}) — 읽을 서버 없음`}>
+        —
+      </span>
+    )
   // start.sh 를 아예 안 쓰는 이미지(예: springboot 가 jar 실행)는 서버를 안 읽어도 됨 → 할 일처럼 보이지 않게 '—'
   if (!c && r.start === 'base')
     return (
@@ -126,20 +133,16 @@ function serverEnvCell(r: ConfigRow, env: string) {
       </span>
     )
   if (!c) {
-    const m = r.compose_miss?.[env]
-    if (m?.state === 'fail') {
-      const short = missShort(m.reason)
+    if (m?.state === 'fail')
       return (
         <span title={`못 읽음 — ${m.reason}`}>
           <span className="miss-fail st-fail">못 읽음</span>
-          <span className="cell-sub">{short}</span>
+          <span className="cell-tag miss-fail">{missShort(m.reason)}</span>
         </span>
       )
-    }
     return (
-      <span title={m?.state === 'planned' ? `안 읽음 — ${m.reason}` : `${env} 서버 compose 를 아직 읽으려고 하지 않음 — runner shape --ssh 로 실서버에서 읽거나 대상 파일에 적으면 표시`}>
+      <span title={m?.state === 'planned' ? `안 읽음 (위치는 찾음) — ${m.reason}` : `${env} 서버 compose 를 아직 읽으려고 하지 않음 — runner shape --ssh 로 실서버에서 읽거나 대상 파일에 적으면 표시`}>
         <span className="st-unread">안 읽음</span>
-        {m?.state === 'planned' && <span className="cell-sub">위치 찾음</span>}
       </span>
     )
   }
@@ -148,7 +151,7 @@ function serverEnvCell(r: ConfigRow, env: string) {
     return (
       <span title={`${env} 서버는 compose 에 실행 명령이 없어서 (이미지) 칸의 명령이 그대로 실행돼요${src ? ` · 출처: ${src.title}` : ''}`}>
         <span className="st-asis">← 이미지</span>
-        {src && <span className="cell-sub">{src.text}</span>}
+        {src && <span className="cell-tag">{src.text}</span>}
       </span>
     )
   const run = serverRun(r, env)!
@@ -157,45 +160,44 @@ function serverEnvCell(r: ConfigRow, env: string) {
     <span title={`● 실제로 실행되는 명령 — ${why}${src ? ` · 출처: ${src.title}` : ''}`}>
       <span className="run-dot" aria-label="실행됨" />
       {runBadge(run)}
-      <span className="cell-sub">
-        {c === 'command' ? '덮어씀' : '넣음'}
-        {src ? ` · ${src.text}` : ''}
-      </span>
+      {src && <span className="cell-tag">{src.text}</span>}
     </span>
   )
 }
 
-// '기타' 칸 — lab·preview 같은 환경을 한 줄씩 짧게(자세한 건 마우스)
+// '기타' 칸 — lab·preview 같은 환경을 한 줄에 이어서 짧게(자세한 건 마우스)
 function extraCell(r: ConfigRow, extras: string[]) {
   const lines = r.start === 'base' ? extras.filter((e) => r.compose?.[e]) : extras.filter((e) => r.compose?.[e] || r.compose_miss?.[e])
   if (lines.length === 0) return <span className="muted">—</span>
-  return lines.map((e) => {
+  return lines.map((e, i) => {
     const c = r.compose?.[e]
     const m = r.compose_miss?.[e]
     const text = c ? (c === 'image' ? '← 이미지' : `● ${RUN[serverRun(r, e)!].label}`) : m?.state === 'fail' ? '못 읽음' : '안 읽음'
-    const title = c ? `${e}: ${text}` : `${e}: ${m?.reason ?? ''}`
+    const src = srcLabel(r.compose_src?.[e])
+    const title = c ? `${e}: ${text}${src ? ` · 출처: ${src.title}` : ''}` : `${e}: ${m?.reason ?? ''}`
     return (
-      <div key={e} className={`extra-line ${c ? (c === 'image' ? 'st-asis' : '') : m?.state === 'fail' ? 'miss-fail' : 'st-unread-text'}`} title={title}>
-        {e} {text}
-      </div>
+      <Fragment key={e}>
+        {i > 0 && <span className="muted"> · </span>}
+        <span className={`extra-line ${c ? (c === 'image' ? 'st-asis' : '') : m?.state === 'fail' ? 'miss-fail' : 'st-unread-text'}`} title={title}>
+          <span className="muted">{e}</span> {text}
+        </span>
+      </Fragment>
     )
   })
 }
 
-// (이미지) 칸 — 어느 서버에서 이 명령이 그대로 실행되나(● 실행: dev·prod)
+// (이미지) 칸 — ● = 이 명령을 그대로 실행하는 서버가 있음(어디인지는 마우스) · 흐림 = 읽은 서버가 모두 덮어써서 안 쓰임
 function imageCell(r: ConfigRow, envs: string[]) {
   const run = imageRun(r)
   if (!run) return <span className="muted">—</span>
   const known = envs.filter((e) => r.compose?.[e])
   const asIs = known.filter((e) => r.compose?.[e] === 'image')
+  const unused = asIs.length === 0 && known.length > 0
+  const title = asIs.length > 0 ? `이 명령을 그대로 실행하는 서버: ${asIs.join(', ')}` : unused ? '서버에선 안 씀 — 읽은 서버는 모두 compose 가 덮어써요' : undefined
   return (
-    <span>
+    <span title={title} className={unused ? 'run-unused' : undefined}>
       {asIs.length > 0 && <span className="run-dot" aria-label="실행됨" />}
       {runBadge(run)}
-      {asIs.length > 0 && <span className="cell-sub" title="이 서버들은 이미지 명령을 그대로 실행">실행: {asIs.join('·')}</span>}
-      {asIs.length === 0 && known.length > 0 && (
-        <span className="cell-sub" title="읽은 서버는 모두 compose 가 덮어써서 이 명령은 안 쓰여요">서버에선 안 씀</span>
-      )}
     </span>
   )
 }
@@ -204,7 +206,13 @@ function todoCell(r: ConfigRow) {
   if (r.merged_into)
     return (
       <span className="badge badge--muted" title={`이 폴더는 ${r.merged_into} 로 합쳐져 안 쓰여요 — 대상 파일의 config.merged`}>
-        {`사용 안 함 → ${r.merged_into}`}
+        {`합쳐짐 → ${r.merged_into}`}
+      </span>
+    )
+  if (r.state === 'base')
+    return (
+      <span className="badge badge--muted" title={TODO.base.title}>
+        {r.runtime === 'java' ? 'java' : '베이스 이미지'} 라 start.sh 안 씀
       </span>
     )
   const t = TODO[r.state] ?? TODO.none
@@ -294,32 +302,32 @@ export default function ConfigRepo() {
           <li>
             <b>(서버) 칸 모양 4가지</b> — <span className="run-dot" />
             <span className="badge badge--ok">서버 compose</span> 서버가 덮어씀 · <span className="st-asis">← 이미지</span> 확인됨(이미지 명령 그대로) ·{' '}
-            <span className="st-unread">안 읽음</span> 아직 안 봄 · <span className="muted">—</span> 읽을 필요 없음(start.sh 를 안 쓰는 이미지) · <span className="miss-fail st-fail">못 읽음</span> 읽으려다 실패(이유는 아래)
+            <span className="st-unread">안 읽음</span> 아직 안 봄 · <span className="miss-fail st-fail">못 읽음</span> 읽으려다 실패(옆에 짧은 이유) ·{' '}
+            <span className="muted">—</span> 읽을 게 없음(그 환경엔 배포 안 함, 또는 start.sh 를 안 쓰는 이미지)
           </li>
           <li>
             <span className="run-dot" /> = 그 서버에서 <b>실제로 실행되는</b> 명령. 기본은 이미지 안의 명령(Dockerfile)이 실행되고, 서버 compose 가 <span className="mono">command:</span> 를 주거나
             start.sh 를 넣으면 그게 <b>덮어써서</b> 실행돼요. <b>← 이미지</b> = 그 서버는 (이미지) 칸 명령을 그대로 씀
           </li>
           <li>
-            <b>(서버) 칸 아래 작은 글씨 = 어디서 읽었나</b> — <b>서버</b>: 실서버에서 직접 읽음(믿을 수 있음) · <b>덮어씀 / 넣음</b>: compose 가 command: 를 줌 / start.sh 를 넣음 · <b>서버 자동</b>: center CI 의 배포 서버·폴더로 찾아서 읽음 · <b>gw 경유</b>: 게이트웨이를 거쳐 실서버에서 읽음 ·{' '}
-            <b>사본</b>: 복사해 둔 파일(실서버와 다를 수 있음) · <b>옛 사본</b>: 옛날 하네스 파일 · <b>안 읽음</b>: 아직 읽으려고 하지 않음(<b>위치 찾음</b> = 서버·경로는 찾아 둠) ·{' '}
-            <b className="miss-fail">못 읽음</b>: 읽으려 했는데 실패(이유는 칸 아래·마우스)
+            <b>(서버) 칸 옆 작은 글씨 = 어디서 읽었나</b> — <b>서버</b>: 실서버에서 직접 읽음 · <b>자동</b>: center CI 의 배포 서버·폴더로 찾아서 읽음 · <b>gw</b>: 게이트웨이를 거쳐 실서버에서 읽음 ·{' '}
+            <b>사본</b>: 복사해 둔 파일(실서버와 다를 수 있음) · <b>옛 사본</b>: 옛날 하네스 파일. 자세한 건 칸에 마우스
           </li>
           <li>
-            <b>(이미지)</b> = Dockerfile 이 이미지에 넣어 둔 명령 · <b>(서버) dev·stg·prod</b> = 그 서버에서 실제로 앱을 띄우는 명령 (서버 compose 가 명령을 주거나
+            <b>(이미지)</b> = Dockerfile 이 이미지에 넣어 둔 명령 (<span className="run-unused"><span className="badge badge--warn">흐린 배지</span></span> = 읽은 서버가 모두 덮어써서 안 쓰임) · <b>(서버) dev·stg·prod</b> = 그 서버에서 실제로 앱을 띄우는 명령 (서버 compose 가 명령을 주거나
             start.sh 를 넣으면 그게 우선, 아니면 이미지 그대로) — 파일 복사로 배포하는 서버는 이미지를 안 써서 둘이 달라질 수 있어요
           </li>
           <li>
             <b>정리할 것</b> — <span className="badge badge--danger">CMD 로 옮기기</span> start.sh 를 Dockerfile CMD 로 ·{' '}
             <span className="badge badge--warn">start.sh 지우기</span> 안 쓰는 파일 · <span className="badge badge--warn">CMD 넣기</span> 지금은 서버가 띄움 ·{' '}
-            <span className="badge badge--ok">없음</span>
+            <span className="badge badge--ok">없음</span> · <span className="badge badge--muted">java 라 start.sh 안 씀</span> 베이스 이미지가 jar 를 띄움
           </li>
           <li>
-            흐린 줄 + <span className="badge badge--muted">사용 안 함 → chat/was</span> = 다른 폴더로 합쳐져 안 쓰는 폴더(요약 숫자에서 빠짐)
+            흐린 줄 + <span className="badge badge--muted">합쳐짐 → chat/was</span> = 다른 폴더로 합쳐져 안 쓰는 폴더(요약 숫자에서 빠짐)
           </li>
           <li>
             <b>코드에 적힌 버전</b> = repo 코드의 <span className="mono">.nvmrc</span>·<span className="mono">package.json</span>·<span className="mono">pom.xml</span> 에 "이 버전으로
-            빌드해라" 고 적힌 값 (<b>≥20</b> = 20 이상이면 됨). 옆의 런타임(이미지)과 다르면 <span className="badge badge--warn">⚠ 이미지와 다름</span>
+            빌드해라" 고 적힌 값 (<b>≥20</b> = 20 이상이면 됨). 옆의 런타임(이미지)과 다르면 <span className="badge badge--warn">⚠ 다름</span>
           </li>
           <li>
             <span className="ver ver--old">⚠ 빨간 칸</span> = 같은 종류 중 최신이 아닌 버전
@@ -401,12 +409,14 @@ export default function ConfigRepo() {
                       </td>
                       <td>
                         {r.base_image ? (
-                          <Ver
-                            split
-                            text={`${r.base_image}${r.base_tag ? `:${r.base_tag}` : ''}`}
-                            old={!r.merged_into && isOld(base, newestBase)}
-                            newest={base ? `${base[0]}:${newestBase.get(base[0])}` : undefined}
-                          />
+                          // 앞의 저장소 경로(infra/ 등)는 줄여서 한 줄에 — 전체 이름은 마우스
+                          <span title={`${r.base_image}${r.base_tag ? `:${r.base_tag}` : ''}`}>
+                            <Ver
+                              text={`${r.base_image.split('/').pop()}${r.base_tag ? `:${r.base_tag}` : ''}`}
+                              old={!r.merged_into && isOld(base, newestBase)}
+                              newest={base ? `${base[0]}:${newestBase.get(base[0])}` : undefined}
+                            />
+                          </span>
                         ) : (
                           <span className="muted">—</span>
                         )}
@@ -415,7 +425,7 @@ export default function ConfigRepo() {
                       {envs.map((e) => (
                         <td key={e}>{serverEnvCell(r, e)}</td>
                       ))}
-                      {extras.length > 0 && <td className="wrap-sm">{extraCell(r, extras)}</td>}
+                      {extras.length > 0 && <td className="extras-cell">{extraCell(r, extras)}</td>}
                       <td>{todoCell(r)}</td>
                     </tr>
                   )

@@ -360,6 +360,7 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
     compose_by_dir: dict[str, dict[str, str | None]] = {}
     src_by_dir: dict[str, dict[str, dict]] = {}  # config 폴더 → 환경 → 어디서 읽었나
     miss_by_dir: dict[str, dict[str, dict]] = {}  # config 폴더 → 환경 → 못 읽음(이유) / 위치만 찾음
+    envs_by_dir: dict[str, set[str]] = {}  # config 폴더 → 그 서비스가 배포하는 환경(비교표 기준)
 
     def miss(cdir: str | None, env: str, state: str, reason: str) -> None:
         """화면에 '안 읽음'(시도 안 함)과 구분해서 보여줄 것: fail = 읽으려다 실패, planned = 위치만 찾음."""
@@ -441,6 +442,8 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
                     src_by_dir.setdefault(cdir, {}).setdefault(env, _src_info(src, auto=True))
         files["compose"] = compose
         row = build_row(svc, files, runners)
+        if cdir:
+            envs_by_dir.setdefault(cdir, set()).update(row["data"]["deploy"])
         if cdir and svc.get("repo_ci"):
             code_files = {n: _read_source(_sibling(svc["repo_ci"], n), cfg, base_dir)[1] for n in CODE_VERSION_FILES}
             cv = code_versions(code_files)
@@ -458,6 +461,8 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
         data["compose"] = {env: m for env, m in moves.items() if m}
         data["compose_src"] = {env: src_by_dir.get(cdir, {}).get(env) for env in data["compose"]}  # 칸마다 어디서 읽었나
         data["compose_miss"] = {e: m for e, m in miss_by_dir.get(cdir, {}).items() if e not in data["compose"]}
+        if envs_by_dir.get(cdir):  # 여기 없는 환경엔 배포를 안 함 → 화면에서 '안 읽음' 대신 '—' (CI 를 못 읽어 비면 안 붙임 = 모름)
+            data["deploy_envs"] = sorted(envs_by_dir[cdir])
         merged = ((config or {}).get("merged") or {}).get(cdir)
         if merged:  # 다른 폴더로 합쳐져 안 쓰는 폴더(예: repo 둘이 center 에서 하나로)
             data["merged_into"] = str(merged)
