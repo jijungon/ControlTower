@@ -13,7 +13,7 @@
 # 여기 없는 태그는 화면에 'shell (추정)' 처럼 짐작값으로 표시됩니다.
 runners:
   shell-runner: shell
-  builder: shell
+  builder: docker           # (예) center 빌더 — 배포 job 이 image: 를 쓰면 docker 일 가능성이 큼
   builder-docker: docker
 
 # center config repo — <서비스>/<web|was>/ 폴더를 자동으로 훑어 config 탭을 채움
