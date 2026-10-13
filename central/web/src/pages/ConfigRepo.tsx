@@ -91,10 +91,45 @@ function codeCell(r: ConfigRow) {
   )
 }
 
-// (서버) 환경 한 칸 — 그 환경 compose 를 아직 못 읽었으면 —
+// (서버) 환경 한 칸 — ● = 실제로 실행되는 명령
+//   compose 가 command: 를 주거나 start.sh 를 넣으면 → 이 칸이 이김(●)
+//   아무것도 안 하면 → (이미지) 칸의 명령이 그대로 실행 → '← 이미지'
 function serverEnvCell(r: ConfigRow, env: string) {
-  if (!r.compose?.[env]) return <span className="muted" title={`${env} 서버 compose 를 아직 안 읽음 — 대상 파일에 적으면 표시`}>—</span>
-  return runBadge(serverRun(r, env))
+  const c = r.compose?.[env]
+  if (!c) return <span className="muted" title={`${env} 서버 compose 를 아직 안 읽음 — 대상 파일에 적으면 표시`}>—</span>
+  if (c === 'image')
+    return (
+      <span className="muted" title={`${env} 서버는 compose 에 실행 명령이 없어서 (이미지) 칸의 명령이 그대로 실행돼요`}>
+        ← 이미지
+      </span>
+    )
+  const run = serverRun(r, env)!
+  const why = c === 'command' ? '서버 compose 의 command: 가 이미지 명령을 덮어씀' : '서버 compose 가 start.sh 를 넣어서(마운트) 그게 실행됨'
+  return (
+    <span title={`● 실제로 실행되는 명령 — ${why}`}>
+      <span className="run-dot" aria-label="실행됨" />
+      {runBadge(run)}
+      <span className="cell-sub">{c === 'command' ? '덮어씀' : '서버가 넣음'}</span>
+    </span>
+  )
+}
+
+// (이미지) 칸 — 어느 서버에서 이 명령이 그대로 실행되나(● 실행: dev·prod)
+function imageCell(r: ConfigRow, envs: string[]) {
+  const run = imageRun(r)
+  if (!run) return <span className="muted">—</span>
+  const known = envs.filter((e) => r.compose?.[e])
+  const asIs = known.filter((e) => r.compose?.[e] === 'image')
+  return (
+    <span>
+      {asIs.length > 0 && <span className="run-dot" aria-label="실행됨" />}
+      {runBadge(run)}
+      {asIs.length > 0 && <span className="cell-sub" title="이 서버들은 이미지 명령을 그대로 실행">실행: {asIs.join('·')}</span>}
+      {asIs.length === 0 && known.length > 0 && (
+        <span className="cell-sub" title="읽은 서버는 모두 compose 가 덮어써서 이 명령은 안 쓰여요">확인된 서버에선 안 씀</span>
+      )}
+    </span>
+  )
 }
 
 function todoCell(r: ConfigRow) {
@@ -182,6 +217,10 @@ export default function ConfigRepo() {
             <span className="badge badge--warn">없음 → 서버가 줌</span> 이미지 혼자 못 띄움
           </li>
           <li>
+            <span className="run-dot" /> = 그 서버에서 <b>실제로 실행되는</b> 명령. 기본은 이미지 안의 명령(Dockerfile)이 실행되고, 서버 compose 가 <span className="mono">command:</span> 를 주거나
+            start.sh 를 넣으면 그게 <b>덮어써서</b> 실행돼요. <b>← 이미지</b> = 그 서버는 (이미지) 칸 명령을 그대로 씀
+          </li>
+          <li>
             <b>(이미지)</b> = Dockerfile 이 이미지에 넣어 둔 명령 · <b>(서버) dev·stg·prod</b> = 그 서버에서 실제로 앱을 띄우는 명령 (서버 compose 가 명령을 주거나
             start.sh 를 넣으면 그게 우선, 아니면 이미지 그대로) — 파일 복사로 배포하는 서버는 이미지를 안 써서 둘이 달라질 수 있어요
           </li>
@@ -265,7 +304,7 @@ export default function ConfigRepo() {
                           <span className="muted">—</span>
                         )}
                       </td>
-                      <td>{runBadge(imageRun(r))}</td>
+                      <td>{imageCell(r, envs)}</td>
                       {envs.map((e) => (
                         <td key={e}>{serverEnvCell(r, e)}</td>
                       ))}
