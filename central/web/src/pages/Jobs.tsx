@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { fetchAudit, type AuditRow } from '../api'
+import SectionHead, { latestTime, runAll } from '../components/SectionHead'
 
 const ACTION_LABEL: Record<string, string> = {
   'server.import': '서버 임포트',
@@ -15,6 +16,8 @@ const ACTION_LABEL: Record<string, string> = {
   'versions.collect': '버전 수집',
   'versions.repo_collect': '선언본 수집',
   'cicd.collect': 'CI/CD 수집',
+  'cicd.shape': '비교표 수집',
+  'cicd.config': 'config 수집',
 }
 
 function target(r: AuditRow): string {
@@ -25,19 +28,29 @@ function target(r: AuditRow): string {
 export default function Jobs() {
   const [rows, setRows] = useState<AuditRow[] | null>(null)
   const [err, setErr] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  const load = () =>
+    fetchAudit()
+      .then((r) => {
+        setRows(r)
+        setErr(false)
+      })
+      .catch(() => setErr(true))
 
   useEffect(() => {
-    fetchAudit().then(setRows).catch(() => setErr(true))
+    load()
   }, [])
 
   return (
     <div>
-      <div className="page-head">
-        <h1 className="page-title">작업 이력</h1>
-        <p className="page-sub">
-          러너·중앙 액션 감사 로그{rows ? ` · ${rows.length}건` : ''}
-        </p>
-      </div>
+      <SectionHead
+        title="작업이력 (전체)"
+        sub={`ControlTower 가 한 모든 일${rows ? ` · ${rows.length}건` : ''}`}
+        asOf={latestTime((rows ?? []).map((r) => r.created_at))}
+        onRefresh={() => runAll(setBusy, [load])}
+        busy={busy}
+      />
 
       <div className="card">
         <table className="grid">

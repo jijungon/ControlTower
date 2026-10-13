@@ -190,13 +190,14 @@ export const addCicdTarget = (service: string, project: string) =>
   postJsonServer('/api/cicd/targets', { service, project })
 
 // 서비스 비교표 — 러너가 .gitlab-ci.yml·Dockerfile·compose 를 읽어 만든 한 행
-export type DeployCell = { path: 'direct' | 'image' | 'build'; manual: boolean | null; mismatch?: boolean }
-export type ExecutorCell = { value: string; guess: boolean } | null
+export type DeployCell = { path: 'direct' | 'image' | 'build'; by?: 'repo' | 'center' | 'compose'; manual: boolean | null; mismatch?: boolean }
+export type ExecutorCell = { value: string; guess: boolean; tags?: string[] } | null
 
 export type ShapeRow = {
   service: string
   group?: string | null
   type?: string | null
+  note?: string | null
   runtime?: string | null
   runtime_version?: string | null
   base_image?: string | null
@@ -205,9 +206,30 @@ export type ShapeRow = {
   executor_repo?: ExecutorCell
   executor_center?: ExecutorCell
   startup?: boolean | null
+  start_state?: 'legacy' | 'leftover' | 'done' | 'base' | 'none' | null // config 폴더 기준(연결된 경우)
   env_keys?: number | null
   env_changed_at?: string | null
   collected_at?: string | null
+}
+
+// center config repo 폴더 하나(<서비스>/<타입>)
+export type ConfigRow = {
+  path: string
+  runtime?: string | null
+  runtime_version?: string | null
+  base_image?: string | null
+  base_tag?: string | null
+  start?: 'dockerfile' | 'start.sh' | 'base' | null // 실행 명령 위치
+  start_files?: string[]
+  state: 'legacy' | 'leftover' | 'done' | 'base' | 'none'
+  compose?: Record<string, 'mount' | 'command' | 'image'> // 서버 compose: start.sh 마운트 / command / 이미지 CMD
+  collected_at?: string | null
+}
+
+export async function fetchConfig(): Promise<ConfigRow[]> {
+  const res = await fetch('/api/cicd/config')
+  if (!res.ok) throw new Error(`GET /api/cicd/config ${res.status}`)
+  return res.json()
 }
 
 export async function fetchShapes(): Promise<ShapeRow[]> {

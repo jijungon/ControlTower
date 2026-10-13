@@ -136,16 +136,22 @@ CI/CD 파이프라인 상태와 repo 선언본 버전(node/nest/java)은 GitLab 
 
 > GitLab 이 아직이면 이 두 기능만 비어 있고, 나머지(서버·conf·업데이트·툴체인·작업이력)는 그대로 동작한다. 토큰은 **러너 로컬에만** 두며 중앙 DB엔 결과 상태만 저장된다.
 
-### 서비스 비교표 (CI/CD 탭)
+### 서비스 비교표 · config (빌드·배포 탭 / config 탭)
 
-서비스를 한 줄씩 놓고 **런타임·베이스 이미지 · 환경별 배포 경로(직배포/이미지/빌드만) · executor(repo/center) · start.sh · env 변경**을 나란히 비교한다. 같은 종류(예: node) 중 **최신이 아닌 버전은 빨간 칸**.
+- **빌드·배포 탭** — 그룹(프로젝트 묶음) → 서비스 → 타입(web·was)으로 묶어 **런타임·베이스 이미지 · 환경별 배포(파일 복사 · repo / 파일 복사 · center / 이미지 / 빌드만) · executor · start.sh · CI 변수**를 나란히 비교. 같은 종류 중 **최신이 아닌 버전은 빨간 칸**. 표 위 "표 읽는 법"에 각 칸의 뜻.
+- **config 탭** — center 의 config repo 를 폴더(서비스/타입)마다 읽어 **실행 명령 위치(Dockerfile CMD / start.sh) · start.sh 상태(구형/잔재/완료) · compose 이사**(start.sh 마운트 → compose `command:`) 표시.
 
-1. `cp runner/shape-targets.example.yml shape-targets.yml` 후 서비스마다 읽을 파일을 적는다 (커밋 안 됨).
+1. `cp runner/shape-targets.example.yml shape-targets.yml` 후 읽을 파일을 적는다 (커밋 안 됨).
    - GitLab: `{gitlab: repo|center, project, path}` — center 는 별도 인스턴스라 `CT_GITLAB_CENTER_URL/TOKEN`
-   - 토큰이 아직이면 로컬 사본: `{file: 경로}`
+   - 로컬 사본: `{file: 경로}` · 서버의 실제 파일(compose 등): `{ssh: 호스트별칭, path}`
+   - `config:` 에 config repo 를 적으면 폴더를 자동으로 훑고, 서비스는 `config_dir:` 로 연결
 2. `python -m runner.cli shape` (`make collect` 도 대상 파일이 있으면 포함)
 
-> 읽기 전용. env 는 **값을 보내지 않고** 개수 + 해시만 보내서 "언제 바뀌었나"만 보여준다. executor 는 GitLab 이 알려주지 않으므로 대상 파일의 `runners:` 표(태그→shell/docker)로 정하고, 표에 없는 태그는 `shell?` 처럼 추정 표시.
+> 읽기 전용. 읽은 파일 원문은 중앙에 올리지 않고 결과 칸만 올린다. CI 변수는 **값 없이** 개수 + 해시만 보내서 "언제 바뀌었나"만 보여준다. executor 는 GitLab 이 알려주지 않으므로 대상 파일의 `runners:` 표(태그→shell/docker)로 정하고, 표에 없는 태그는 `(추정)`.
+
+### 탭
+
+대시보드 · **서버**(목록 + 서버 `/etc` 설정 파일 비교·적용) · **빌드·배포**(서비스 비교 + 버전 + 파이프라인) · **config** · **OS 패치·작업이력**(좌우). 표마다 ↻(화면 새로고침)과 "데이터 기준" 시각.
 
 ## 저장소 구조
 

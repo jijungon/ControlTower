@@ -71,3 +71,37 @@ def fetch_repo_file(
     if r.status_code != 200:
         return None
     return r.text
+
+
+def fetch_repo_tree(
+    base_url: str,
+    token: str,
+    project: str,
+    ref: str = "main",
+    timeout: int = 8,
+    *,
+    transport: httpx.BaseTransport | None = None,
+    max_pages: int = 50,
+) -> list[str] | None:
+    """repo 의 파일 경로 전체(재귀, blob 만). 오류면 None. config repo 폴더 훑기용(읽기 전용)."""
+    pid = quote(str(project), safe="")
+    url = f"{base_url.rstrip('/')}/api/v4/projects/{pid}/repository/tree"
+    paths: list[str] = []
+    page = "1"
+    try:
+        with httpx.Client(transport=transport, timeout=timeout) as c:
+            for _ in range(max_pages):
+                r = c.get(
+                    url,
+                    params={"ref": ref, "recursive": "true", "per_page": 100, "page": page},
+                    headers={"PRIVATE-TOKEN": token},
+                )
+                if r.status_code != 200:
+                    return None
+                paths += [i["path"] for i in r.json() if i.get("type") == "blob" and i.get("path")]
+                page = r.headers.get("X-Next-Page", "")
+                if not page:
+                    break
+    except httpx.HTTPError:
+        return None
+    return paths

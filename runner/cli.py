@@ -8,7 +8,7 @@
   python -m runner.cli versions # 빌드 서버 툴체인 버전(node/java/docker 등) 수집
   python -m runner.cli versions-repo # GitLab repo 선언본 버전 수집(CT_GITLAB_URL/TOKEN)
   python -m runner.cli cicd     # GitLab 파이프라인 상태 수집(CT_GITLAB_URL/TOKEN)
-  python -m runner.cli shape    # 서비스 비교표(배포 경로·executor·런타임·start.sh·env) 수집(shape-targets.yml)
+  python -m runner.cli shape    # 서비스 비교표 + center config(start.sh·compose 이사) 수집(shape-targets.yml)
   python -m runner.cli all      # 모든 수집기 1회(--loop --interval N 로 주기 실행)
   python -m runner.cli apply    # 승인된 conf 를 서버에 실제 적용(--dry-run/--rollback ID)
 
@@ -19,15 +19,16 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import time
 
 from . import applier
 from .api import CentralAPI
 from .apt import parse_upgradable
-from .cishape import build_row, parse_targets
+from .cishape import analyze_compose, analyze_config_dir, build_row, config_dirs, is_dockerfile, parse_targets
 from .config import RunnerConfig
 from .conn import list_upgrades, list_upgrades_yum, read_file, run_remote, test_ssh
-from .gitlab import fetch_latest_pipeline, fetch_repo_file
+from .gitlab import fetch_latest_pipeline, fetch_repo_file, fetch_repo_tree
 from .probe import probe_ssh
 from .repoversions import extract_versions
 from .sshconf import parse_ssh_config
@@ -225,10 +226,16 @@ def cmd_cicd(cfg: RunnerConfig) -> None:
         api.close()
 
 
+def _gitlab_of(src: dict, cfg: RunnerConfig) -> tuple[str, str]:
+    if src.get("gitlab") == "center":
+        return cfg.gitlab_center_url, cfg.gitlab_center_token
+    return cfg.gitlab_url, cfg.gitlab_token
+
+
 def _read_source(src: object, cfg: RunnerConfig, base_dir: str) -> tuple[bool, str | None]:
     """비교표 소스 1개 읽기 → (읽기 시도함?, 원문|None).
 
-    {file: 경로}(대상 파일 기준 상대경로 가능) 또는 {gitlab: repo|center, project, path, ref?}.
+    {file: 경로}(대상 파일 기준 상대경로 가능) · {gitlab: repo|center, project, path, ref?} · {ssh: 호스트별칭, path}.
     해당 GitLab 이 설정 안 돼 있으면 (False, None) — '없음'과 '못 봄'을 구분하려고.
     """
     if not isinstance(src, dict):
@@ -240,11 +247,10 @@ def _read_source(src: object, cfg: RunnerConfig, base_dir: str) -> tuple[bool, s
                 return True, f.read()
         except OSError:
             return True, None
-    url, token = (
-        (cfg.gitlab_center_url, cfg.gitlab_center_token)
-        if src.get("gitlab") == "center"
-        else (cfg.gitlab_url, cfg.gitlab_token)
-    )
+    if src.get("ssh") and src.get("path"):  # 서버에 있는 실제 파일(예: compose) — 내용은 판독만, 중앙엔 안 올림
+        content, _err = read_file(str(src["ssh"]), str(src["path"]), cfg.connect_timeout)
+        return True, content
+    url, token = _gitlab_of(src, cfg)
     if not url or not token or not src.get("project") or not src.get("path"):
         return False, None
     text = fetch_repo_file(
@@ -253,18 +259,68 @@ def _read_source(src: object, cfg: RunnerConfig, base_dir: str) -> tuple[bool, s
     return True, text
 
 
+def _config_listing(config: dict, cfg: RunnerConfig, base_dir: str):
+    """config 섹션 → ({'<서비스>/<타입>': [파일 이름…]}, read('<서비스>/<타입>/<파일>')) 또는 None."""
+    if config.get("file"):
+        root = os.path.join(base_dir, os.path.expanduser(str(config["file"])))
+        if not os.path.isdir(root):
+            return None
+        paths = []
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+            rel = os.path.relpath(dirpath, root)
+            if rel != "." and rel.count(os.sep) <= 1:  # <서비스>/<타입> 또는 <서비스>(Dockerfile 을 바로 둔 곳)
+                paths += [f"{rel.replace(os.sep, '/')}/{n}" for n in filenames]
+
+        def read_local(rel: str) -> str | None:
+            try:
+                with open(os.path.join(root, rel), encoding="utf-8") as f:
+                    return f.read()
+            except OSError:
+                return None
+
+        return config_dirs(paths), read_local
+    url, token = _gitlab_of(config, cfg)
+    if not url or not token or not config.get("project"):
+        return None
+    ref = str(config.get("ref") or cfg.gitlab_ref)
+    tree = fetch_repo_tree(url, token, str(config["project"]), ref, cfg.connect_timeout)
+    if tree is None:
+        return None
+    return config_dirs(tree), lambda rel: fetch_repo_file(url, token, str(config["project"]), rel, ref, cfg.connect_timeout)
+
+
 def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None) -> None:
     path = targets_path or cfg.shape_targets
     if not os.path.exists(path):
         print(f"비교표 대상 파일 없음({path}) — runner/shape-targets.example.yml 을 복사해 채우세요.")
         return
     with open(path, encoding="utf-8") as f:
-        runners, services = parse_targets(f.read())
-    if not services:
-        print(f"비교표 대상이 비어 있음 — {path} 의 services: 를 채우세요.")
+        runners, services, config = parse_targets(f.read())
+    if not services and not config:
+        print(f"비교표 대상이 비어 있음 — {path} 의 services: / config: 를 채우세요.")
         return
     base_dir = os.path.dirname(os.path.abspath(path))
+    listing = _config_listing(config, cfg, base_dir) if config else None
+    if config and listing is None:
+        print("  config 를 읽지 못함 — config: 의 file 경로 또는 GitLab 설정을 확인하세요.")
+    dirs, read_cfg = listing if listing else ({}, None)
+
+    def config_files(cdir: str) -> tuple[str | None, str | None]:
+        """config 폴더의 (Dockerfile 원문, start.sh 이름|None)."""
+        names = dirs.get(cdir, [])
+        df = next((n for n in names if is_dockerfile(n)), None)
+        sh = next((n for n in names if re.search(r"start[\w-]*\.sh", n, re.I)), None)
+        return (read_cfg(f"{cdir}/{df}") if (df and read_cfg) else None), sh
+
     rows, missing = [], []
+    compose_by_dir: dict[str, dict[str, str | None]] = {}
+    for cdir, envs in ((config or {}).get("compose") or {}).items():
+        for env, src in (envs or {}).items():
+            tried, text = _read_source(src, cfg, base_dir)
+            if tried and text is None:
+                missing.append(f"config {cdir}:compose.{env}")
+            compose_by_dir.setdefault(str(cdir), {})[str(env)] = text
     for svc in services:
         files: dict = {}
         for key in ("repo_ci", "center_ci", "dockerfile", "startup"):
@@ -273,20 +329,43 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None) -> None:
                 files[key] = text
                 if text is None and key != "startup":  # start.sh 는 '없음'이 정상 결과
                     missing.append(f"{svc['name']}:{key}")
+        cdir = svc.get("config_dir")
+        if cdir and cdir in dirs:  # dockerfile/startup 을 config 폴더에서 채움
+            df_text, sh = config_files(cdir)
+            files.setdefault("dockerfile", df_text)
+            files.setdefault("startup", sh)
         compose = {}
         for env, src in (svc.get("compose") or {}).items():
             tried, text = _read_source(src, cfg, base_dir)
             if tried and text is None:
                 missing.append(f"{svc['name']}:compose.{env}")
             compose[str(env)] = text
+            if cdir and text:
+                compose_by_dir.setdefault(cdir, {}).setdefault(str(env), text)
         files["compose"] = compose
-        rows.append(build_row(svc, files, runners))
+        row = build_row(svc, files, runners)
+        if cdir and cdir in dirs:  # start.sh 칸 색: config 폴더 기준(실행에 씀 / 파일만 남음 / 없음)
+            row["data"]["start_state"] = analyze_config_dir(dirs[cdir], config_files(cdir)[0])["state"]
+        rows.append(row)
+
+    items = []
+    for cdir in sorted(dirs):
+        df_text, _ = config_files(cdir)
+        data = analyze_config_dir(dirs[cdir], df_text)
+        moves = {env: (analyze_compose(t) or {}).get("start") for env, t in compose_by_dir.get(cdir, {}).items() if t}
+        data["compose"] = {env: m for env, m in moves.items() if m}
+        items.append({"path": cdir, "data": data})
+
     api = CentralAPI(cfg.central_url, cfg.api_token)
     try:
-        res = api.upload_shapes(rows, replace=True)  # 대상 파일이 기준 — 빠진 서비스는 표에서 내림
+        if services:
+            res = api.upload_shapes(rows, replace=True)  # 대상 파일이 기준 — 빠진 서비스는 표에서 내림
+            print(f"비교표 수집: {res['accepted']}개 서비스")
+        if listing:
+            res = api.upload_config(items, replace=True)
+            print(f"config 수집: {res['accepted']}개 폴더")
     finally:
         api.close()
-    print(f"비교표 수집: {res['accepted']}개 서비스")
     if missing:
         print(f"  못 읽은 파일 {len(missing)}개: {', '.join(missing)}")
 
@@ -407,7 +486,7 @@ def main() -> None:
     _flt(sub.add_parser("probe", help="접속 점검(접속 여부 + 2FA 추정)"))
     sub.add_parser("versions-repo", help="GitLab repo 선언본 버전 수집(CT_GITLAB_URL/TOKEN 필요)")
     sub.add_parser("cicd", help="GitLab 파이프라인 상태 수집(CT_GITLAB_URL/TOKEN 필요)")
-    shp = sub.add_parser("shape", help="서비스 비교표 수집(shape-targets.yml — GitLab 또는 로컬 파일)")
+    shp = sub.add_parser("shape", help="서비스 비교표 + center config 수집(shape-targets.yml — GitLab·로컬 파일·ssh)")
     shp.add_argument("--targets", help="대상 파일 경로(기본 CT_SHAPE_TARGETS 또는 ./shape-targets.yml)")
     allp = sub.add_parser("all", help="모든 수집기 1회 실행(--loop 로 주기 반복)")
     allp.add_argument("--loop", action="store_true", help="간격을 두고 반복 실행")

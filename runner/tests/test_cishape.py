@@ -2,8 +2,10 @@
 from runner.cishape import (
     analyze_ci,
     analyze_compose,
+    analyze_config_dir,
     analyze_dockerfile,
     build_row,
+    config_dirs,
     detect_runtime,
     parse_targets,
     split_image,
@@ -104,7 +106,7 @@ def test_repo_ci_direct_vs_push_per_env():
     assert r["envs"]["stg"]["direct"] is True           # 수동 직배포
     assert "push" in r["envs"]["prod"] and "push" in r["envs"]["preview"]
     assert "direct" not in r["envs"]["prod"]
-    assert r["executor"] == {"value": "shell", "guess": False}  # ${RUNNER_TAG} 펼쳐서 표에서 찾음
+    assert r["executor"] == {"value": "shell", "guess": False, "tags": ["shell-runner"]}  # ${RUNNER_TAG} 펼쳐서 표에서 찾음
     assert r["tags"] == ["shell-runner"]
 
 
@@ -120,6 +122,7 @@ def test_center_ci_rules_extends_and_custom_tags():
 def test_executor_guess_when_tag_unknown():
     r = analyze_ci(CENTER, "web", {})
     assert r["executor"]["guess"] is True and r["executor"]["value"] == "docker"  # image: 있음 → docker 추정
+    assert r["executor"]["tags"] == ["builder", "docker-runner"]  # 화면에 '어느 태그 때문에 추정인지' 보여줄 용도
     assert analyze_ci("build:\n  script: [make]\n", "web", {})["executor"] is None
 
 
@@ -154,9 +157,21 @@ def test_dockerfile_legacy_and_multistage():
 
 def test_compose_image_vs_direct():
     d = analyze_compose(COMPOSE_DIRECT)
-    assert d["path"] == "direct" and d["startup"] is True
+    assert d["path"] == "direct" and d["startup"] is True and d["start"] == "mount"  # compose 이사 전
     i = analyze_compose(COMPOSE_IMAGE)
-    assert i["path"] == "image" and i["startup"] is False
+    assert i["path"] == "image" and i["startup"] is False and i["start"] == "image"  # 이미지 CMD 사용
+
+
+def test_compose_moved_to_command():
+    moved = """\
+services:
+  web:
+    image: node:22-slim
+    volumes: ["${PWD}/data:/app"]
+    command: ["sh", "-c", "umask 026 && exec node standalone/server.js >> /app/logs/server.log 2>&1"]
+"""
+    c = analyze_compose(moved)
+    assert c["start"] == "command" and c["path"] == "direct"  # 직배포(볼륨) 이지만 start.sh 없이 command 로 실행
     assert analyze_compose("version: '3'\n") is None
 
 
@@ -175,8 +190,8 @@ def test_build_row_combines_everything():
     d = row["data"]
     assert row["service"] == "shop web" and row["group"] == "shop"
     assert (d["runtime"], d["runtime_version"], d["base_image"], d["base_tag"]) == ("node", "18", "infra/nodejs", "v18")
-    assert d["deploy"]["dev"] == {"path": "direct", "manual": False, "mismatch": False}
-    assert d["deploy"]["stg"] == {"path": "direct", "manual": True, "mismatch": False}
+    assert d["deploy"]["dev"] == {"path": "direct", "by": "repo", "manual": False, "mismatch": False}
+    assert d["deploy"]["stg"] == {"path": "direct", "by": "repo", "manual": True, "mismatch": False}
     assert d["deploy"]["prod"] == {"path": "image", "manual": True, "mismatch": True}  # compose 는 직배포 모양 → ⚠
     assert d["deploy"]["preview"]["path"] == "image" and d["deploy"]["preview"]["manual"] is None  # center 배포 job 없음
     assert "lab" not in d["deploy"]
@@ -204,7 +219,7 @@ build:
     )
     dep = row["data"]["deploy"]
     assert dep["dev"]["path"] == "build"                     # 빌드만 하고 끝
-    assert dep["prod"] == {"path": "image", "manual": None, "mismatch": False}  # CI 엔 없음 → compose 로
+    assert dep["prod"] == {"path": "image", "by": "compose", "manual": None, "mismatch": False}  # CI 엔 없음 → compose 로 짐작
     assert row["data"]["startup"] is False                   # compose 를 봤는데 start.sh 마운트 없음
 
 
@@ -215,10 +230,33 @@ def test_build_row_nothing_known():
 
 
 def test_parse_targets():
-    runners, services = parse_targets(
-        "runners: {a: shell}\nservices:\n  - {name: one, type: web}\n  - {type: was}\n  - nope\n"
+    runners, services, config = parse_targets(
+        "runners: {a: shell}\nservices:\n  - {name: one, type: web}\n  - {type: was}\n  - nope\nconfig: {file: cfg}\n"
     )
-    assert runners == {"a": "shell"} and [s["name"] for s in services] == ["one"]
+    assert runners == {"a": "shell"} and [s["name"] for s in services] == ["one"] and config == {"file": "cfg"}
+    assert parse_targets("services: []\n")[2] is None
+
+
+def test_config_dirs_depth_three_and_flat_dockerfile():
+    got = config_dirs([
+        "README.md", "shop/web/Dockerfile", "shop/web/node-startup.sh", "shop/web/build/x.js", "shop/was/.gitkeep",
+        ".ci/a/b", "bot/Dockerfile", "shop/README.md",
+    ])
+    # bot 은 타입 폴더 없이 Dockerfile 을 바로 둠 → 한 행. shop/README.md 는 Dockerfile 이 없어 행 아님
+    assert got == {"shop/web": ["Dockerfile", "node-startup.sh"], "shop/was": [".gitkeep"], "bot": ["Dockerfile"]}
+
+
+def test_config_dir_states():
+    legacy = analyze_config_dir(["Dockerfile", "node-startup.sh"], DOCKER_LEGACY)
+    assert (legacy["start"], legacy["state"], legacy["runtime_version"]) == ("start.sh", "legacy", "18")
+    leftover = analyze_config_dir(["Dockerfile", "node-startup.sh"], DOCKER_NEW)  # CMD 있는데 .sh 남음
+    assert (leftover["start"], leftover["state"], leftover["start_files"]) == ("dockerfile", "leftover", ["node-startup.sh"])
+    done = analyze_config_dir(["Dockerfile"], DOCKER_NEW)
+    assert (done["start"], done["state"]) == ("dockerfile", "done")
+    java = analyze_config_dir(["Dockerfile"], "FROM reg.example.com/infra/springboot:0.1.3-java17\nCOPY app.jar /app/\n")
+    assert (java["start"], java["state"], java["runtime"]) == ("base", "base", "java")
+    nothing = analyze_config_dir([".gitkeep"], None)
+    assert (nothing["start"], nothing["state"], nothing["base_image"]) == (None, "none", None)
 
 
 def test_cmd_shape_reads_local_files_and_uploads(monkeypatch, tmp_path, capsys):
@@ -250,6 +288,10 @@ def test_cmd_shape_reads_local_files_and_uploads(monkeypatch, tmp_path, capsys):
             sent.update(shapes=shapes, replace=replace)
             return {"accepted": len(shapes), "removed": 0}
 
+        def upload_config(self, items, replace=False):
+            sent.update(config=items)
+            return {"accepted": len(items), "removed": 0}
+
         def close(self):
             pass
 
@@ -265,3 +307,98 @@ def test_cmd_shape_reads_local_files_and_uploads(monkeypatch, tmp_path, capsys):
     assert d["executor_repo"]["value"] == "shell" and d["executor_center"] is None
     out = capsys.readouterr().out
     assert "1개 서비스" in out and "shop web:compose.prod" in out and "startup" not in out
+
+
+def test_cmd_shape_scans_config_dir_and_links_services(monkeypatch, tmp_path, capsys):
+    import types
+
+    import runner.cli as cli
+
+    cfgdir = tmp_path / "config"
+    (cfgdir / "shop" / "web").mkdir(parents=True)
+    (cfgdir / "shop" / "web" / "Dockerfile").write_text(DOCKER_NEW)
+    (cfgdir / "shop" / "web" / "node-startup.sh").write_text("node server.js\n")  # 잔재
+    (cfgdir / "shop" / "web" / "build").mkdir()  # 깊이 3 폴더는 무시
+    (cfgdir / "shop" / "old").mkdir()
+    (cfgdir / "shop" / "old" / "Dockerfile").write_text(DOCKER_LEGACY)
+    (tmp_path / "dev-compose.yml").write_text(COMPOSE_DIRECT)
+    targets = tmp_path / "shape-targets.yml"
+    targets.write_text(
+        "config:\n"
+        "  file: config\n"
+        "  compose:\n"
+        "    shop/old: {dev: {file: dev-compose.yml}}\n"
+        "services:\n"
+        "  - name: shop web\n"
+        "    config_dir: shop/web\n"   # dockerfile·startup 을 config 폴더에서
+    )
+    sent = {}
+
+    class FakeAPI:
+        def __init__(self, *a):
+            pass
+
+        def upload_shapes(self, shapes, replace=False):
+            sent["shapes"] = shapes
+            return {"accepted": len(shapes), "removed": 0}
+
+        def upload_config(self, items, replace=False):
+            sent.update(config=items, replace=replace)
+            return {"accepted": len(items), "removed": 0}
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(cli, "CentralAPI", FakeAPI)
+    cfg = types.SimpleNamespace(
+        shape_targets=str(targets), central_url="x", api_token="t", gitlab_url="", gitlab_token="",
+        gitlab_center_url="", gitlab_center_token="", gitlab_ref="main", connect_timeout=1,
+    )
+    cli.cmd_shape(cfg)
+    items = {i["path"]: i["data"] for i in sent["config"]}
+    assert set(items) == {"shop/web", "shop/old"} and sent["replace"] is True
+    assert items["shop/web"]["state"] == "leftover" and items["shop/web"]["compose"] == {}
+    assert items["shop/old"]["state"] == "legacy" and items["shop/old"]["compose"] == {"dev": "mount"}  # 이사 전
+    web = sent["shapes"][0]["data"]
+    assert web["runtime_version"] == "20" and web["startup"] is True  # config_dir 로 채움
+    assert web["start_state"] == "leftover"  # CMD 로 실행하는데 start.sh 파일만 남음
+    assert "config 수집: 2개 폴더" in capsys.readouterr().out
+
+
+# 이관 후 모양: repo 는 전 환경 push_src, center 가 dev/stg 는 파일로 복사(scp), prod 는 이미지
+REPO_PUSH_ALL = r"""
+push_src:
+  script: [ "git push https://center.example.com/shop/shop.git HEAD --tags" ]
+  only: [ "/^(dev|lab|stg|prod)-(web|was)-v\\d+\\.\\d+\\.\\d+/" ]
+"""
+CENTER_SOURCE = r"""
+.copy: &copy
+  script: [ "scp -r build/ app@10.0.0.30:/app/web-shop/data/" ]
+build:
+  script: [ "docker build -t r/shop:$CI_COMMIT_TAG .", "docker push r/shop:$CI_COMMIT_TAG" ]
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^prod-(web|was)-v\d+/'
+deploy-dev:
+  <<: *copy
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^dev-(web|was)-v\d+/'
+    - if: '$CI_COMMIT_TAG =~ /^lab-web-v\d+/'
+deploy-stg:
+  <<: *copy
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^(dev|stg|prod)-(web|was)-v\d+/'
+deploy-prod:
+  script: [ "ssh app@10.0.0.31 'docker compose pull && docker compose up -d'" ]
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^prod-(web|was)-v\d+/'
+      when: manual
+"""
+
+
+def test_center_copies_files_for_dev_stg():
+    row = build_row({"name": "shop web", "type": "web"}, {"repo_ci": REPO_PUSH_ALL, "center_ci": CENTER_SOURCE, "compose": {"dev": COMPOSE_DIRECT}})
+    dep = row["data"]["deploy"]
+    assert dep["dev"] == {"path": "direct", "by": "center", "manual": False, "mismatch": False}  # compose 도 파일 방식 → 일치
+    assert dep["lab"]["by"] == "center"  # deploy-dev 안의 따로 적힌 lab 규칙은 남는다
+    assert dep["stg"]["by"] == "center" and "dev" in dep  # deploy-stg 의 넓은 규칙은 stg 로만
+    assert dep["prod"] == {"path": "image", "manual": True, "mismatch": False}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { addRepoTarget, fetchRepoTargets, fetchVersions, type RepoTarget, type VersionRow } from '../api'
+import SectionHead, { latestTime, runAll } from '../components/SectionHead'
 
 // 컬럼 선호 순서(존재하는 툴만 노출). 그 외 툴은 뒤에 알파벳순으로.
 const PREFERRED = ['node', 'npm', 'nest', 'java', 'python', 'docker']
@@ -26,11 +27,19 @@ export default function Versions() {
   const [repo, setRepo] = useState('')
   const [proj, setProj] = useState('')
   const [msg, setMsg] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
 
+  const loadRows = () =>
+    fetchVersions()
+      .then((r) => {
+        setRows(r)
+        setErr(false)
+      })
+      .catch(() => setErr(true))
   const loadTargets = () => fetchRepoTargets().then(setTargets).catch(() => setTargets([]))
 
   useEffect(() => {
-    fetchVersions().then(setRows).catch(() => setErr(true))
+    loadRows()
     loadTargets()
   }, [])
 
@@ -51,12 +60,13 @@ export default function Versions() {
 
   return (
     <div>
-      <div className="page-head">
-        <h1 className="page-title">버전 · 빌드</h1>
-        <p className="page-sub">
-          버전 매트릭스 · 빌드 서버 툴체인 + GitLab repo 선언본{rows ? ` · ${rows.length}건` : ''}
-        </p>
-      </div>
+      <SectionHead
+        title="버전"
+        sub={`빌드 서버에 깔린 버전 + repo 에 적힌 버전${rows ? ` · ${rows.length}건` : ''}`}
+        asOf={latestTime((rows ?? []).map((r) => r.collected_at))}
+        onRefresh={() => runAll(setBusy, [loadRows, loadTargets])}
+        busy={busy}
+      />
 
       <div className="card">
         <table className="grid">
@@ -108,7 +118,7 @@ export default function Versions() {
       <div className="subhead">GitLab 선언본 대상</div>
       <div className="toolbar" style={{ flexWrap: 'wrap' }}>
         <input className="search" style={{ minWidth: 160 }} placeholder="표시 이름 (repo)" value={repo} onChange={(e) => setRepo(e.target.value)} />
-        <input className="search" style={{ minWidth: 220 }} placeholder="GitLab 프로젝트 (group/repo 또는 id)" value={proj} onChange={(e) => setProj(e.target.value)} />
+        <input className="search" style={{ minWidth: 220 }} placeholder="버전을 읽을 GitLab 프로젝트 (group/repo)" value={proj} onChange={(e) => setProj(e.target.value)} />
         <button className="btn" onClick={addTarget}>대상 추가</button>
       </div>
       {msg && <div className="card" style={{ padding: '10px 14px', marginBottom: 12, color: 'var(--danger,#b3261e)' }}>{msg}</div>}

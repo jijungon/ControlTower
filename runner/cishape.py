@@ -148,20 +148,22 @@ def _job_envs(name: str, job: dict, svc_type: str) -> dict[str, bool]:
     manual = job.get("when") == "manual"
     env_obj = job.get("environment")
     named = _env_word(name, env_obj.get("name") if isinstance(env_obj, dict) else env_obj)
-    out: dict[str, bool] = {}
-    if rules:
-        for env in ENVS:
-            tag = f"{env}-{svc_type}-v1.0.0"
-            for rx, when in rules:
-                if rx.search(tag):
-                    if when != "never":
-                        out[env] = manual or when == "manual"
-                    break
-        if named and named in out:  # deploy-prod 처럼 이름에 환경이 박혀 있으면 그 환경만
-            out = {named: out[named]}
-    elif named:
-        out[named] = manual
-    return out
+    if not rules:
+        return {named: manual} if named else {}
+    hits: dict[str, tuple[int, bool]] = {}  # env → (맞은 규칙 번호, 수동?)
+    for env in ENVS:
+        tag = f"{env}-{svc_type}-v1.0.0"
+        for idx, (rx, when) in enumerate(rules):
+            if rx.search(tag):
+                if when != "never":
+                    hits[env] = (idx, manual or when == "manual")
+                break
+    if named and named in hits:
+        # deploy-prod 처럼 이름에 환경이 박혀 있으면, 같은 '넓은 규칙'으로 걸린 다른 환경은 뺀다.
+        # (따로 적힌 규칙 — 예: deploy-dev 안의 lab 규칙 — 은 남긴다)
+        wide = hits[named][0]
+        hits = {e: v for e, v in hits.items() if e == named or v[0] != wide}
+    return {e: m for e, (_, m) in hits.items()}
 
 
 def _job_kind(name: str, job: dict, env: dict[str, str]) -> str:
@@ -182,11 +184,13 @@ def _job_kind(name: str, job: dict, env: dict[str, str]) -> str:
 
 def _executor(tags: list[str], uses_image: bool, runners: dict[str, str]) -> dict | None:
     known = [runners[t] for t in tags if t in runners]
+    uniq = sorted(set(tags))
     if known:
-        return {"value": Counter(known).most_common(1)[0][0], "guess": False}
+        return {"value": Counter(known).most_common(1)[0][0], "guess": False, "tags": uniq}
     if not tags and not uses_image:
         return None
-    return {"value": "docker" if uses_image else "shell", "guess": True}
+    # runners 표에 없는 태그 → image: 줄이 있으면 docker, 없으면 shell 로 짐작(guess)
+    return {"value": "docker" if uses_image else "shell", "guess": True, "tags": uniq}
 
 
 def analyze_ci(text: str | None, svc_type: str = "web", runners: dict[str, str] | None = None) -> dict | None:
@@ -311,12 +315,14 @@ def analyze_compose(text: str | None) -> dict | None:
     if not isinstance(services, dict):
         return None
     images: list[str] = []
-    startup = False
+    startup = command = False
     for svc in services.values():
         if not isinstance(svc, dict):
             continue
         if svc.get("image"):
             images.append(str(svc["image"]))
+        if svc.get("command") or svc.get("entrypoint"):
+            command = True
         for v in svc.get("volumes") or []:
             src = v.get("source", "") if isinstance(v, dict) else str(v)
             if _START_SH.search(str(src)):
@@ -324,22 +330,32 @@ def analyze_compose(text: str | None) -> dict | None:
     if not images:
         return None
     path = "image" if any("$" in i.rsplit("/", 1)[-1] for i in images) else "direct"
-    return {"path": path, "startup": startup, "images": images}
+    # compose 이사: start.sh 를 마운트하면 '이사 전', command: 로 직접 실행하면 '이사 완료', 둘 다 없으면 이미지 CMD 사용
+    start = "mount" if startup else ("command" if command else "image")
+    return {"path": path, "startup": startup, "start": start, "images": images}
 
 
 # ── 한 행으로 합치기 ──────────────────────────────────────────────────
 def _deploy_cell(env: str, repo: dict | None, center: dict | None) -> dict | None:
+    """환경 하나의 배포 경로.
+
+    direct(by=repo)   = repo CI 가 서버로 바로 복사(옛 직배포, center 안 거침)
+    direct(by=center) = repo 가 center 로 넘기고, center 가 빌드 결과물을 서버로 복사(이미지 안 만듦)
+    image             = center 가 만든 도커 이미지로 배포
+    build             = repo 에서 빌드만 하고 끝
+    """
     r = (repo or {}).get("envs", {}).get(env, {})
     c = (center or {}).get("envs", {}).get(env, {})
     if "direct" in r:
-        return {"path": "direct", "manual": r["direct"]}
+        return {"path": "direct", "by": "repo", "manual": r["direct"]}
+    reaches_center = ("push" in r) if repo else True  # repo 가 이 환경을 center 로 넘기나(repo CI 없으면 center 만 봄)
+    if reaches_center and "direct" in c:
+        return {"path": "direct", "by": "center", "manual": c["direct"]}
     image = "push" in r if repo else ("build_image" in c or "deploy_image" in c)
     if image:
         return {"path": "image", "manual": c.get("deploy_image")}  # None = center 에 배포 job 없음
-    if "direct" in c:
-        return {"path": "direct", "manual": c["direct"]}
     if r:
-        return {"path": "build", "manual": None}  # repo 에서 빌드만 하고 끝
+        return {"path": "build", "manual": None}
     return None
 
 
@@ -367,8 +383,8 @@ def build_row(spec: dict, files: dict[str, Any], runners: dict[str, str] | None 
     for env in ENVS:
         cell = _deploy_cell(env, repo, center)
         comp = composes.get(env)
-        if cell is None and comp:
-            cell = {"path": comp["path"], "manual": None}
+        if cell is None and comp:  # CI 에 이 환경 배포가 없음 → 서버 compose 모양으로 짐작
+            cell = {"path": comp["path"], "by": "compose", "manual": None}
         if cell is None:
             continue
         cell["mismatch"] = bool(comp and cell["path"] in ("direct", "image") and comp["path"] != cell["path"])
@@ -388,6 +404,7 @@ def build_row(spec: dict, files: dict[str, Any], runners: dict[str, str] | None 
         "group": spec.get("group"),
         "data": {
             "type": svc_type,
+            "note": spec.get("note"),  # 표에 작게 붙는 메모(예: '옛 사본')
             "runtime": docker["runtime"] if docker else None,
             "runtime_version": docker["runtime_version"] if docker else None,
             "base_image": docker["image"] if docker else None,
@@ -402,9 +419,68 @@ def build_row(spec: dict, files: dict[str, Any], runners: dict[str, str] | None 
     }
 
 
-def parse_targets(text: str) -> tuple[dict[str, str], list[dict]]:
-    """shape-targets.yml → (runners 표, 서비스 목록)."""
+# ── center config repo (<서비스>/<web|was>/ 폴더 하나 = 한 행) ─────────────
+def is_dockerfile(name: str) -> bool:
+    n = name.lower()
+    return n == "dockerfile" or n.startswith("dockerfile.") or n.endswith(".dockerfile")
+
+
+def analyze_config_dir(names: list[str], dockerfile_text: str | None) -> dict:
+    """config 폴더 하나 판독. names = 폴더 안 파일 이름들, dockerfile_text = Dockerfile 원문(없으면 None).
+
+    실행 명령 위치(start):
+      dockerfile = Dockerfile 에 CMD/ENTRYPOINT 가 있음(이미지가 스스로 실행)
+      start.sh   = CMD 없이 start.sh 로 실행(COPY 하거나 폴더에 둠)
+      base       = 둘 다 없음 → 베이스 이미지 기본값(예: springboot)
+    상태(state): legacy(start.sh 로 실행) / leftover(CMD 있는데 start.sh 파일이 남음) / done / base / none(Dockerfile 없음)
+    """
+    sh_files = sorted(n for n in names if _START_SH.search(n))
+    docker = analyze_dockerfile(dockerfile_text)
+    if docker is None:
+        start, state = None, "none"
+    elif docker["has_cmd"]:
+        start, state = "dockerfile", ("leftover" if sh_files else "done")
+    elif docker["copies_startup"] or sh_files:
+        start, state = "start.sh", "legacy"
+    else:
+        start, state = "base", "base"
+    return {
+        "runtime": docker["runtime"] if docker else None,
+        "runtime_version": docker["runtime_version"] if docker else None,
+        "base_image": docker["image"] if docker else None,
+        "base_tag": docker["tag"] if docker else None,
+        "start": start,
+        "start_files": sh_files,
+        "state": state,
+    }
+
+
+def config_dirs(paths: list[str]) -> dict[str, list[str]]:
+    """repo 안 파일 경로들 → {'<서비스>/<타입>': [파일 이름…]}.
+
+    보통은 깊이 3(서비스/타입/파일). 타입 없이 '<서비스>/Dockerfile' 로 바로 둔 곳(예: bot/Dockerfile)도 한 행으로 —
+    단 그 폴더에 Dockerfile 이 있을 때만(README 같은 파일로 빈 행이 생기지 않게).
+    """
+    out: dict[str, list[str]] = {}
+    flat: dict[str, list[str]] = {}
+    for p in paths:
+        parts = p.strip("/").split("/")
+        if parts[0].startswith("."):
+            continue
+        if len(parts) == 3:
+            out.setdefault(f"{parts[0]}/{parts[1]}", []).append(parts[2])
+        elif len(parts) == 2:
+            flat.setdefault(parts[0], []).append(parts[1])
+    for svc, names in flat.items():
+        if any(is_dockerfile(n) for n in names):
+            out[svc] = names
+    return out
+
+
+def parse_targets(text: str) -> tuple[dict[str, str], list[dict], dict | None]:
+    """shape-targets.yml → (runners 표, 서비스 목록, config 섹션)."""
     doc = yaml.safe_load(text) or {}
     runners = {str(k): str(v) for k, v in (doc.get("runners") or {}).items()}
     services = [s for s in (doc.get("services") or []) if isinstance(s, dict) and s.get("name")]
-    return runners, services
+    config = doc.get("config") if isinstance(doc.get("config"), dict) else None
+    return runners, services, config

@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from ..audit import record
 from ..auth import require_runner
 from ..db import get_db
-from ..models import CicdTarget, PipelineStatus, ServiceShape
+from ..models import CicdTarget, ConfigItem, PipelineStatus, ServiceShape
 
 router = APIRouter(prefix="/api/cicd", tags=["cicd"])
 
@@ -139,6 +139,51 @@ def list_shapes(db: Session = Depends(get_db)) -> list[dict]:
                 "collected_at": r.collected_at,
             }
         )
+    return out
+
+
+# ── center config repo (폴더별) ──────────────────────────────────────
+class ConfigItemIn(BaseModel):
+    path: str
+    data: dict[str, Any] = {}
+
+
+class ConfigBatch(BaseModel):
+    items: list[ConfigItemIn]
+    replace: bool = False  # True = 이번에 안 온 폴더는 표에서 내림(repo 에서 지워진 폴더)
+
+
+@router.post("/config", dependencies=[Depends(require_runner)])
+def upload_config(batch: ConfigBatch, db: Session = Depends(get_db)) -> dict:
+    now = _now()
+    seen = {i.path for i in batch.items}
+    for i in batch.items:
+        row = db.query(ConfigItem).filter(ConfigItem.path == i.path).first()
+        if row is None:
+            row = ConfigItem(path=i.path)
+            db.add(row)
+        row.data = json.dumps(i.data, ensure_ascii=False)
+        row.collected_at = now
+    removed = 0
+    if batch.replace:
+        for row in db.query(ConfigItem).all():
+            if row.path not in seen:
+                db.delete(row)
+                removed += 1
+    record(db, "cicd.config", target_type="cicd", detail=f"{len(batch.items)}개" + (f" · 내림 {removed}" if removed else ""))
+    db.commit()
+    return {"accepted": len(batch.items), "removed": removed}
+
+
+@router.get("/config")
+def list_config(db: Session = Depends(get_db)) -> list[dict]:
+    out: list[dict] = []
+    for r in db.query(ConfigItem).order_by(ConfigItem.path).all():
+        try:
+            data = json.loads(r.data or "{}")
+        except ValueError:
+            data = {}
+        out.append({**data, "path": r.path, "collected_at": r.collected_at})
     return out
 
 

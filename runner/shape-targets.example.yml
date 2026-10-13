@@ -2,26 +2,38 @@
 #   cp runner/shape-targets.example.yml shape-targets.yml
 #   python -m runner.cli shape
 #
-# 소스 한 칸은 둘 중 하나:
+# 소스 한 칸은 셋 중 하나:
 #   {gitlab: repo|center, project: group/repo, path: 파일경로, ref: main}   ← GitLab API(읽기 토큰)
 #   {file: 경로}                                                              ← 로컬 파일(이 파일 기준 상대경로 가능)
+#   {ssh: 호스트별칭, path: /app/web-shop/docker-compose.yml}                 ← 서버의 실제 파일(~/.ssh/config 별칭)
+# 읽은 파일 내용은 판독에만 쓰고 중앙엔 올리지 않는다(결과 칸만 올라감).
 # 빈 칸은 그냥 빼면 됩니다(표에 '—').
 
 # GitLab 은 러너의 executor 를 알려주지 않음 → 사람이 한 번 확인해 적어 두는 표.
-# 여기 없는 태그는 화면에 'shell?' 처럼 추정(?)으로 표시됩니다.
+# 여기 없는 태그는 화면에 'shell (추정)' 처럼 짐작값으로 표시됩니다.
 runners:
   shell-runner: shell
   builder: shell
   builder-docker: docker
 
+# center config repo — <서비스>/<web|was>/ 폴더를 자동으로 훑어 config 탭을 채움
+config:
+  gitlab: center
+  project: shop/config
+  # file: ../config-clone        # 로컬 사본이면 이렇게
+  compose:                       # (선택) 서버 compose → 'compose 이사' 칸. 폴더: {환경: 소스}
+    shop/was: {prod: {ssh: shop-prod-01, path: /app/was-shop/docker-compose.yml}}
+
 services:
   - name: shop web          # 표에 보이는 이름
-    group: shop             # 묶음(선택)
+    group: shop             # 서비스보다 큰 묶음(프로젝트 그룹) — 표에서 그룹별로 나뉨
+    note: 옛 사본            # (선택) 서비스 이름 밑에 작게 붙는 메모
     type: web               # web | was — 태그 정규식(<env>-<type>-v1.2.3) 판정용
     repo_ci:    {gitlab: repo,   project: shop/shop-web, path: .gitlab-ci.yml}
     center_ci:  {gitlab: center, project: shop/shop,     path: .gitlab-ci.yml}
-    dockerfile: {gitlab: center, project: shop/config,   path: shop/web/Dockerfile}
-    startup:    {gitlab: center, project: shop/config,   path: shop/web/node-startup.sh}
+    config_dir: shop/web    # config 폴더에서 Dockerfile·start.sh 를 알아서 읽음 (아래 두 줄 대신)
+    # dockerfile: {gitlab: center, project: shop/config, path: shop/web/Dockerfile}
+    # startup:    {gitlab: center, project: shop/config, path: shop/web/node-startup.sh}
     compose:                # 선택 — CI 로 판단이 안 될 때 보조, 다르면 ⚠ 표시
       prod: {gitlab: center, project: shop/deploy, path: prod/docker-compose-shop-web.yml}
 

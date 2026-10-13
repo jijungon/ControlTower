@@ -1,7 +1,7 @@
 """GitLab 파이프라인 조회 단위 테스트(httpx MockTransport)."""
 import httpx
 
-from runner.gitlab import fetch_latest_pipeline, fetch_repo_file
+from runner.gitlab import fetch_latest_pipeline, fetch_repo_file, fetch_repo_tree
 
 
 def _t(handler):
@@ -48,3 +48,24 @@ def test_fetch_repo_file_missing_returns_none():
         return httpx.Response(404, json={"message": "404 File Not Found"})
 
     assert fetch_repo_file("http://gl", "tok", "group/repo", ".nvmrc", transport=_t(handler)) is None
+
+
+def test_repo_tree_paginates_and_keeps_blobs():
+    pages = {
+        "1": ([{"type": "tree", "path": "shop"}, {"type": "blob", "path": "shop/web/Dockerfile"}], "2"),
+        "2": ([{"type": "blob", "path": "shop/web/node-startup.sh"}], ""),
+    }
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert "/repository/tree" in str(req.url) and req.url.params["recursive"] == "true"
+        body, nxt = pages[req.url.params["page"]]
+        return httpx.Response(200, json=body, headers={"X-Next-Page": nxt})
+
+    assert fetch_repo_tree("http://gl", "tok", "grp/config", transport=_t(handler)) == [
+        "shop/web/Dockerfile",
+        "shop/web/node-startup.sh",
+    ]
+
+
+def test_repo_tree_error_is_none():
+    assert fetch_repo_tree("http://gl", "tok", "x", transport=_t(lambda r: httpx.Response(404))) is None

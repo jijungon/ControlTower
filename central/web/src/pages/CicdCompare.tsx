@@ -1,63 +1,64 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { fetchShapes, type DeployCell, type ExecutorCell, type ShapeRow } from '../api'
+import SectionHead, { latestTime, runAll } from '../components/SectionHead'
+import { isOld, newestBy, Ver } from '../vercmp'
 
 // 환경 칸 순서(데이터에 있는 환경만 보인다)
 const ENV_ORDER = ['dev', 'lab', 'stg', 'preview', 'prod']
-const PATH_LABEL: Record<DeployCell['path'], string> = { direct: '직배포', image: '이미지', build: '빌드만' }
+const TYPE_ORDER = ['web', 'was']
 
-// "3.10.12" → [3,10,12], "v18" → [18], "0.1.3-java17" → [0,1,3]. 숫자가 없으면 [].
-export function verParts(v?: string | null): number[] {
-  const m = (v ?? '').match(/\d+(?:\.\d+)*/)
-  return m ? m[0].split('.').map(Number) : []
+// 배포 칸 — 짧은 글자 + 마우스를 올리면 뜻
+const PATH: Record<string, { label: string; title: string }> = {
+  'direct:repo': { label: '파일 복사 · repo', title: '예전 직배포 — repo CI 가 빌드 결과물을 서버로 바로 복사 (center 를 안 거침, 옮길 대상)' },
+  'direct:center': { label: '파일 복사 · center', title: 'repo 가 center 로 넘기고, center CI 가 빌드 결과물을 서버로 복사 (이미지는 안 만듦)' },
+  image: { label: '이미지', title: 'center 가 만든 도커 이미지를 서버가 받아서 실행' },
+  build: { label: '빌드만', title: '빌드만 하고 배포는 안 함' },
+  'direct:compose': { label: '파일 복사 (compose 기준)', title: 'CI 에는 이 환경 배포가 없어서, 서버 compose 모양(베이스 이미지 + 폴더 마운트)으로 짐작 — 손으로 배포하는 곳일 수 있음' },
+  'image:compose': { label: '이미지 (compose 기준)', title: 'CI 에는 이 환경 배포가 없어서, 서버 compose 모양(서비스 이미지 태그)으로 짐작' },
 }
+const pathKey = (c: DeployCell) =>
+  c.by === 'compose' ? `${c.path}:compose` : c.path === 'direct' ? `direct:${c.by ?? 'repo'}` : c.path
 
-export function cmpVer(a: number[], b: number[]): number {
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    const d = (a[i] ?? 0) - (b[i] ?? 0)
-    if (d !== 0) return Math.sign(d)
-  }
-  return 0
-}
-
-// 같은 종류(key) 안에서 가장 높은 버전. 버전 숫자가 없는 값은 비교에서 뺀다.
-export function newestBy(rows: ShapeRow[], pick: (r: ShapeRow) => [string, string] | null): Map<string, string> {
-  const best = new Map<string, string>()
-  for (const r of rows) {
-    const kv = pick(r)
-    if (!kv || verParts(kv[1]).length === 0) continue
-    const cur = best.get(kv[0])
-    if (!cur || cmpVer(verParts(kv[1]), verParts(cur)) > 0) best.set(kv[0], kv[1])
-  }
-  return best
+// start.sh 칸 — config 폴더 기준 상태(있으면) 또는 있음/없음
+const START: Record<string, { label: string; tone: string; title: string }> = {
+  legacy: { label: '있음 · 실행에 씀', tone: 'danger', title: '아직 start.sh 로 앱을 실행 — Dockerfile CMD 로 바꿀 대상' },
+  leftover: { label: '있음 · 안 씀', tone: 'warn', title: 'Dockerfile 이 이미 실행 명령(CMD)을 가짐 — 남은 start.sh 는 지워도 됨' },
+  done: { label: '없음', tone: 'ok', title: 'Dockerfile CMD 로 실행, start.sh 없음' },
+  base: { label: '해당 없음', tone: 'muted', title: '베이스 이미지가 알아서 실행(예: springboot)' },
 }
 
 const runtimeOf = (r: ShapeRow): [string, string] | null =>
   r.runtime && r.runtime_version ? [r.runtime, r.runtime_version] : null
 const baseOf = (r: ShapeRow): [string, string] | null => (r.base_image && r.base_tag ? [r.base_image, r.base_tag] : null)
+const runtimeLabel = (r: ShapeRow) => (r.runtime ? `${r.runtime}${r.runtime_version ? ` ${r.runtime_version}` : ''}` : '')
 
-function isOld(kv: [string, string] | null, newest: Map<string, string>): boolean {
-  if (!kv) return false
-  const top = newest.get(kv[0])
-  return !!top && verParts(kv[1]).length > 0 && cmpVer(verParts(kv[1]), verParts(top)) < 0
-}
-
-function Ver({ text, old, newest }: { text: string; old: boolean; newest?: string }) {
-  return old ? (
-    <span className="ver ver--old" title={`최신(${newest})보다 오래됨`}>⚠ {text}</span>
-  ) : (
-    <span className="ver">{text}</span>
-  )
+// "shop web" + type web → 서비스 "shop", 타입 "web"
+function split(r: ShapeRow): { app: string; kind: string } {
+  const t = r.type ?? ''
+  if (t && r.service.endsWith(` ${t}`)) return { app: r.service.slice(0, -t.length - 1), kind: t }
+  return { app: r.service, kind: t || '—' }
 }
 
 function deployCell(c?: DeployCell) {
   if (!c) return <span className="muted">—</span>
+  const p = PATH[pathKey(c)] ?? { label: c.path, title: '' }
+  const other = c.path === 'image' ? '파일 복사(베이스 이미지 + 폴더 마운트)' : '이미지(서비스 이미지 태그)'
   return (
     <>
-      {PATH_LABEL[c.path] ?? c.path}
-      {c.manual && <span className="muted"> · 수동</span>}
+      <span title={p.title}>{p.label}</span>
+      {c.manual && (
+        <span className="muted" title="사람이 GitLab 에서 버튼을 눌러야 배포">
+          {' '}
+          · 수동
+        </span>
+      )}
       {c.mismatch && (
-        <span className="badge badge--warn" style={{ marginLeft: 6 }} title="compose 파일과 판단이 다름">
-          compose 다름
+        <span
+          className="badge badge--warn"
+          style={{ marginLeft: 6 }}
+          title={`CI 파일은 '${p.label}' 인데, 서버 compose 파일은 ${other} 모양이에요 — 둘 중 하나가 옛날 상태`}
+        >
+          ⚠ 서버 compose 다름
         </span>
       )}
     </>
@@ -66,31 +67,93 @@ function deployCell(c?: DeployCell) {
 
 function execText(e?: ExecutorCell) {
   if (!e) return <span className="muted">—</span>
-  return e.guess ? <span title="추정 — runners 표에 없는 태그">{e.value}?</span> : <>{e.value}</>
+  if (!e.guess) return <span title={e.tags?.length ? `러너 태그: ${e.tags.join(', ')}` : undefined}>{e.value}</span>
+  return (
+    <span
+      className="muted"
+      title={`러너 태그(${(e.tags ?? []).join(', ') || '없음'})가 runners 표에 없어 짐작한 값 — 확인되면 shape-targets.yml 의 runners: 에 적으면 확정돼요`}
+    >
+      {e.value} (추정)
+    </span>
+  )
+}
+
+function startCell(r: ShapeRow) {
+  const s = r.start_state
+    ? START[r.start_state]
+    : r.startup == null
+      ? null
+      : r.startup
+        ? { label: '있음', tone: 'warn', title: 'start.sh 파일이 있음' }
+        : START.done
+  if (!s) return <span className="muted">—</span>
+  return (
+    <span className={`badge badge--${s.tone}`} title={s.title}>
+      {s.label}
+    </span>
+  )
 }
 
 function envText(r: ShapeRow) {
   if (r.env_keys == null) return <span className="muted">—</span>
-  if (!r.env_changed_at) return <>{r.env_keys}개</>
+  const base = <span title=".gitlab-ci.yml(repo·center) 의 variables: 개수 — 값은 안 보고 '바뀌었는지'만 봐요">{r.env_keys}개</span>
+  if (!r.env_changed_at) return base
   const days = Math.floor((Date.now() - new Date(r.env_changed_at).getTime()) / 86400000)
   return (
     <>
-      {r.env_keys}개 · <span className="badge badge--warn">{days <= 0 ? '오늘' : `${days}일 전`} 변경</span>
+      {base} <span className="badge badge--warn">{days <= 0 ? '오늘' : `${days}일 전`} 바뀜</span>
     </>
   )
 }
 
-const runtimeLabel = (r: ShapeRow) => (r.runtime ? `${r.runtime}${r.runtime_version ? ` ${r.runtime_version}` : ''}` : '')
+function Legend() {
+  return (
+    <details className="legend" open>
+      <summary>표 읽는 법</summary>
+      <ul>
+        <li>
+          <b>dev · stg · prod 칸</b> = 그 환경에 어떻게 배포하나 — <b>파일 복사 · repo</b>(예전 직배포: repo 가 서버에 바로 복사, 옮길 대상) ·{' '}
+          <b>파일 복사 · center</b>(center 를 거쳐 파일로 복사, 이미지 안 만듦) · <b>이미지</b>(center 가 만든 도커 이미지로 배포) ·{' '}
+          <b>빌드만</b>(배포 안 함) · <b>수동</b>(사람이 버튼을 눌러야 함) · <b>(compose 기준)</b>(CI 에 없어서 서버 compose 로 짐작)
+        </li>
+        <li>
+          <b>⚠ 서버 compose 다름</b> = CI 파일에 적힌 배포 방식과 서버의 docker-compose 모양이 서로 달라요 (예: CI 는 이미지인데 서버는 아직 파일 복사 방식)
+        </li>
+        <li>
+          <b>executor</b> = CI 를 돌리는 방식 — <b>shell</b>(러너 서버에서 바로) · <b>docker</b>(깨끗한 컨테이너 안에서). <b>(추정)</b> = 확인 안 된 짐작값
+        </li>
+        <li>
+          <b>start.sh</b> — <span className="badge badge--danger">있음 · 실행에 씀</span> 바꿀 대상 ·{' '}
+          <span className="badge badge--warn">있음 · 안 씀</span> 파일만 남음 · <span className="badge badge--ok">없음</span> 완료
+        </li>
+        <li>
+          <b>CI 변수</b> = .gitlab-ci.yml 의 변수 개수. 값은 보지 않고, 바뀌면 "N일 전 바뀜"
+        </li>
+        <li>
+          <span className="ver ver--old">⚠ 빨간 칸</span> = 같은 종류(node 끼리, java 끼리) 중 최신이 아닌 버전
+        </li>
+      </ul>
+    </details>
+  )
+}
 
 export default function CicdCompare() {
   const [rows, setRows] = useState<ShapeRow[] | null>(null)
   const [err, setErr] = useState(false)
   const [runtime, setRuntime] = useState('')
+  const [groupSel, setGroupSel] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const load = () =>
+    fetchShapes()
+      .then((d) => {
+        setRows(Array.isArray(d) ? d : [])
+        setErr(false)
+      })
+      .catch(() => setErr(true))
 
   useEffect(() => {
-    fetchShapes()
-      .then((d) => setRows(Array.isArray(d) ? d : []))
-      .catch(() => setErr(true))
+    load()
   }, [])
 
   const all = rows ?? []
@@ -105,22 +168,53 @@ export default function CicdCompare() {
   )
   const latest = [...newestRuntime].map(([k, v]) => `${k} ${v}`).join(' · ')
 
+  // 그룹(프로젝트 묶음) → 서비스 → 타입(web·was) 으로 묶기
+  const typeRank = (r: ShapeRow) => {
+    const i = TYPE_ORDER.indexOf(split(r).kind)
+    return i < 0 ? 99 : i
+  }
+  const byGroup = new Map<string, Map<string, ShapeRow[]>>()
+  for (const r of shown.filter((x) => !groupSel || (x.group || '기타') === groupSel)) {
+    const g = r.group || '기타'
+    const apps = byGroup.get(g) ?? new Map<string, ShapeRow[]>()
+    apps.set(split(r).app, [...(apps.get(split(r).app) ?? []), r])
+    byGroup.set(g, apps)
+  }
+  const ordered = [...byGroup.entries()]
+    .sort(([a], [b]) => (a === '기타' ? 1 : b === '기타' ? -1 : a.localeCompare(b)))
+    .map(([group, apps]) => ({
+      group,
+      apps: [...apps.entries()]
+        .map(([app, rs]) => ({ app, rows: [...rs].sort((a, b) => typeRank(a) - typeRank(b)) }))
+        .sort((a, b) => a.app.localeCompare(b.app)),
+    }))
+  const groupNames = [...new Set(all.map((r) => r.group || '기타'))].sort()
+  const appCount = ordered.reduce((n, g) => n + g.apps.length, 0)
+  const colCount = 7 + envs.length
+
   return (
     <div>
-      <div className="subhead">서비스 비교</div>
+      <SectionHead
+        title="서비스 비교"
+        sub={rows ? `그룹 ${ordered.length}개 · 서비스 ${appCount}개 · 오래된 버전 ${oldCount}칸${latest ? ` · 최신: ${latest}` : ''}` : undefined}
+        asOf={latestTime(all.map((r) => r.collected_at))}
+        onRefresh={() => runAll(setBusy, [load])}
+        busy={busy}
+      />
+      <Legend />
       <div className="toolbar" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
+        <select className="search" style={{ minWidth: 140 }} value={groupSel} onChange={(e) => setGroupSel(e.target.value)} aria-label="그룹 필터">
+          <option value="">그룹: 전체</option>
+          {groupNames.map((g) => (
+            <option key={g} value={g}>{g}</option>
+          ))}
+        </select>
         <select className="search" style={{ minWidth: 140 }} value={runtime} onChange={(e) => setRuntime(e.target.value)} aria-label="런타임 필터">
           <option value="">런타임: 전체</option>
           {runtimes.map((r) => (
             <option key={r} value={r}>{r}</option>
           ))}
         </select>
-        {rows && rows.length > 0 && (
-          <span className="muted" style={{ fontSize: 13 }}>
-            <span className="ver ver--old">⚠ 빨간 칸</span> = 같은 종류 중 최신이 아닌 버전 ({oldCount}칸)
-            {latest && ` · 최신: ${latest}`}
-          </span>
-        )}
       </div>
 
       <div className="card" style={{ overflowX: 'auto' }}>
@@ -128,6 +222,7 @@ export default function CicdCompare() {
           <thead>
             <tr>
               <th>서비스</th>
+              <th>타입</th>
               <th>런타임</th>
               <th>베이스 이미지</th>
               {envs.map((e) => (
@@ -135,48 +230,66 @@ export default function CicdCompare() {
               ))}
               <th>executor (repo / center)</th>
               <th>start.sh</th>
-              <th>env</th>
+              <th>CI 변수</th>
             </tr>
           </thead>
           <tbody>
-            {shown.map((r) => {
-              const rt = runtimeOf(r)
-              const base = baseOf(r)
-              return (
-                <tr key={r.service}>
-                  <td>
-                    {r.service}
-                    {r.group && <span className="badge badge--muted" style={{ marginLeft: 6 }}>{r.group}</span>}
+            {ordered.map((g) => (
+              <Fragment key={g.group}>
+                <tr className="group-head">
+                  <td colSpan={colCount}>
+                    {g.group} <span className="muted">· 서비스 {g.apps.length}개</span>
                   </td>
-                  <td>
-                    {r.runtime ? (
-                      <Ver text={runtimeLabel(r)} old={isOld(rt, newestRuntime)} newest={rt ? `${rt[0]} ${newestRuntime.get(rt[0])}` : undefined} />
-                    ) : (
-                      <span className="muted">—</span>
-                    )}
-                  </td>
-                  <td>
-                    {r.base_image ? (
-                      <Ver
-                        text={`${r.base_image}${r.base_tag ? `:${r.base_tag}` : ''}`}
-                        old={isOld(base, newestBase)}
-                        newest={base ? `${base[0]}:${newestBase.get(base[0])}` : undefined}
-                      />
-                    ) : (
-                      <span className="muted">—</span>
-                    )}
-                  </td>
-                  {envs.map((e) => (
-                    <td key={e}>{deployCell(r.deploy?.[e])}</td>
-                  ))}
-                  <td>
-                    {execText(r.executor_repo)} / {execText(r.executor_center)}
-                  </td>
-                  <td>{r.startup == null ? <span className="muted">—</span> : r.startup ? '있음' : '없음'}</td>
-                  <td>{envText(r)}</td>
                 </tr>
-              )
-            })}
+                {g.apps.map((a) =>
+                  a.rows.map((r, i) => {
+                    const rt = runtimeOf(r)
+                    const base = baseOf(r)
+                    return (
+                      <tr key={r.service} className={i === 0 ? 'group-start' : undefined}>
+                        {i === 0 && (
+                          <td className="svc-cell" rowSpan={a.rows.length}>
+                            {a.app}
+                            {r.note && (
+                              <div className="muted" style={{ fontWeight: 400, fontSize: 12 }}>
+                                {r.note}
+                              </div>
+                            )}
+                          </td>
+                        )}
+                        <td>{split(r).kind}</td>
+                        <td>
+                          {r.runtime ? (
+                            <Ver text={runtimeLabel(r)} old={isOld(rt, newestRuntime)} newest={rt ? `${rt[0]} ${newestRuntime.get(rt[0])}` : undefined} />
+                          ) : (
+                            <span className="muted">—</span>
+                          )}
+                        </td>
+                        <td>
+                          {r.base_image ? (
+                            <Ver
+                              text={`${r.base_image}${r.base_tag ? `:${r.base_tag}` : ''}`}
+                              old={isOld(base, newestBase)}
+                              newest={base ? `${base[0]}:${newestBase.get(base[0])}` : undefined}
+                            />
+                          ) : (
+                            <span className="muted">—</span>
+                          )}
+                        </td>
+                        {envs.map((e) => (
+                          <td key={e}>{deployCell(r.deploy?.[e])}</td>
+                        ))}
+                        <td>
+                          {execText(r.executor_repo)} / {execText(r.executor_center)}
+                        </td>
+                        <td>{startCell(r)}</td>
+                        <td>{envText(r)}</td>
+                      </tr>
+                    )
+                  }),
+                )}
+              </Fragment>
+            ))}
           </tbody>
         </table>
 

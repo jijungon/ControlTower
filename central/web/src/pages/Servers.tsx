@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { createGroup, fetchGroups, fetchServers, setServerMeta, type Group, type Server } from '../api'
+import SectionHead, { latestTime, runAll } from '../components/SectionHead'
+import Conf from './Conf'
 
 function authCell(s: Server) {
   if (s.needs_2fa === true) return <span className="badge badge--warn">2FA</span>
@@ -22,7 +24,15 @@ export default function Servers() {
   const [editTags, setEditTags] = useState('')
   const [msg, setMsg] = useState<string | null>(null)
 
-  const load = () => fetchServers().then(setServers).catch(() => setErr(true))
+  const [busy, setBusy] = useState(false)
+
+  const load = () =>
+    fetchServers()
+      .then((r) => {
+        setServers(r)
+        setErr(false)
+      })
+      .catch(() => setErr(true))
   const loadGroups = () => fetchGroups().then(setGroups).catch(() => setGroups([]))
 
   useEffect(() => {
@@ -79,6 +89,14 @@ export default function Servers() {
           ~/.ssh/config 기준 · 그룹·태그로 묶어 보기{servers ? ` · ${servers.length}대` : ''}
         </p>
       </div>
+
+      <SectionHead
+        title="서버 목록"
+        sub="접속 키 · 접속 확인"
+        asOf={latestTime((servers ?? []).map((s) => s.last_checked_at))}
+        onRefresh={() => runAll(setBusy, [load, loadGroups])}
+        busy={busy}
+      />
 
       <div className="toolbar" style={{ flexWrap: 'wrap' }}>
         <input className="search" placeholder="서버 · IP · user 검색" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -189,6 +207,8 @@ export default function Servers() {
           </div>
         )}
       </div>
+
+      <Conf />
     </div>
   )
 }

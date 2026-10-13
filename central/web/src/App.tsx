@@ -1,24 +1,21 @@
 import { useState } from 'react'
 import Dashboard from './pages/Dashboard'
 import Servers from './pages/Servers'
-import Versions from './pages/Versions'
-import Conf from './pages/Conf'
-import Updates from './pages/Updates'
-import Cicd from './pages/Cicd'
-import Jobs from './pages/Jobs'
+import BuildDeploy from './pages/BuildDeploy'
+import ConfigRepo from './pages/ConfigRepo'
+import Ops from './pages/Ops'
 
-const TABS = ['대시보드', '서버', '버전·빌드', '설정', '업데이트', 'CI/CD', '작업이력'] as const
+// 서버(+/etc 설정 파일) · 빌드·배포(비교표+버전+파이프라인) · config(center config repo) · OS 패치·작업이력
+const TABS = ['대시보드', '서버', '빌드·배포', 'config', 'OS 패치·작업이력'] as const
 type Tab = (typeof TABS)[number]
 
 function Page({ tab }: { tab: Tab }) {
   switch (tab) {
     case '대시보드': return <Dashboard />
     case '서버': return <Servers />
-    case '버전·빌드': return <Versions />
-    case '설정': return <Conf />
-    case '업데이트': return <Updates />
-    case 'CI/CD': return <Cicd />
-    case '작업이력': return <Jobs />
+    case '빌드·배포': return <BuildDeploy />
+    case 'config': return <ConfigRepo />
+    case 'OS 패치·작업이력': return <Ops />
   }
 }
 

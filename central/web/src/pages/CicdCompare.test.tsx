@@ -1,24 +1,25 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
-import CicdCompare, { cmpVer, newestBy, verParts } from './CicdCompare'
+import CicdCompare from './CicdCompare'
+import { cmpVer, newestBy, verParts } from '../vercmp'
 import type { ShapeRow } from '../api'
 
 const ROWS: ShapeRow[] = [
   {
-    service: 'shop web', group: 'shop', runtime: 'node', runtime_version: '18', base_image: 'infra/nodejs', base_tag: 'v18',
-    deploy: { dev: { path: 'direct', manual: false }, prod: { path: 'image', manual: true, mismatch: true } },
+    service: 'shop web', group: 'mall', type: 'web', runtime: 'node', runtime_version: '18', base_image: 'infra/nodejs', base_tag: 'v18',
+    deploy: { dev: { path: 'direct', by: 'repo', manual: false }, stg: { path: 'direct', by: 'center', manual: false }, prod: { path: 'image', manual: true, mismatch: true } },
     executor_repo: { value: 'shell', guess: false }, executor_center: { value: 'docker', guess: true },
     startup: true, env_keys: 4, env_changed_at: new Date().toISOString(),
   },
   {
-    service: 'shop admin', group: 'shop', runtime: 'node', runtime_version: '20', base_image: 'node', base_tag: '20-slim',
+    service: 'shop admin', group: 'mall', type: 'admin', runtime: 'node', runtime_version: '20', base_image: 'node', base_tag: '20-slim',
     deploy: { dev: { path: 'image', manual: false }, prod: { path: 'image', manual: true } },
     executor_repo: { value: 'docker', guess: false }, executor_center: null,
     startup: false, env_keys: 2,
   },
   {
     service: 'billing', runtime: 'java', runtime_version: '17', base_image: 'infra/springboot', base_tag: '0.1.3-java17',
-    deploy: { dev: { path: 'build', manual: null } }, startup: null, env_keys: null,
+    deploy: { dev: { path: 'build', manual: null }, prod: { path: 'direct', by: 'compose', manual: null } }, startup: null, env_keys: null,
   },
 ]
 
@@ -47,31 +48,58 @@ test('같은 종류 중 최신이 아닌 버전만 빨간 칸', async () => {
   expect(table.getByText('java 17')).not.toHaveClass('ver--old') // 혼자라 비교 대상 없음
   // 베이스 이미지는 '이미지 이름이 같은 것끼리'만 비교 → 여기선 다 혼자라 빨간 칸 없음
   expect(table.getByText('infra/nodejs:v18')).not.toHaveClass('ver--old')
-  expect(screen.getByText(/1칸/)).toBeInTheDocument()
+  expect(screen.getByText(/오래된 버전 1칸/)).toBeInTheDocument()
 })
 
-test('배포 경로·executor·start.sh·env 칸', async () => {
+test('배포·executor·start.sh·CI 변수 칸 — 쉬운 말 + 마우스 올리면 뜻', async () => {
   stub(ROWS)
   render(<CicdCompare />)
-  await screen.findByText('shop web')
-  expect(screen.getAllByText('직배포').length).toBe(1)
-  expect(screen.getByText('빌드만')).toBeInTheDocument()
-  expect(screen.getByText('compose 다름')).toBeInTheDocument()
-  expect(screen.getByText('docker?')).toHaveAttribute('title', '추정 — runners 표에 없는 태그')
-  expect(screen.getByText('있음')).toBeInTheDocument()
-  expect(screen.getByText('없음')).toBeInTheDocument()
-  expect(screen.getByText('오늘 변경')).toBeInTheDocument()
-  // 데이터에 있는 환경만 칸으로(dev·prod), 없는 환경(stg)은 칸 없음
+  const table = within(await screen.findByRole('table'))
+  expect(table.getByText('파일 복사 · repo')).toHaveAttribute('title', expect.stringContaining('직배포'))
+  expect(table.getByText('파일 복사 · center')).toHaveAttribute('title', expect.stringContaining('center CI'))
+  expect(table.getByText('빌드만')).toBeInTheDocument()
+  expect(table.getByText('파일 복사 (compose 기준)')).toHaveAttribute('title', expect.stringContaining('짐작'))
+  expect(table.getByText('⚠ 서버 compose 다름')).toHaveAttribute('title', expect.stringContaining('파일 복사'))
+  expect(table.getByText('docker (추정)')).toHaveAttribute('title', expect.stringContaining('runners 표에 없어'))
+  // start.sh: 있음은 노랑, 없음은 초록
+  expect(table.getByText('있음')).toHaveClass('badge--warn')
+  expect(table.getByText('없음')).toHaveClass('badge--ok')
+  expect(table.getByText('오늘 바뀜')).toBeInTheDocument()
+  expect(screen.getByText('표 읽는 법')).toBeInTheDocument()
+  // 데이터에 있는 환경만 칸으로(dev·stg·prod), 없는 환경(lab)은 칸 없음
   expect(screen.getByRole('columnheader', { name: 'dev' })).toBeInTheDocument()
-  expect(screen.queryByRole('columnheader', { name: 'stg' })).toBeNull()
+  expect(screen.queryByRole('columnheader', { name: 'lab' })).toBeNull()
+})
+
+test('그룹 → 서비스 → 타입으로 묶음', async () => {
+  stub([...ROWS, { service: 'shop web', group: 'outlet', type: 'web', note: '옛 사본' }])
+  render(<CicdCompare />)
+  const table = within(await screen.findByRole('table'))
+  // 그룹 머리줄: 이름순, 그룹 없는 건 맨 끝 '기타'
+  const heads = [...document.querySelectorAll('tr.group-head')].map((tr) => tr.textContent)
+  expect(heads).toEqual(['mall · 서비스 1개', 'outlet · 서비스 1개', '기타 · 서비스 1개'])
+  // mall 안의 shop 서비스는 web·admin 두 줄을 한 칸으로
+  const shops = table.getAllByText('shop')
+  expect(shops[0].closest('td')).toHaveAttribute('rowspan', '2')
+  expect(table.getByText('옛 사본')).toBeInTheDocument()
+  // 그룹 필터
+  fireEvent.change(screen.getByLabelText('그룹 필터'), { target: { value: 'outlet' } })
+  expect([...document.querySelectorAll('tr.group-head')].map((tr) => tr.textContent)).toEqual(['outlet · 서비스 1개'])
+})
+
+test('config 연결 시 start.sh 상태 색', async () => {
+  stub([{ service: 'x web', type: 'web', start_state: 'legacy', startup: true }, { service: 'y web', type: 'web', start_state: 'leftover', startup: true }])
+  render(<CicdCompare />)
+  expect(await screen.findByText('있음 · 실행에 씀')).toHaveClass('badge--danger')
+  expect(screen.getAllByText('있음 · 안 씀').find((e) => e.closest('td'))).toHaveClass('badge--warn')
 })
 
 test('런타임 필터', async () => {
   stub(ROWS)
   render(<CicdCompare />)
-  await screen.findByText('shop web')
+  await screen.findByText('shop')
   fireEvent.change(screen.getByLabelText('런타임 필터'), { target: { value: 'java 17' } })
-  expect(screen.queryByText('shop web')).toBeNull()
+  expect(within(screen.getByRole('table')).queryByText('shop')).toBeNull()
   expect(screen.getByText('billing')).toBeInTheDocument()
 })
 

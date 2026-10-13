@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { addCicdTarget, fetchCicd, type CicdRow } from '../api'
-import CicdCompare from './CicdCompare'
+import SectionHead, { latestTime, runAll } from '../components/SectionHead'
 
 function statusBadge(r: CicdRow) {
   if (!r.has_cicd) return <span className="badge badge--muted">없음</span>
@@ -26,8 +26,15 @@ export default function Cicd() {
   const [svc, setSvc] = useState('')
   const [proj, setProj] = useState('')
   const [msg, setMsg] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
 
-  const load = () => fetchCicd().then(setRows).catch(() => setErr(true))
+  const load = () =>
+    fetchCicd()
+      .then((r) => {
+        setRows(r)
+        setErr(false)
+      })
+      .catch(() => setErr(true))
 
   useEffect(() => {
     load()
@@ -50,17 +57,13 @@ export default function Cicd() {
 
   return (
     <div>
-      <div className="page-head">
-        <h1 className="page-title">CI/CD 현황</h1>
-        <p className="page-sub">
-          서비스끼리 비교(배포 경로·executor·런타임·start.sh·env) + GitLab 파이프라인 상태
-          {rows ? ` · 실패 ${failed}건` : ''}
-        </p>
-      </div>
-
-      <CicdCompare />
-
-      <div className="subhead">파이프라인 상태</div>
+      <SectionHead
+        title="파이프라인 상태"
+        sub={`서비스별 GitLab 최근 파이프라인${rows ? ` · 실패 ${failed}건` : ''}`}
+        asOf={latestTime((rows ?? []).map((r) => r.collected_at))}
+        onRefresh={() => runAll(setBusy, [load])}
+        busy={busy}
+      />
 
       <div className="toolbar" style={{ flexWrap: 'wrap' }}>
         <input className="search" style={{ minWidth: 160 }} placeholder="서비스 이름" value={svc} onChange={(e) => setSvc(e.target.value)} />

@@ -1,32 +1,38 @@
 import { Fragment, useEffect, useState } from 'react'
 import { fetchUpdates, type UpdateRow } from '../api'
+import SectionHead, { latestTime, runAll } from '../components/SectionHead'
 
 export default function Updates() {
   const [rows, setRows] = useState<UpdateRow[] | null>(null)
   const [err, setErr] = useState(false)
   const [open, setOpen] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
 
-  useEffect(() => {
+  const load = (first = false) =>
     fetchUpdates()
       .then((r) => {
         setRows(r)
-        const first = r.find((x) => x.pending > 0)
-        if (first) setOpen(first.hostname)
+        setErr(false)
+        const f = r.find((x) => x.pending > 0)
+        if (first && f) setOpen(f.hostname) // 처음 열 때만 자동 펼침(새로고침은 펼친 상태 유지)
       })
       .catch(() => setErr(true))
+
+  useEffect(() => {
+    load(true)
   }, [])
 
   const totalSecurity = (rows ?? []).reduce((a, r) => a + r.security, 0)
 
   return (
     <div>
-      <div className="page-head">
-        <h1 className="page-title">업데이트</h1>
-        <p className="page-sub">
-          서버별 대기 중인 OS 패치(apt) · 서버를 누르면 항목 표시
-          {rows ? ` · 보안 ${totalSecurity}건` : ''}
-        </p>
-      </div>
+      <SectionHead
+        title="OS 패치"
+        sub={`서버마다 아직 안 깔린 패치 · 서버를 누르면 항목${rows ? ` · 보안 ${totalSecurity}건` : ''}`}
+        asOf={latestTime((rows ?? []).map((r) => r.collected_at))}
+        onRefresh={() => runAll(setBusy, [() => load()])}
+        busy={busy}
+      />
 
       <div className="card">
         <table className="grid">

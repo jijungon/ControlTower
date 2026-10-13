@@ -12,6 +12,7 @@ import {
   type ConfRow,
   type ConfStatus,
 } from '../api'
+import SectionHead, { latestTime, runAll } from '../components/SectionHead'
 
 const BADGE: Record<ConfStatus, JSX.Element> = {
   synced: <span className="badge badge--ok">동기화됨</span>,
@@ -38,8 +39,15 @@ export default function Conf() {
   const [msg, setMsg] = useState<string | null>(null)
   const [targets, setTargets] = useState<string[]>([])
   const [newPath, setNewPath] = useState('')
+  const [refreshing, setRefreshing] = useState(false)
 
-  const loadConf = () => fetchConf().then(setRows).catch(() => setErr(true))
+  const loadConf = () =>
+    fetchConf()
+      .then((r) => {
+        setRows(r)
+        setErr(false)
+      })
+      .catch(() => setErr(true))
   const loadIntents = () => fetchApplyIntents().then(setIntents).catch(() => setIntents([]))
   const loadTargets = () => fetchConfTargets().then(setTargets).catch(() => setTargets([]))
 
@@ -83,10 +91,13 @@ export default function Conf() {
 
   return (
     <div>
-      <div className="page-head">
-        <h1 className="page-title">설정 (conf)</h1>
-        <p className="page-sub">서버별 기준본 ↔ 실제본 비교{rows ? ` · 드리프트 ${drift}건` : ''}</p>
-      </div>
+      <SectionHead
+        title="서버 설정 파일 (/etc)"
+        sub={`서버마다 같아야 하는 파일 — 기준본과 비교 · 승인 후 적용${rows ? ` · 드리프트 ${drift}건` : ''}`}
+        asOf={latestTime((rows ?? []).map((r) => r.collected_at))}
+        onRefresh={() => runAll(setRefreshing, [loadConf, loadIntents, loadTargets])}
+        busy={refreshing}
+      />
 
       {msg && (
         <div className="card" style={{ padding: '10px 14px', marginBottom: 12, color: 'var(--danger, #b3261e)' }}>

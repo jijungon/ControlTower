@@ -48,3 +48,25 @@ def test_upload_is_audited(client):
     client.post("/api/cicd/shape", json={"shapes": [_shape("a")]}, headers=AUTH)
     actions = [a["action"] for a in client.get("/api/audit").json()]
     assert "cicd.shape" in actions
+
+
+# ── center config (폴더별) ──
+def _item(path, **data):
+    return {"path": path, "data": {"state": "done", "start": "dockerfile", **data}}
+
+
+def test_config_upload_list_and_replace(client):
+    assert client.post("/api/cicd/config", json={"items": []}).status_code == 401
+    r = client.post(
+        "/api/cicd/config",
+        json={"items": [_item("shop/web", compose={"dev": "command"}), _item("shop/was", state="base", start="base")]},
+        headers=AUTH,
+    )
+    assert r.json() == {"accepted": 2, "removed": 0}
+    rows = client.get("/api/cicd/config").json()
+    assert [x["path"] for x in rows] == ["shop/was", "shop/web"]  # 경로순
+    assert rows[1]["compose"] == {"dev": "command"} and rows[1]["collected_at"]
+    r = client.post("/api/cicd/config", json={"items": [_item("shop/web")], "replace": True}, headers=AUTH)
+    assert r.json() == {"accepted": 1, "removed": 1}
+    assert [x["path"] for x in client.get("/api/cicd/config").json()] == ["shop/web"]
+    assert "cicd.config" in [a["action"] for a in client.get("/api/audit").json()]

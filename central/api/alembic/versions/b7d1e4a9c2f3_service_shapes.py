@@ -1,4 +1,4 @@
-"""service_shapes — CI/CD 서비스 비교표
+"""service_shapes · config_items — 서비스 비교표 + center config
 
 Revision ID: b7d1e4a9c2f3
 Revises: f264ab6fa6a3
@@ -30,7 +30,16 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('service')
     )
+    op.create_table('config_items',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('path', sa.String(), nullable=False),
+    sa.Column('data', sa.Text(), nullable=False),
+    sa.Column('collected_at', sa.String(), nullable=True),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('path')
+    )
 
 
 def downgrade() -> None:
+    op.drop_table('config_items')
     op.drop_table('service_shapes')

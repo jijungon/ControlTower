@@ -9,6 +9,7 @@ import {
   type UpdateRow,
   type VersionRow,
 } from '../api'
+import { RefreshButton, runAll } from '../components/SectionHead'
 
 function latest(times: (string | null | undefined)[]): string {
   const t = times.filter((x): x is string => !!x).sort()
@@ -58,16 +59,23 @@ export default function Dashboard() {
   const [updates, setUpdates] = useState<UpdateRow[] | null>(null)
   const [versions, setVersions] = useState<VersionRow[]>([])
   const [err, setErr] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  const load = () =>
+    Promise.all([
+      Promise.all([fetchServers(), fetchConf(), fetchUpdates()])
+        .then(([s, c, u]) => {
+          setServers(s)
+          setConf(c)
+          setUpdates(u)
+          setErr(false)
+        })
+        .catch(() => setErr(true)),
+      fetchVersions().then(setVersions).catch(() => setVersions([])),
+    ])
 
   useEffect(() => {
-    Promise.all([fetchServers(), fetchConf(), fetchUpdates()])
-      .then(([s, c, u]) => {
-        setServers(s)
-        setConf(c)
-        setUpdates(u)
-      })
-      .catch(() => setErr(true))
-    fetchVersions().then(setVersions).catch(() => setVersions([]))
+    load()
   }, [])
 
   const online = (servers ?? []).filter((s) => s.status === 'online').length
@@ -104,14 +112,17 @@ export default function Dashboard() {
 
   return (
     <div>
-      <div className="page-head">
-        <h1 className="page-title">대시보드</h1>
-        <p className="page-sub">
-          {ready && lastCollected !== '—'
-            ? `서버·설정·업데이트·버전 집계 · 데이터 기준 ${asOf}`
-            : '서버·설정·업데이트·버전 집계'}
-          {ready && isStale && <span className="muted"> · {staleDays}일 지남</span>}
-        </p>
+      <div className="page-head page-head--row">
+        <div>
+          <h1 className="page-title">대시보드</h1>
+          <p className="page-sub">
+            {ready && lastCollected !== '—'
+              ? `서버·설정·업데이트·버전 집계 · 데이터 기준 ${asOf}`
+              : '서버·설정·업데이트·버전 집계'}
+            {ready && isStale && <span className="muted"> · {staleDays}일 지남</span>}
+          </p>
+        </div>
+        <RefreshButton label="대시보드 새로고침" onClick={() => runAll(setBusy, [load])} busy={busy} />
       </div>
 
       {err && (

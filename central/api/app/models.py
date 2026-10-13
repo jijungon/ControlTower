@@ -206,6 +206,15 @@ class ServiceShape(Base):
     collected_at: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
+class ConfigItem(Base):
+    """center config repo 의 폴더 하나(<서비스>/<타입>) 판독 결과. 수집 때마다 덮어씀(파일 원문은 저장 안 함)."""
+    __tablename__ = "config_items"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    path: Mapped[str] = mapped_column(String, unique=True)                # 예: shop/web
+    data: Mapped[str] = mapped_column(Text, default="{}")                 # JSON: 베이스 이미지·실행 명령 위치·start.sh·compose 이사
+    collected_at: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
 # ── 작업이력 / 감사 로그 ─────────────────────────────────────────────
 
 class AuditLog(Base):
