@@ -167,8 +167,8 @@ test('config 탭 — 처음 실행할 명령(이미지·서버)·정리할 것 +
   await expect(page.getByText('⚠ node 18')).toHaveClass(/ver--old/)
   const table = page.locator('table.grid--nowrap')
   await expect(table.getByText('start.sh → CMD 로 옮기기')).toBeVisible()
-  await expect(table.getByText('dev start.sh')).toBeVisible() // 서버 compose 가 start.sh 를 마운트
-  await expect(table.getByText('dev 서버 compose')).toBeVisible() // 서버 compose 의 command:
+  await expect(page.getByRole('columnheader', { name: 'dev', exact: true })).toBeVisible() // (서버) 환경 열
+  await expect(table.getByText('서버 compose')).toBeVisible() // shop/api dev: 서버 compose 의 command:
   await expect(page.locator('table.grid--nowrap').getByText('⚠ 이미지와 다름')).toBeVisible() // 코드 node 22 ≠ 이미지 node 18
   await page.getByRole('button', { name: 'config 폴더 새로고침' }).click()
   await expect(page.getByText(/데이터 기준/)).toBeVisible()

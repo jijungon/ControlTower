@@ -173,6 +173,9 @@ table.subgrid { width: 100%; border-collapse: collapse; font-size: 13px; }
 /* 촘촘한 표: 글자·여백을 줄여 가로 스크롤 없이 보이게 */
 .grid--dense { font-size: 13px; }
 .grid--dense thead th { padding: 8px 10px; font-size: 12px; }
+.grid--dense thead th { white-space: normal; } /* 긴 머리글은 두 줄로(칸 폭을 머리글이 잡아먹지 않게) */
+.grid thead th.th-group { text-align: center; border-bottom: 1px solid var(--hairline); padding-bottom: 4px; }
+.grid thead th.th-sub { padding-top: 4px; }
 .grid--dense tbody td { padding: 7px 10px; }
 .grid--dense .ver, .grid--dense .mono { font-size: 12px; }
 .grid--dense .badge { font-size: 11px; }

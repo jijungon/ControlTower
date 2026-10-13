@@ -24,16 +24,20 @@ test('처음 실행할 명령(이미지·서버)·정리할 것 — 한 가지 �
   expect(table.getAllByText('node 22')[0]).not.toHaveClass('ver--old')
   // 머리줄: 칸 이름이 모두 '처음 실행할 명령' 하나의 말
   const heads = screen.getAllByRole('columnheader').map((h) => h.textContent)
-  expect(heads).toEqual(expect.arrayContaining(['처음 실행할 명령 (이미지)', '처음 실행할 명령 (서버)', '정리할 것']))
+  expect(heads).toEqual(expect.arrayContaining(['처음 실행할 명령 (이미지)', '처음 실행할 명령 (서버)', '정리할 것', 'dev', 'prod']))
   expect(heads).not.toContain('start.sh 파일')
   // (이미지): start.sh / Dockerfile CMD / 베이스 기본값 / 없음 → 서버가 줌
-  expect(table.getByText('start.sh', { selector: '.badge' })).toHaveClass('badge--warn')
+  expect(table.getAllByText('start.sh', { selector: '.badge' })[0]).toHaveClass('badge--warn')
   expect(table.getAllByText('Dockerfile CMD', { selector: '.badge' }).length).toBe(2)
   expect(table.getByText('베이스 기본값')).toBeInTheDocument()
   expect(table.getByText('없음 → 서버가 줌')).toBeInTheDocument()
-  // (서버): 환경 순서대로, compose 가 명령을 주면 '서버 compose', start.sh 를 마운트하면 'start.sh'
-  const badges = table.getAllByText(/^(dev|stg|prod) /).map((b) => b.textContent)
-  expect(badges).toEqual(['dev 서버 compose', 'prod start.sh', 'dev 서버 compose'])
+  // (서버): dev·stg·prod 열로 나뉨 — 데이터에 있는 환경만(여기선 dev·prod). compose 가 명령을 주면 '서버 compose', start.sh 마운트면 'start.sh'
+  expect(heads).not.toContain('stg')
+  const webRow = table.getByText('start.sh → CMD 로 옮기기').closest('tr')!
+  const cells = [...webRow.querySelectorAll('td')].map((td) => td.textContent)
+  expect(cells).toContain('서버 compose') // dev
+  expect(cells.filter((t) => t === 'start.sh').length).toBe(2) // (이미지) + prod
+  expect(table.getAllByText('서버 compose').length).toBe(2) // shop/web dev + shop/job dev
   // 정리할 것
   expect(table.getByText('start.sh → CMD 로 옮기기')).toHaveClass('badge--danger')
   expect(table.getByText('start.sh 파일 지우기')).toHaveAttribute('title', expect.stringContaining('node-startup.sh'))

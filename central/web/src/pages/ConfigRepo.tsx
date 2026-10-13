@@ -91,10 +91,10 @@ function codeCell(r: ConfigRow) {
   )
 }
 
-function serverCell(r: ConfigRow) {
-  const envs = Object.keys(r.compose ?? {}).sort((a, b) => ENV_ORDER.indexOf(a) - ENV_ORDER.indexOf(b))
-  if (envs.length === 0) return <span className="muted" title="서버 compose 를 아직 안 읽음 — 대상 파일(config.compose 나 서비스의 compose)에 적으면 표시">—</span>
-  return envs.map((e) => <Fragment key={e}>{runBadge(serverRun(r, e), `${e} `)}</Fragment>)
+// (서버) 환경 한 칸 — 그 환경 compose 를 아직 못 읽었으면 —
+function serverEnvCell(r: ConfigRow, env: string) {
+  if (!r.compose?.[env]) return <span className="muted" title={`${env} 서버 compose 를 아직 안 읽음 — 대상 파일에 적으면 표시`}>—</span>
+  return runBadge(serverRun(r, env))
 }
 
 function todoCell(r: ConfigRow) {
@@ -145,6 +145,9 @@ export default function ConfigRepo() {
     bySvc.set(svc, [...(bySvc.get(svc) ?? []), r])
   }
   const svcs = [...bySvc.entries()].sort(([a], [b]) => a.localeCompare(b))
+  // (서버) 열: 데이터에 있는 환경만, 없으면 dev·stg·prod 기본
+  const seen = ENV_ORDER.filter((e) => all.some((r) => r.compose?.[e]))
+  const envs = seen.length ? seen : ['dev', 'stg', 'prod']
 
   return (
     <div>
@@ -179,7 +182,8 @@ export default function ConfigRepo() {
             <span className="badge badge--warn">없음 → 서버가 줌</span> 이미지 혼자 못 띄움
           </li>
           <li>
-            <b>(이미지)</b> = config 의 Dockerfile 만 봤을 때 · <b>(서버)</b> = 서버 compose 까지 본 실제 결과, 환경별 (compose 가 명령을 주면 그게 우선)
+            <b>(이미지)</b> = Dockerfile 이 이미지에 넣어 둔 명령 · <b>(서버) dev·stg·prod</b> = 그 서버에서 실제로 앱을 띄우는 명령 (서버 compose 가 명령을 주거나
+            start.sh 를 넣으면 그게 우선, 아니면 이미지 그대로) — 파일 복사로 배포하는 서버는 이미지를 안 써서 둘이 달라질 수 있어요
           </li>
           <li>
             <b>정리할 것</b> — <span className="badge badge--danger">start.sh → CMD 로 옮기기</span> ·{' '}
@@ -209,14 +213,19 @@ export default function ConfigRepo() {
         <table className="grid grid--nowrap grid--dense">
           <thead>
             <tr>
-              <th>서비스</th>
-              <th>타입</th>
-              <th>코드에 적힌 버전</th>
-              <th>런타임 (이미지)</th>
-              <th>베이스 이미지</th>
-              <th>처음 실행할 명령 (이미지)</th>
-              <th>처음 실행할 명령 (서버)</th>
-              <th>정리할 것</th>
+              <th rowSpan={2}>서비스</th>
+              <th rowSpan={2}>타입</th>
+              <th rowSpan={2}>코드에 적힌 버전</th>
+              <th rowSpan={2}>런타임 (이미지)</th>
+              <th rowSpan={2}>베이스 이미지</th>
+              <th rowSpan={2}>처음 실행할 명령 (이미지)</th>
+              <th colSpan={envs.length} className="th-group">처음 실행할 명령 (서버)</th>
+              <th rowSpan={2}>정리할 것</th>
+            </tr>
+            <tr>
+              {envs.map((e) => (
+                <th key={e} className="th-sub">{e}</th>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -257,7 +266,9 @@ export default function ConfigRepo() {
                         )}
                       </td>
                       <td>{runBadge(imageRun(r))}</td>
-                      <td className="wrap">{serverCell(r)}</td>
+                      {envs.map((e) => (
+                        <td key={e}>{serverEnvCell(r, e)}</td>
+                      ))}
                       <td>{todoCell(r)}</td>
                     </tr>
                   )
