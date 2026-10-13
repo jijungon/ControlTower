@@ -122,7 +122,8 @@ def test_center_ci_rules_extends_and_custom_tags():
 
 def test_executor_guess_when_tag_unknown():
     r = analyze_ci(CENTER, "web", {})
-    assert r["executor"]["guess"] is True and r["executor"]["value"] == "docker"  # image: 있음 → docker 추정
+    # 태그를 모름 → job 마다 image: 로 짐작: build(이미지 없음)=shell, deploy-prod(image: docker)=docker → 섞임
+    assert r["executor"]["guess"] is True and r["executor"]["counts"] == {"shell": 1, "docker": 1}
     assert r["executor"]["tags"] == ["builder", "docker-runner"]  # 화면에 '어느 태그 때문에 추정인지' 보여줄 용도
     assert analyze_ci("build:\n  script: [make]\n", "web", {})["executor"] is None
 
@@ -434,3 +435,26 @@ def test_code_versions_nvmrc_engines_pom():
     assert code_versions({"package.json": '{"engines": {"node": "^20"}}'})["node_rule"] == "exact"
     assert code_versions({"pom.xml": "<properties><java.version>17</java.version></properties>"}) == {"java": "17"}
     assert code_versions({".nvmrc": None, "package.json": "not json", "pom.xml": None}) == {}
+
+
+def test_executor_majority_by_job():
+    ci = r"""
+variables:
+  RUNNER_TAG: new-runner
+build:
+  image: node:22
+  tags: ["${RUNNER_TAG}"]
+  script: [make]
+test:
+  image: node:22
+  tags: ["${RUNNER_TAG}"]
+  script: [make test]
+notify:
+  tags: [old-shell]
+  script: [./notify.sh]
+"""
+    r = analyze_ci(ci, "web", {"old-shell": "shell"})
+    # 확인된 건 알림 job 하나(shell)뿐이지만 job 수로는 docker(짐작) 2 개가 많다
+    assert r["executor"] == {"value": "docker", "guess": True, "tags": ["new-runner", "old-shell"], "counts": {"docker": 2, "shell": 1}}
+    r = analyze_ci(ci, "web", {"old-shell": "shell", "new-runner": "docker"})
+    assert r["executor"]["value"] == "docker" and r["executor"]["guess"] is False

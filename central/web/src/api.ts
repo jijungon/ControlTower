@@ -171,7 +171,7 @@ export async function fetchVersions(): Promise<VersionRow[]> {
 
 // 서비스 비교표 — 러너가 .gitlab-ci.yml·compose 를 읽어 만든 한 행
 export type DeployCell = { path: 'direct' | 'image' | 'build'; by?: 'repo' | 'center' | 'compose'; manual: boolean | null; mismatch?: boolean }
-export type ExecutorCell = { value: string; guess: boolean; tags?: string[] } | null
+export type ExecutorCell = { value: string; guess: boolean; tags?: string[]; counts?: Record<string, number> } | null // counts = job 마다 섞여 있을 때 방식별 job 수
 
 export type ShapeRow = {
   service: string

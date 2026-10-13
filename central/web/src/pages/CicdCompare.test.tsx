@@ -8,7 +8,7 @@ const ROWS: ShapeRow[] = [
   {
     service: 'shop web', group: 'mall', type: 'web', runtime: 'node', runtime_version: '18', base_image: 'infra/nodejs', base_tag: 'v18',
     deploy: { dev: { path: 'direct', by: 'repo', manual: false }, stg: { path: 'direct', by: 'center', manual: false }, prod: { path: 'image', manual: true, mismatch: true } },
-    executor_repo: { value: 'shell', guess: false }, executor_center: { value: 'docker', guess: true },
+    executor_repo: { value: 'shell', guess: false, counts: { shell: 7, docker: 1 } }, executor_center: { value: 'docker', guess: true },
     startup: true, env_keys: 4, env_changed_at: new Date().toISOString(),
   },
   {
@@ -51,6 +51,8 @@ test('배포·executor·CI 변수 칸 — 쉬운 말 + 마우스 올리면 뜻',
   expect(table.getByText('compose 기준', { selector: '.cell-sub' }).parentElement).toHaveAttribute('title', expect.stringContaining('짐작'))
   expect(table.getByText('⚠ compose 다름')).toHaveAttribute('title', expect.stringContaining('파일 복사'))
   expect(table.getByText('(추정)').parentElement).toHaveAttribute('title', expect.stringContaining('runners 표에 없어'))
+  // job 마다 섞여 있으면 '(섞임)' + 개수
+  expect(table.getByText('(섞임)').parentElement).toHaveAttribute('title', expect.stringContaining('job 마다: shell 7 · docker 1'))
   // 런타임·베이스 이미지·start.sh 는 config 탭 몫 — 이 표엔 없음
   const heads = screen.getAllByRole('columnheader').map((h) => h.textContent)
   expect(heads).not.toContain('런타임')

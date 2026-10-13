@@ -189,15 +189,31 @@ def _job_kind(name: str, job: dict, env: dict[str, str]) -> str:
     return "other"                 # 빌드·테스트·알림 등
 
 
-def _executor(tags: list[str], uses_image: bool, runners: dict[str, str]) -> dict | None:
-    known = [runners[t] for t in tags if t in runners]
-    uniq = sorted(set(tags))
-    if known:
-        return {"value": Counter(known).most_common(1)[0][0], "guess": False, "tags": uniq}
-    if not tags and not uses_image:
+def _executor(jobs: list[tuple[list[str], bool]], runners: dict[str, str]) -> dict | None:
+    """job 마다 executor 를 정하고 가장 많은 쪽을 대표로.
+
+    jobs = [(그 job 의 러너 태그들, image: 가 있나)]. 태그가 runners 표에 있으면 확정, 없으면
+    image: 유무로 짐작(docker/shell). 대표값이 짐작으로만 나왔으면 guess=True.
+    여러 방식이 섞이면 counts 에 job 수를 남긴다(예: 알림 job 하나만 옛 러너).
+    """
+    votes: list[tuple[str, bool]] = []  # (값, 짐작?)
+    tags: set[str] = set()
+    for jtags, has_image in jobs:
+        tags.update(jtags)
+        known = [runners[t] for t in jtags if t in runners]
+        if known:
+            votes.append((known[0], False))
+        elif jtags or has_image:
+            votes.append(("docker" if has_image else "shell", True))
+    if not votes:
         return None
-    # runners 표에 없는 태그 → image: 줄이 있으면 docker, 없으면 shell 로 짐작(guess)
-    return {"value": "docker" if uses_image else "shell", "guess": True, "tags": uniq}
+    counts = Counter(v for v, _ in votes)
+    value = counts.most_common(1)[0][0]
+    guess = all(g for v, g in votes if v == value)
+    out = {"value": value, "guess": guess, "tags": sorted(tags)}
+    if len(counts) > 1:
+        out["counts"] = dict(counts)
+    return out
 
 
 def analyze_ci(text: str | None, svc_type: str = "web", runners: dict[str, str] | None = None) -> dict | None:
@@ -210,7 +226,7 @@ def analyze_ci(text: str | None, svc_type: str = "web", runners: dict[str, str] 
     default = doc.get("default") if isinstance(doc.get("default"), dict) else {}
     uses_image = bool(doc.get("image") or default.get("image"))
     envs: dict[str, dict[str, bool]] = {}
-    tags: list[str] = []
+    job_runs: list[tuple[list[str], bool]] = []  # executor 판정용 (job 태그, image: 있나)
     variables = {f"global:{k}": v for k, v in top.items()}
     for name in defs:
         if name.startswith("."):
@@ -219,16 +235,15 @@ def analyze_ci(text: str | None, svc_type: str = "web", runners: dict[str, str] 
         jvars = _vars(job.get("variables"))
         variables.update({f"{name}:{k}": v for k, v in jvars.items()})
         scope = {**top, **jvars}
-        tags += [_expand(t, scope) for t in _flatten(job.get("tags"))]
-        uses_image = uses_image or bool(job.get("image"))
+        job_runs.append(([_expand(t, scope) for t in _flatten(job.get("tags"))], uses_image or bool(job.get("image"))))
         kind = _job_kind(name, job, scope)
         for env, manual in _job_envs(name, job, svc_type).items():
             slot = envs.setdefault(env, {})
             slot[kind] = manual if kind not in slot else (slot[kind] and manual)  # 자동 job 이 하나라도 있으면 자동
     return {
         "envs": envs,
-        "executor": _executor(tags, uses_image, runners or {}),
-        "tags": sorted(set(tags)),
+        "executor": _executor(job_runs, runners or {}),
+        "tags": sorted({t for jt, _ in job_runs for t in jt}),
         "variables": variables,
     }
 

@@ -49,14 +49,20 @@ function deployCell(c?: DeployCell) {
 
 function execText(e?: ExecutorCell) {
   if (!e) return <span className="muted">—</span>
-  if (!e.guess) return <span title={e.tags?.length ? `러너 태그: ${e.tags.join(', ')}` : undefined}>{e.value}</span>
+  // job 마다 방식이 섞여 있으면(예: 알림 job 하나만 옛 러너) 개수를 보여준다
+  const mixed = e.counts ? ` · job 마다: ${Object.entries(e.counts).map(([k, n]) => `${k} ${n}`).join(' · ')}` : ''
+  const tags = `러너 태그: ${(e.tags ?? []).join(', ') || '없음'}`
+  if (!e.guess)
+    return (
+      <span title={`${tags}${mixed}`}>
+        {e.value}
+        {e.counts && <small> (섞임)</small>}
+      </span>
+    )
   return (
-    <span
-      className="muted"
-      title={`러너 태그(${(e.tags ?? []).join(', ') || '없음'})가 runners 표에 없어 짐작한 값 — 확인되면 shape-targets.yml 의 runners: 에 적으면 확정돼요`}
-    >
+    <span className="muted" title={`${tags} — runners 표에 없어 짐작한 값, 확인되면 shape-targets.yml 의 runners: 에 적으면 확정돼요${mixed}`}>
       {e.value}
-      <small> (추정)</small>
+      <small> (추정{e.counts ? ' · 섞임' : ''})</small>
     </span>
   )
 }
