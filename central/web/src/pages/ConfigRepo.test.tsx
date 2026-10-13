@@ -132,6 +132,7 @@ test('못 읽음 이유를 짧게', () => {
   expect(missShort('SSH 로 못 읽음 — gw → x (ubuntu@x: Permission denied (publickey).)')).toBe('권한 없음')
   expect(missShort('SSH 로 못 읽음 — gw → x (ssh: connect to host x port 22: Connection timed out)')).toBe('네트워크 안 닿음')
   expect(missShort('SSH 로 못 읽음 — gw → x (cat: /app/x: No such file or directory)')).toBe('파일 없음')
+  expect(missShort('SSH 로 못 읽음 — gw(sudo) → x (sudo: a password is required)')).toBe('sudo 안 됨')
 })
 
 test('합쳐진 폴더는 흐리게 + 합쳐짐 → 합쳐진 곳, 요약에서 빠짐', async () => {
@@ -145,6 +146,7 @@ test('합쳐진 폴더는 흐리게 + 합쳐짐 → 합쳐진 곳, 요약에서 
   const badge = table.getByText('합쳐짐 → chat/was')
   expect(badge.closest('tr')).toHaveClass('row-merged')
   expect(table.queryByText('CMD 로 옮기기')).toBeNull() // 할 일 대신 '합쳐짐'
+  expect(within(badge.closest('tr')!).queryByText('안 읽음')).toBeNull() // 안 쓰는 폴더라 서버 칸은 '—'
   expect(table.getByText('node 18')).not.toHaveClass('ver--old') // 비교에서 빠져서 빨간 칸 아님
   expect(screen.getByText(/CMD 로 옮기기 0 · 파일 지우기 0 · CMD 넣기 0 · 코드↔이미지 다름 0 · 오래된 버전 0칸/)).toBeInTheDocument()
 })
@@ -166,15 +168,20 @@ test("배포 안 하는 환경은 '안 읽음' 대신 '—', CI 를 못 읽어 �
   expect(within(acc).getAllByText('안 읽음').length).toBe(3) // 어디 배포하는지 모름 → 셋 다 '안 읽음'
 })
 
-test('폴더 하나를 역할 둘이 같이 쓰면 타입 칸에 → manager·syncer', async () => {
+test('역할로 나뉜 폴더는 역할마다 한 줄 + 옆에 실제 폴더, 요약 숫자는 폴더 기준 한 번', async () => {
+  const base: Omit<ConfigRow, 'path'> = { runtime: 'node', runtime_version: '22', base_image: 'node', base_tag: '22-slim', start: 'dockerfile', start_files: ['node-startup.sh'], state: 'leftover' }
   const rows: ConfigRow[] = [
-    { path: 'acct/web', runtime: 'node', runtime_version: '22', base_image: 'node', base_tag: '22-slim', start: 'dockerfile', start_files: [], state: 'done',
-      used_as: ['manager', 'syncer'], compose: { dev: 'command' } },
+    { ...base, path: 'acct/manager', folder: 'acct/web', compose: { prod: 'command' } },
+    { ...base, path: 'acct/syncer', folder: 'acct/web', compose: { prod: 'command' } },
   ]
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(rows), { status: 200 })))
   render(<ConfigRepo />)
   const table = within(await screen.findByRole('table'))
-  const cell = table.getByText('→ manager·syncer').parentElement!
-  expect(cell).toHaveTextContent(/^web → manager·syncer$/)
-  expect(cell).toHaveAttribute('title', expect.stringContaining('config 폴더 이름은 web'))
+  const tags = table.getAllByText('(web)', { selector: '.type-roles' })
+  expect(tags.length).toBe(2)
+  const mgr = tags[0].parentElement!
+  expect(mgr).toHaveTextContent(/^manager \(web\)$/)
+  expect(mgr).toHaveAttribute('title', expect.stringContaining('config 폴더는 acct/web'))
+  expect(table.getByText('acct').closest('td')).toHaveAttribute('rowspan', '2') // 서비스 칸 하나에 두 줄
+  expect(screen.getByText(/파일 지우기 1 ·/)).toBeInTheDocument() // 같은 폴더라 한 번
 })

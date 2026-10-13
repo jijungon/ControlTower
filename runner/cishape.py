@@ -625,6 +625,13 @@ def parse_gateways(text: str) -> tuple[dict[str, str], str | None]:
     return gws, (str(user) if user else None)
 
 
+def parse_gateway_sudo(text: str) -> set[str]:
+    """shape-targets.yml 의 gateway_sudo: — 안쪽 서버가 gw 의 root 계정 ssh 설정에만 등록된 gw 들.
+    이 gw 에서는 `sudo -n` 으로 root 의 ssh 설정·키를 써서 읽는다(읽기만, cat)."""
+    doc = yaml.safe_load(text) or {}
+    return {str(g) for g in (doc.get("gateway_sudo") or [])}
+
+
 def parse_targets(text: str) -> tuple[dict[str, str], list[dict], dict | None]:
     """shape-targets.yml → (runners 표, 서비스 목록, config 섹션)."""
     doc = yaml.safe_load(text) or {}

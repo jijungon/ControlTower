@@ -150,7 +150,12 @@ CI/CD 파이프라인 상태와 repo 선언본 버전(node/nest/java)은 GitLab 
    - `python -m runner.cli shape --ssh-plan` — 어느 서버의 어떤 파일을 읽을지 **목록만** (접속 안 함)
    - `python -m runner.cli shape --ssh` — 그 목록대로 SSH 로 읽음(읽기만). 서버가 `~/.ssh/config` 에 직접 있거나,
      대상 파일의 `gateways:`(환경 → gw 별칭)를 거쳐 들어감(PC → gw → 서버, 안쪽은 gw 의 키·설정)
-   - config 탭 (서버) 칸 아래에 출처 표시: 서버 · 서버·자동 · 사본 · 옛 사본 · 안 읽음
+     - gw 의 `~/.ssh/config` 에 이름으로 등록된 서버는 그 이름으로 접속(gw 가 맞춰 둔 계정·키·지문 그대로)
+     - 안쪽 서버가 gw 의 root 계정에만 등록돼 있으면 `gateway_sudo: [gw 별칭]` — `sudo -n` 으로 root 설정을 씀(읽기만)
+     - CI 에 배포 단계가 없는 서비스는 `compose: {prod: {ssh: <gw 의 이름>, via: <gw 별칭>, path: …}}` 로 직접 적기
+   - 이미지 하나를 역할별로 나눠 띄우는 서비스: `type`(표에 보일 이름) · `tag_type`(태그·폴더 타입) · `deploy_role`(`DEPLOY_<환경>_<역할>_SERVERS`)
+     — config 탭은 역할마다 한 줄(옆에 실제 폴더)
+   - config 탭 (서버) 칸 옆에 출처 표시: 서버 · 자동 · gw · 사본 · 옛 사본 (좁은 화면에선 마우스로)
 
 > 읽기 전용. 읽은 파일 원문은 중앙에 올리지 않고 결과 칸만 올린다. CI 변수는 **값 없이** 개수 + 해시만 보내서 "언제 바뀌었나"만 보여준다. executor 는 GitLab 이 알려주지 않으므로 대상 파일의 `runners:` 표(태그→shell/docker)로 정하고, 표에 없는 태그는 `(추정)`.
 

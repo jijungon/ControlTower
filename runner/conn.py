@@ -81,30 +81,33 @@ def parse_ssh_aliases(text: str) -> dict[str, str]:
     return out
 
 
-def gateway_aliases(gateway: str, timeout: int = 8) -> dict[str, str]:
+def gateway_aliases(gateway: str, timeout: int = 8, sudo: bool = False) -> dict[str, str]:
     """게이트웨이 로그인 계정의 ~/.ssh/config 를 읽어 {주소: 이름}. 읽기만 한다(cat). 못 읽으면 {}.
 
     gw 에 이름으로 등록된 서버는 그 이름으로 들어가야 gw 가 맞춰 둔 계정·키·지문(known_hosts)을 그대로 쓴다.
+    sudo = 서버들이 gw 의 root 계정에만 등록된 경우 — root 의 설정을 `sudo -n` 으로 읽는다(비밀번호를 묻지 않음).
     """
+    cmd = "sudo -n cat /root/.ssh/config" if sudo else "cat ~/.ssh/config"
     try:
-        r = subprocess.run([*_ssh_argv(gateway, timeout), "cat ~/.ssh/config"], capture_output=True, text=True, timeout=timeout + 15)
+        r = subprocess.run([*_ssh_argv(gateway, timeout), cmd], capture_output=True, text=True, timeout=timeout + 15)
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return {}
     return parse_ssh_aliases(r.stdout) if r.returncode == 0 else {}
 
 
-def read_file_via(gateway: str, target: str, path: str, timeout: int = 8, user: str | None = None) -> tuple[str | None, str | None]:
+def read_file_via(
+    gateway: str, target: str, path: str, timeout: int = 8, user: str | None = None, sudo: bool = False
+) -> tuple[str | None, str | None]:
     """게이트웨이를 거쳐 안쪽 서버의 파일을 읽는다: PC → gateway(~/.ssh/config 별칭) → gw 위에서 ssh target cat.
 
     안쪽 접속은 gw 자신의 ssh 설정·키를 그대로 쓴다(ControlTower 원래 설계: 서버 키는 gw 에).
     BatchMode·ConnectTimeout 만 주고 호스트 키 정책은 gw 설정을 따른다 — gw 의 known_hosts 를 새로 쓰지 않게.
     읽기만 한다(cat). (content, error).
+    sudo = gw 의 root 계정 ssh 설정·키로 안쪽에 들어감(`sudo -n ssh …`, 비밀번호를 묻지 않음 — 안 되면 실패로).
     """
     dest = f"{user}@{target}" if user else target
-    inner = " ".join(
-        shlex.quote(a)
-        for a in ["ssh", "-o", "BatchMode=yes", "-o", f"ConnectTimeout={timeout}", dest, "cat", "--", path]
-    )
+    argv = ["ssh", "-o", "BatchMode=yes", "-o", f"ConnectTimeout={timeout}", dest, "cat", "--", path]
+    inner = " ".join(shlex.quote(a) for a in (["sudo", "-n", *argv] if sudo else argv))
     try:
         r = subprocess.run(
             [*_ssh_argv(gateway, timeout), inner],

@@ -174,7 +174,7 @@ table.subgrid { width: 100%; border-collapse: collapse; font-size: 13px; }
 /* 촘촘한 표: 글자·여백을 줄여 가로 스크롤 없이 보이게 */
 .grid--dense { font-size: 12.5px; }
 .grid--dense thead th { padding: 6px 8px; font-size: 11.5px; }
-.grid--dense thead th { white-space: normal; } /* 긴 머리글은 두 줄로(칸 폭을 머리글이 잡아먹지 않게) */
+.grid--dense thead th { white-space: normal; word-break: keep-all; } /* 긴 머리글은 두 줄로(칸 폭을 머리글이 잡아먹지 않게) — 한글은 띄어쓰기에서만 끊기 */
 .grid thead th.th-group { text-align: center; border-bottom: 1px solid var(--hairline); padding-bottom: 4px; }
 .grid thead th.th-sub { padding-top: 4px; }
 .grid thead th .th-flow { display: block; font-weight: 400; font-size: 11px; color: var(--ink-muted-48); margin-top: 2px; }
@@ -200,7 +200,7 @@ table.subgrid { width: 100%; border-collapse: collapse; font-size: 13px; }
 .st-unread { display: inline-block; color: var(--ink-muted-48); border: 1px dashed var(--hairline); border-radius: 999px; padding: 0 7px; font-size: 11px; }
 .st-unread-text { color: var(--ink-muted-48); }
 .st-fail { display: inline-block; background: var(--danger-bg); border-radius: 999px; padding: 0 7px; font-size: 11px; font-weight: 600; }
-.extra-line { font-size: 11.5px; }
+.extra-line { font-size: 11.5px; white-space: nowrap; } /* 환경 하나는 안 끊기게 — 줄바꿈은 ' · ' 사이에서만 */
 /* 칸 안 같은 줄 끝의 작은 글씨(어디서 읽었나·못 읽은 이유) — 줄을 늘리지 않게 */
 .cell-tag { font-size: 10.5px; color: var(--ink-muted-48); margin-left: 1px; }
 .cell-tag.miss-fail { color: var(--danger); margin-left: 4px; }
@@ -219,8 +219,9 @@ table.subgrid { width: 100%; border-collapse: collapse; font-size: 13px; }
 }
 /* 1280 언저리: 여백을 더 줄이고, '기타' 칸만(환경 여러 개일 때) 두 줄 허용 — 가로 스크롤보다 낫게 */
 @media (max-width: 1360px) {
-  .grid--dense thead th, .grid--dense tbody td { padding-left: 4px; padding-right: 4px; }
+  .grid--dense thead th, .grid--dense tbody td { padding-left: 3px; padding-right: 3px; }
   .grid--nowrap td.extras-cell { white-space: normal; }
+  .grid--dense .cell-tag:not(.miss-fail):not(.type-roles) { display: none; } /* 출처(gw·사본)는 마우스로 */
 }
 .ver--none { color: var(--ink-muted-48); }
 

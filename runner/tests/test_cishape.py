@@ -327,6 +327,10 @@ def test_cmd_shape_scans_config_dir_and_links_services(monkeypatch, tmp_path, ca
     (cfgdir / "shop" / "web" / "build").mkdir()  # 깊이 3 폴더는 무시
     (cfgdir / "shop" / "old").mkdir()
     (cfgdir / "shop" / "old" / "Dockerfile").write_text(DOCKER_LEGACY)
+    (cfgdir / "shop" / "job").mkdir()
+    (cfgdir / "bot").mkdir()
+    (cfgdir / "bot" / "Dockerfile").write_text(DOCKER_NEW)
+    (cfgdir / "shop" / "job" / "Dockerfile").write_text(DOCKER_NEW)
     (tmp_path / "dev-compose.yml").write_text(COMPOSE_DIRECT)
     (tmp_path / "repo").mkdir()
     (tmp_path / "repo" / ".gitlab-ci.yml").write_text(REPO_LEGACY)
@@ -342,8 +346,9 @@ def test_cmd_shape_scans_config_dir_and_links_services(monkeypatch, tmp_path, ca
         "  - name: shop web\n"
         "    config_dir: shop/web\n"   # dockerfile·startup 을 config 폴더에서
         "    repo_ci: {file: repo/.gitlab-ci.yml}\n"
-        "  - {name: shop mgr, type: manager, config_dir: shop/old}\n"   # 폴더 하나를 역할 둘이 같이 씀
-        "  - {name: shop wrk, type: worker, config_dir: shop/old}\n"
+        "  - {name: shop mgr, type: manager, config_dir: shop/job}\n"   # 폴더 하나(job)를 역할 둘이 같이 씀
+        "  - {name: shop wrk, type: worker, config_dir: shop/job}\n"
+        "  - {name: bot, type: bot, config_dir: bot}\n"   # 타입 폴더 없는 곳은 나누지 않음
     )
     sent = {}
 
@@ -369,20 +374,21 @@ def test_cmd_shape_scans_config_dir_and_links_services(monkeypatch, tmp_path, ca
     )
     cli.cmd_shape(cfg)
     items = {i["path"]: i["data"] for i in sent["config"]}
-    assert set(items) == {"shop/web", "shop/old"} and sent["replace"] is True
+    assert set(items) == {"shop/web", "shop/old", "shop/manager", "shop/worker", "bot"} and sent["replace"] is True
     assert items["shop/web"]["state"] == "leftover" and items["shop/web"]["compose"] == {}
     assert items["shop/web"]["code"] == {"node": "22", "node_from": ".nvmrc", "node_rule": "exact"}
     assert items["shop/old"]["merged_into"] == "shop/web" and "merged_into" not in items["shop/web"]
     assert items["shop/web"]["deploy_envs"] == ["dev", "preview", "prod", "stg"]  # 연결된 서비스(repo CI)가 배포하는 환경
     assert "deploy_envs" not in items["shop/old"]  # 연결된 서비스 없음 → 모름
-    assert "used_as" not in items["shop/web"]  # 폴더 이름(web) 그대로 쓰임
-    assert items["shop/old"]["used_as"] == ["manager", "worker"]
+    # 역할로 나뉜 폴더는 역할마다 한 줄 — 실제 폴더는 folder, 폴더 이름 그대로면 folder 없음
+    assert items["shop/manager"]["folder"] == items["shop/worker"]["folder"] == "shop/job"
+    assert "folder" not in items["shop/web"] and "shop/job" not in items
     assert items["shop/old"]["code"] is None  # 연결된 서비스(repo)가 없음
     assert items["shop/old"]["state"] == "legacy" and items["shop/old"]["compose"] == {"dev": "mount"}  # start.sh 형태 = shell
     web = sent["shapes"][0]["data"]
     assert web["runtime_version"] == "20" and web["startup"] is True  # config_dir 로 채움
     assert web["start_state"] == "leftover"  # CMD 로 실행하는데 start.sh 파일만 남음
-    assert "config 수집: 2개 폴더" in capsys.readouterr().out
+    assert "config 수집: 5개 줄" in capsys.readouterr().out
 
 
 # 이관 후 모양: repo 는 전 환경 push_src, center 가 dev/stg 는 파일로 복사(scp), prod 는 이미지
@@ -583,8 +589,8 @@ def test_cmd_shape_ssh_plan_and_read(monkeypatch, tmp_path, capsys):
         reads.append((alias, path))
         return COMPOSE_IMAGE, None
 
-    def fake_read_via(gw, target, path, timeout=8, user=None):
-        reads.append((f"{gw}->{user}@{target}", path))
+    def fake_read_via(gw, target, path, timeout=8, user=None, sudo=False):
+        reads.append((f"{gw}->{'sudo:' if sudo else ''}{user}@{target}", path))
         return COMPOSE_DIRECT, None
 
     monkeypatch.setattr(cli, "CentralAPI", FakeAPI)
@@ -593,8 +599,8 @@ def test_cmd_shape_ssh_plan_and_read(monkeypatch, tmp_path, capsys):
     gw_lookups: list[str] = []
     gw_known: dict[str, str] = {}  # gw 로그인 계정 ssh 설정에 등록된 이름(처음엔 없음)
 
-    def fake_gw_aliases(gw, timeout=8):
-        gw_lookups.append(gw)
+    def fake_gw_aliases(gw, timeout=8, sudo=False):
+        gw_lookups.append(f"{gw}{'(sudo)' if sudo else ''}")
         return dict(gw_known)
 
     monkeypatch.setattr(cli, "gateway_aliases", fake_gw_aliases)
@@ -636,6 +642,27 @@ def test_cmd_shape_ssh_plan_and_read(monkeypatch, tmp_path, capsys):
     cli.cmd_shape(cfg, ssh_mode="read")
     assert ("gw-prod->None@shop-prod01", "/app/web-shop/docker-compose.yml") in reads
     assert sent["config"]["shop/web"]["compose_src"]["prod"]["where"] == "gw-prod → shop-prod01:/app/web-shop/docker-compose.yml"
+    # 4) gateway_sudo: 서버 이름이 gw 의 root 계정에만 있으면 root 설정으로(sudo -n) 읽고, 출처에 (sudo)
+    targets.write_text("gateway_sudo: [gw-prod]\n" + targets.read_text())
+    reads.clear()
+    gw_lookups.clear()
+    cli.cmd_shape(cfg, ssh_mode="read")
+    assert gw_lookups == ["gw-prod(sudo)"]
+    assert ("gw-prod->sudo:None@shop-prod01", "/app/web-shop/docker-compose.yml") in reads
+    assert sent["config"]["shop/web"]["compose_src"]["prod"]["where"].startswith("gw-prod(sudo) → shop-prod01:")
+
+
+def test_read_source_via_gateway(monkeypatch):
+    import types
+
+    import runner.cli as cli
+
+    calls = []
+    monkeypatch.setattr(cli, "read_file_via", lambda gw, t, p, timeout=8, user=None, sudo=False: (calls.append((gw, t, p, sudo)) or ("x: 1\n", None)))
+    cfg = types.SimpleNamespace(connect_timeout=3)
+    assert cli._read_source({"ssh": "app-was01", "via": "gw-prod", "path": "/app/a/docker-compose.yml"}, cfg, ".") == (True, "x: 1\n")
+    cli._read_source({"ssh": "app-mgr", "via": "gw-prod", "path": "/app/b.yml", "sudo": True}, cfg, ".")
+    assert calls == [("gw-prod", "app-was01", "/app/a/docker-compose.yml", False), ("gw-prod", "app-mgr", "/app/b.yml", True)]
 
 
 def test_parse_ssh_aliases():
@@ -678,3 +705,6 @@ def test_read_file_via_builds_nested_ssh(monkeypatch):
     inner = argv[-1]  # 안쪽: gw 위에서 실행할 명령(따옴표 처리됨)
     assert inner.startswith("ssh -o BatchMode=yes -o ConnectTimeout=5 app@10.0.0.5 cat -- ")
     assert "'/app/web shop/docker-compose.yml'" in inner
+    # sudo: gw 의 root 설정·키로 — 비밀번호를 묻지 않게 -n
+    conn.read_file_via("gw-prod", "app-mgr", "/app/x/docker-compose.yml", 5, sudo=True)
+    assert seen["argv"][-1].startswith("sudo -n ssh -o BatchMode=yes -o ConnectTimeout=5 app-mgr cat -- ")

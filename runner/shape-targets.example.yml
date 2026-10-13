@@ -22,6 +22,7 @@ gateways:
   dev: shop-gw-dev
   prod: shop-gw-prod
 # gateway_user: app          # (선택) gw 에서 안쪽 서버로 들어갈 사용자
+# gateway_sudo: [shop-gw-prod] # (선택) 안쪽 서버가 gw 의 root 계정 ssh 설정에만 있을 때 — sudo -n 으로 root 설정·키를 씀(읽기만)
 
 # center config repo — <서비스>/<web|was>/ 폴더를 자동으로 훑어 config 탭을 채움
 config:

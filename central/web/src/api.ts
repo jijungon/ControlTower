@@ -216,7 +216,7 @@ export type ConfigRow = {
   compose_src?: Record<string, ComposeSrc | null> // 환경별 서버 compose 를 어디서 읽었나
   compose_miss?: Record<string, { state: 'fail' | 'planned'; reason: string }> // 못 읽음(이유) / 위치만 찾음
   deploy_envs?: string[] // 이 폴더 서비스가 배포하는 환경(CI 기준) — 여기 없는 환경 칸은 '—'
-  used_as?: string[] // 폴더 이름과 다른 이름으로 쓰일 때(예: web 폴더 이미지 하나를 manager·syncer 가 같이 씀)
+  folder?: string // 역할 줄(예: jobs/manager)일 때 실제 config 폴더(예: jobs/web) — 같은 이미지를 역할별로 띄움
   merged_into?: string // 다른 폴더로 합쳐져 안 쓰는 폴더면 그 폴더(예: chat/was)
   compose?: Record<string, 'mount' | 'command' | 'image'> // start.sh 형태(서버 compose): shell(마운트) / compose(command:) / Dockerfile(이미지 CMD)
   collected_at?: string | null

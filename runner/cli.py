@@ -33,6 +33,7 @@ from .cishape import (
     config_dirs,
     deploy_targets,
     is_dockerfile,
+    parse_gateway_sudo,
     parse_gateways,
     parse_targets,
 )
@@ -245,7 +246,8 @@ def _gitlab_of(src: dict, cfg: RunnerConfig) -> tuple[str, str]:
 def _read_source(src: object, cfg: RunnerConfig, base_dir: str) -> tuple[bool, str | None]:
     """비교표 소스 1개 읽기 → (읽기 시도함?, 원문|None).
 
-    {file: 경로}(대상 파일 기준 상대경로 가능) · {gitlab: repo|center, project, path, ref?} · {ssh: 호스트별칭, path}.
+    {file: 경로}(대상 파일 기준 상대경로 가능) · {gitlab: repo|center, project, path, ref?} · {ssh: 호스트별칭, path}
+    · {ssh: gw 에 등록된 이름, via: gw 별칭, path, sudo?} (gw 를 거쳐 읽기, sudo = gw 의 root 설정으로).
     해당 GitLab 이 설정 안 돼 있으면 (False, None) — '없음'과 '못 봄'을 구분하려고.
     """
     if not isinstance(src, dict):
@@ -257,6 +259,9 @@ def _read_source(src: object, cfg: RunnerConfig, base_dir: str) -> tuple[bool, s
                 return True, f.read()
         except OSError:
             return True, None
+    if src.get("ssh") and src.get("path") and src.get("via"):  # gw 를 거쳐 안쪽 서버의 파일
+        content, _err = read_file_via(str(src["via"]), str(src["ssh"]), str(src["path"]), cfg.connect_timeout, None, bool(src.get("sudo")))
+        return True, content
     if src.get("ssh") and src.get("path"):  # 서버에 있는 실제 파일(예: compose) — 내용은 판독만, 중앙엔 안 올림
         content, _err = read_file(str(src["ssh"]), str(src["path"]), cfg.connect_timeout)
         return True, content
@@ -288,8 +293,9 @@ def _src_info(src: object, note: str | None = None, auto: bool = False) -> dict:
     """화면에 '어디서 읽었나' 를 보여주기 위한 짧은 정보(파일 내용은 안 담음)."""
     if not isinstance(src, dict):
         return {"kind": "unknown"}
-    if src.get("via"):  # 게이트웨이 경유
-        return {"kind": "ssh", "auto": auto, "via": src["via"], "where": f"{src['via']} → {src['ssh']}:{src.get('path')}"}
+    if src.get("via"):  # 게이트웨이 경유(sudo = gw 의 root 설정으로)
+        gw = f"{src['via']}(sudo)" if src.get("sudo") else src["via"]
+        return {"kind": "ssh", "auto": auto, "via": src["via"], "where": f"{gw} → {src['ssh']}:{src.get('path')}"}
     if src.get("ssh"):
         return {"kind": "ssh", "auto": auto, "where": f"{src['ssh']}:{src.get('path')}"}
     note = src.get("note", note)  # 파일마다 note 를 달면 서비스 note 보다 우선(빈 값이면 메모 없음)
@@ -340,6 +346,7 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
         targets_text = f.read()
     runners, services, config = parse_targets(targets_text)
     gateways, gateway_user = parse_gateways(targets_text)
+    gateway_sudo = parse_gateway_sudo(targets_text)  # 이 gw 들은 root 의 ssh 설정으로(sudo -n)
     if not services and not config:
         print(f"비교표 대상이 비어 있음 — {path} 의 services: / config: 를 채우세요.")
         return
@@ -361,7 +368,19 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
     src_by_dir: dict[str, dict[str, dict]] = {}  # config 폴더 → 환경 → 어디서 읽었나
     miss_by_dir: dict[str, dict[str, dict]] = {}  # config 폴더 → 환경 → 못 읽음(이유) / 위치만 찾음
     envs_by_dir: dict[str, set[str]] = {}  # config 폴더 → 그 서비스가 배포하는 환경(비교표 기준)
-    types_by_dir: dict[str, list[str]] = {}  # config 폴더 → 이 폴더를 쓰는 서비스의 표 타입(예: web 폴더를 manager·syncer 가 같이 씀)
+    # 폴더 하나를 폴더 이름과 다른 타입(역할)으로 쓰면 → 역할마다 한 줄 '<서비스>/<역할>' (예: web 폴더 이미지를 manager·syncer 가)
+    roles_by_dir: dict[str, list[str]] = {}
+    for s in services:
+        c, t = s.get("config_dir"), str(s.get("type") or "web")
+        if c and "/" in str(c) and t != str(c).partition("/")[2]:  # 타입 폴더 없이 바로 둔 곳(예: bot/Dockerfile)은 그대로
+            roles_by_dir.setdefault(str(c), []).append(t)
+
+    def row_key(s: dict) -> str | None:
+        """config 표의 줄 이름 — 보통은 폴더, 역할로 나뉘면 '<서비스>/<역할>'."""
+        c = s.get("config_dir")
+        if c and str(c) in roles_by_dir:
+            return f"{str(c).partition('/')[0]}/{s.get('type') or 'web'}"
+        return c
 
     def miss(cdir: str | None, env: str, state: str, reason: str) -> None:
         """화면에 '안 읽음'(시도 안 함)과 구분해서 보여줄 것: fail = 읽으려다 실패, planned = 위치만 찾음."""
@@ -395,6 +414,7 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
                 if text is None and key != "startup":  # start.sh 는 '없음'이 정상 결과
                     missing.append(f"{svc['name']}:{key}")
         cdir = svc.get("config_dir")
+        ckey = row_key(svc)  # config 표의 줄(보통 = 폴더)
         if cdir and cdir in dirs:  # dockerfile/startup 을 config 폴더에서 채움
             df_text, sh = config_files(cdir)
             files.setdefault("dockerfile", df_text)
@@ -404,11 +424,11 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
             tried, text = _read_source(src, cfg, base_dir)
             if tried and text is None:
                 missing.append(f"{svc['name']}:compose.{env}")
-                miss(cdir, str(env), "fail", "적어 둔 파일을 못 읽음(없음·권한·접속 실패)")
+                miss(ckey, str(env), "fail", "적어 둔 파일을 못 읽음(없음·권한·접속 실패)")
             compose[str(env)] = text
-            if cdir and text:
-                compose_by_dir.setdefault(cdir, {}).setdefault(str(env), text)
-                src_by_dir.setdefault(cdir, {}).setdefault(str(env), _src_info(src, svc.get("source_note")))
+            if ckey and text:
+                compose_by_dir.setdefault(ckey, {}).setdefault(str(env), text)
+                src_by_dir.setdefault(ckey, {}).setdefault(str(env), _src_info(src, svc.get("source_note")))
         # center CI 에 적힌 배포 서버·폴더로 나머지 환경의 서버 compose 를 찾는다
         if ssh_mode and files.get("center_ci"):
             role = str(svc["deploy_role"]).lower() if svc.get("deploy_role") else None  # 예: mgr / wrk
@@ -422,10 +442,10 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
                 plan.append((str(svc["name"]), env, alias, ip, path_, via))
                 if ssh_mode != "read":
                     where = f"{alias}" if alias else (f"{via} → {ip}" if via else "(SSH 설정에 없는 서버)")
-                    miss(cdir, env, "planned", f"위치는 찾음: {where}:{path_} — --ssh 로 읽기")
+                    miss(ckey, env, "planned", f"위치는 찾음: {where}:{path_} — --ssh 로 읽기")
                     continue
                 if not alias and not via:
-                    miss(cdir, env, "fail", f"~/.ssh/config 에 직접 등록 안 된 서버 — 게이트웨이를 거쳐야 할 수 있음(gateways: 에 이 환경의 gw 를 적으면 경유) — {path_}")
+                    miss(ckey, env, "fail", f"~/.ssh/config 에 직접 등록 안 된 서버 — 게이트웨이를 거쳐야 할 수 있음(gateways: 에 이 환경의 gw 를 적으면 경유) — {path_}")
                     continue
                 if alias:
                     src = {"ssh": alias, "path": path_}
@@ -433,31 +453,32 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
                     fail_where = f"{alias}:{path_}"
                 else:
                     # gw 에 이름으로 등록된 서버면 그 이름으로(gw 의 계정·키·지문 설정을 그대로) — 없으면 주소로
+                    sudo = via in gateway_sudo
                     if via not in gw_names:
-                        gw_names[via] = gateway_aliases(via, cfg.connect_timeout)
+                        gw_names[via] = gateway_aliases(via, cfg.connect_timeout, sudo)
                     inner = gw_names[via].get(ip)
-                    src = {"ssh": inner or ip, "via": via, "path": path_}
-                    text, err = read_file_via(via, inner or ip, path_, cfg.connect_timeout, None if inner else gateway_user)
-                    hint = "" if inner else " · gw 로그인 계정의 ssh 설정에 이 서버 이름이 없음(등록하면 그 설정으로 접속)"
+                    src = {"ssh": inner or ip, "via": via, "path": path_, "sudo": sudo}
+                    text, err = read_file_via(via, inner or ip, path_, cfg.connect_timeout, None if inner else gateway_user, sudo)
+                    who = "gw 의 root" if sudo else "gw 로그인 계정의"
+                    hint = "" if inner else f" · {who} ssh 설정에 이 서버 이름이 없음(등록하면 그 설정으로 접속)"
                     fail_where = f"{via} → {inner or ip}:{path_} ({err}){hint}"
                 if text is None:
                     missing.append(f"{svc['name']}:compose.{env}(ssh {alias or via})")
-                    miss(cdir, env, "fail", f"SSH 로 못 읽음(접속·권한·파일 없음) — {fail_where}")
+                    miss(ckey, env, "fail", f"SSH 로 못 읽음(접속·권한·파일 없음) — {fail_where}")
                     continue
                 compose[env] = text
-                if cdir:
-                    compose_by_dir.setdefault(cdir, {}).setdefault(env, text)
-                    src_by_dir.setdefault(cdir, {}).setdefault(env, _src_info(src, auto=True))
+                if ckey:
+                    compose_by_dir.setdefault(ckey, {}).setdefault(env, text)
+                    src_by_dir.setdefault(ckey, {}).setdefault(env, _src_info(src, auto=True))
         files["compose"] = compose
         row = build_row(svc, files, runners)
-        if cdir:
-            envs_by_dir.setdefault(cdir, set()).update(row["data"]["deploy"])
-            types_by_dir.setdefault(cdir, []).append(str(row["data"]["type"]))
-        if cdir and svc.get("repo_ci"):
+        if ckey:
+            envs_by_dir.setdefault(ckey, set()).update(row["data"]["deploy"])
+        if ckey and svc.get("repo_ci"):
             code_files = {n: _read_source(_sibling(svc["repo_ci"], n), cfg, base_dir)[1] for n in CODE_VERSION_FILES}
             cv = code_versions(code_files)
             if cv:
-                code_by_dir.setdefault(cdir, cv)
+                code_by_dir.setdefault(ckey, cv)
         if cdir and cdir in dirs:  # start.sh 칸 색: config 폴더 기준(실행에 씀 / 파일만 남음 / 없음)
             row["data"]["start_state"] = analyze_config_dir(dirs[cdir], config_files(cdir)[0])["state"]
         rows.append(row)
@@ -465,21 +486,23 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
     items = []
     for cdir in sorted(dirs):
         df_text, _ = config_files(cdir)
-        data = analyze_config_dir(dirs[cdir], df_text)
-        moves = {env: (analyze_compose(t) or {}).get("start") for env, t in compose_by_dir.get(cdir, {}).items() if t}
-        data["compose"] = {env: m for env, m in moves.items() if m}
-        data["compose_src"] = {env: src_by_dir.get(cdir, {}).get(env) for env in data["compose"]}  # 칸마다 어디서 읽었나
-        data["compose_miss"] = {e: m for e, m in miss_by_dir.get(cdir, {}).items() if e not in data["compose"]}
-        if envs_by_dir.get(cdir):  # 여기 없는 환경엔 배포를 안 함 → 화면에서 '안 읽음' 대신 '—' (CI 를 못 읽어 비면 안 붙임 = 모름)
-            data["deploy_envs"] = sorted(envs_by_dir[cdir])
-        roles = [t for t in dict.fromkeys(types_by_dir.get(cdir, [])) if t != cdir.partition("/")[2]]
-        if roles:  # 폴더 이름(web)과 다른 이름으로 쓰임 — 이미지 하나를 역할별로 나눠 띄움
-            data["used_as"] = roles
-        merged = ((config or {}).get("merged") or {}).get(cdir)
-        if merged:  # 다른 폴더로 합쳐져 안 쓰는 폴더(예: repo 둘이 center 에서 하나로)
-            data["merged_into"] = str(merged)
-        data["code"] = code_by_dir.get(cdir)  # 코드에 적힌 버전(없으면 None)
-        items.append({"path": cdir, "data": data})
+        svc_name = cdir.partition("/")[0]
+        keys = [f"{svc_name}/{r}" for r in dict.fromkeys(roles_by_dir[cdir])] if cdir in roles_by_dir else [cdir]
+        for key in keys:  # 보통 폴더 하나 = 한 줄, 역할로 나뉘면 역할마다 한 줄(같은 폴더)
+            data = analyze_config_dir(dirs[cdir], df_text)
+            moves = {env: (analyze_compose(t) or {}).get("start") for env, t in compose_by_dir.get(key, {}).items() if t}
+            data["compose"] = {env: m for env, m in moves.items() if m}
+            data["compose_src"] = {env: src_by_dir.get(key, {}).get(env) for env in data["compose"]}  # 칸마다 어디서 읽었나
+            data["compose_miss"] = {e: m for e, m in miss_by_dir.get(key, {}).items() if e not in data["compose"]}
+            if envs_by_dir.get(key):  # 여기 없는 환경엔 배포를 안 함 → 화면에서 '안 읽음' 대신 '—' (CI 를 못 읽어 비면 안 붙임 = 모름)
+                data["deploy_envs"] = sorted(envs_by_dir[key])
+            if key != cdir:  # 역할 줄 — 실제 config 폴더
+                data["folder"] = cdir
+            merged = ((config or {}).get("merged") or {}).get(cdir)
+            if merged:  # 다른 폴더로 합쳐져 안 쓰는 폴더(예: repo 둘이 center 에서 하나로)
+                data["merged_into"] = str(merged)
+            data["code"] = code_by_dir.get(key)  # 코드에 적힌 버전(없으면 None)
+            items.append({"path": key, "data": data})
 
     api = CentralAPI(cfg.central_url, cfg.api_token)
     try:
@@ -488,7 +511,7 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
             print(f"비교표 수집: {res['accepted']}개 서비스")
         if listing:
             res = api.upload_config(items, replace=True)
-            print(f"config 수집: {res['accepted']}개 폴더")
+            print(f"config 수집: {res['accepted']}개 줄")  # 보통 폴더 하나 = 한 줄(역할로 나뉘면 역할마다)
     finally:
         api.close()
     if plan:

@@ -104,6 +104,7 @@ function srcLabel(info?: ComposeSrc | null): { text: string; title: string } | n
 export function missShort(reason: string): string {
   if (reason.includes('직접 등록 안 된')) return '직접 접속 안 됨'
   if (reason.includes('적어 둔 파일')) return '파일 못 읽음'
+  if (/sudo:|sudoers/i.test(reason)) return 'sudo 안 됨'
   if (/Host key verification failed/i.test(reason)) return '서버 지문 모름'
   if (/Permission denied/i.test(reason)) return '권한 없음'
   if (/timed out|timeout|No route|unreachable/i.test(reason)) return '네트워크 안 닿음'
@@ -118,6 +119,13 @@ export function missShort(reason: string): string {
 function serverEnvCell(r: ConfigRow, env: string) {
   const c = r.compose?.[env]
   const m = r.compose_miss?.[env]
+  // 다른 폴더로 합쳐져 안 쓰는 폴더 → 서버를 읽을 필요 없음
+  if (!c && r.merged_into)
+    return (
+      <span className="muted" title={`이 폴더는 ${r.merged_into} 로 합쳐져 안 쓰여요 — 서버는 ${r.merged_into} 줄에서 봐요`}>
+        —
+      </span>
+    )
   // 그 서비스가 이 환경엔 배포를 안 함(빌드·배포 표 기준) → 읽을 게 없음
   if (!c && m?.state !== 'fail' && r.deploy_envs?.length && !r.deploy_envs.includes(env))
     return (
@@ -202,15 +210,16 @@ function imageCell(r: ConfigRow, envs: string[]) {
   )
 }
 
-// 타입 칸 — 폴더 이름. 이미지 하나를 역할별로 나눠 띄우면(예: manager·syncer) 옆에 작게
+// 타입 칸 — 보통 폴더 이름. 이미지 하나를 역할별로 나눠 띄우면(예: manager·syncer) 역할마다 한 줄 + 옆에 실제 폴더
 function typeCell(r: ConfigRow) {
-  const folder = r.path.split('/')[1]
-  if (!folder) return <span className="muted">—</span>
-  if (!r.used_as?.length) return folder
+  const type = r.path.split('/')[1]
+  if (!type) return <span className="muted">—</span>
+  if (!r.folder) return type
+  const folder = r.folder.split('/')[1] ?? r.folder
   return (
-    <span title={`config 폴더 이름은 ${folder} — 이 이미지 하나를 ${r.used_as.join('·')} 가 같이 써요(서버 compose 의 command: 로 역할을 나눠 띄움)`}>
-      {folder}
-      <span className="cell-tag"> → {r.used_as.join('·')}</span>
+    <span title={`config 폴더는 ${r.folder} — 같은 이미지를 서버 compose 의 command: 로 역할(${type})만 바꿔 띄워요`}>
+      {type}
+      <span className="cell-tag type-roles"> ({folder})</span>
     </span>
   )
 }
@@ -260,15 +269,17 @@ export default function ConfigRepo() {
   const active = all.filter((r) => !r.merged_into) // 합쳐져 안 쓰는 폴더는 비교·요약에서 뺀다
   const newestRuntime = newestBy(active, runtimeOf)
   const newestBase = newestBy(active, baseOf)
-  const count = (s: ConfigRow['state']) => active.filter((r) => r.state === s).length
+  // 요약 숫자는 폴더 기준 — 역할로 나뉜 줄(manager·syncer)은 같은 폴더라 한 번만 셈
+  const folders = [...new Map(active.map((r) => [r.folder ?? r.path, r])).values()]
+  const count = (s: ConfigRow['state']) => folders.filter((r) => r.state === s).length
   const runtimeLabel = (r: ConfigRow) => (r.runtime ? `${r.runtime}${r.runtime_version ? ` ${r.runtime_version}` : ''}` : '')
   const runtimes = [...new Set(all.map(runtimeLabel).filter(Boolean))].sort()
-  const oldCount = active.reduce(
+  const oldCount = folders.reduce(
     (n, r) => n + (isOld(runtimeOf(r), newestRuntime) ? 1 : 0) + (isOld(baseOf(r), newestBase) ? 1 : 0),
     0,
   )
   const latest = [...newestRuntime].map(([k, v]) => `${k} ${v}`).join(' · ')
-  const codeDiff = active.filter((r) => codeMismatch(r)).length
+  const codeDiff = folders.filter((r) => codeMismatch(r)).length
   // 서비스별로 묶기: 'admin/web' → admin 의 web
   const bySvc = new Map<string, ConfigRow[]>()
   for (const r of runtime ? all.filter((x) => runtimeLabel(x) === runtime) : all) {
