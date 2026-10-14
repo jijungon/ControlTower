@@ -161,8 +161,8 @@ const LEGEND: LegendRow[] = [
     term: 'executor',
     what: 'job 을 어디서 돌리나 (job 이름: 방식)',
     items: [
-      [<b>shell</b>, '러너 서버에서'],
-      [<b>docker</b>, '컨테이너에서'],
+      [<b>shell</b>, '러너가 깔린 서버에서 바로'],
+      [<b>docker</b>, '그 서버 위 새 컨테이너 안에서'],
       [<small className="muted">(추정)</small>, '로그로 확인 못 함'],
       ['▸', 'job · image 보기'],
     ],

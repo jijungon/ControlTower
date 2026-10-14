@@ -9,9 +9,9 @@ import Ops from './pages/Ops'
 const TABS = ['대시보드', '서버', '빌드·배포', 'config', 'OS 패치·작업이력'] as const
 type Tab = (typeof TABS)[number]
 
-function Page({ tab }: { tab: Tab }) {
+function Page({ tab, go }: { tab: Tab; go: (t: Tab) => void }) {
   switch (tab) {
-    case '대시보드': return <Dashboard />
+    case '대시보드': return <Dashboard onGo={(t) => TABS.includes(t as Tab) && go(t as Tab)} />
     case '서버': return <Servers />
     case '빌드·배포': return <BuildDeploy />
     case 'config': return <ConfigRepo />
@@ -43,7 +43,7 @@ export default function App() {
       </nav>
 
       <main className="content">
-        <Page tab={tab} />
+        <Page tab={tab} go={setTab} />
       </main>
     </div>
   )
