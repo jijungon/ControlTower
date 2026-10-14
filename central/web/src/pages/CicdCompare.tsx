@@ -118,7 +118,7 @@ function ExecCell({ e, side }: { e?: ExecutorCell; side: 'repo' | 'center' }) {
               {head}
             </summary>
             {/* 펼치면 job | image | 러너 표(열 맞춤) */}
-            <table className="exec-jobs">
+            <table className="mini-table">
               <thead>
                 <tr>
                   <th>job</th>

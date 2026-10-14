@@ -231,6 +231,55 @@ function typeCell(r: ConfigRow) {
   )
 }
 
+// ▸ 펼치면: 환경 | 처음 실행할 명령 | 어디서 읽었나 | 위치·이유 — 칸에선 마우스로만 보이던 것을 열 맞춘 표로
+function envDetail(r: ConfigRow, envList: string[]) {
+  const img = imageRun(r)
+  const row = (env: string): [string, string, string] => {
+    const c = r.compose?.[env]
+    const m = r.compose_miss?.[env]
+    const info = r.compose_src?.[env]
+    const from = srcLabel(info)?.text ?? '—'
+    if (c === 'image') return [`← 이미지 (${img ? RUN[img].label : '—'})`, from, info?.where ?? '']
+    if (c) return [`${RUN[serverRun(r, env)!].label} — ${c === 'command' ? 'compose 가 덮어씀' : 'start.sh 넣음'}`, from, info?.where ?? '']
+    if (r.merged_into) return ['—', '—', `${r.merged_into} 로 합쳐져 안 씀`]
+    if (r.start === 'base') return ['—', '—', '베이스 이미지가 띄움 — 서버를 읽을 필요 없음']
+    if (m?.state === 'fail') return ['못 읽음', '—', m.reason]
+    if (r.deploy_envs?.length && !r.deploy_envs.includes(env)) return ['—', '—', '이 환경엔 배포 안 함']
+    return ['안 읽음', '—', m?.reason ?? '아직 서버를 안 봄']
+  }
+  return (
+    <table className="mini-table">
+      <thead>
+        <tr>
+          <th>환경</th>
+          <th>처음 실행할 명령</th>
+          <th>어디서 읽었나</th>
+          <th>위치 · 이유</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td className="muted">(이미지)</td>
+          <td>{img ? RUN[img].label : '—'}</td>
+          <td>config repo</td>
+          <td className="mono">{r.folder ?? r.path}/</td>
+        </tr>
+        {envList.map((e) => {
+          const [run, from, detail] = row(e)
+          return (
+            <tr key={e}>
+              <td>{e}</td>
+              <td>{run}</td>
+              <td>{from}</td>
+              <td className="mono">{detail}</td>
+            </tr>
+          )
+        })}
+      </tbody>
+    </table>
+  )
+}
+
 function todoCell(r: ConfigRow) {
   if (r.merged_into)
     return (
@@ -325,6 +374,14 @@ export default function ConfigRepo() {
   const [err, setErr] = useState(false)
   const [busy, setBusy] = useState(false)
   const [groupSel, setGroupSel] = useState('')
+  const [openRows, setOpenRows] = useState<Set<string>>(new Set()) // ▸ 펼친 줄(환경별 자세히)
+  const toggleRow = (path: string) =>
+    setOpenRows((cur) => {
+      const next = new Set(cur)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
+      return next
+    })
 
   const load = () =>
     fetchConfig()
@@ -436,7 +493,9 @@ export default function ConfigRepo() {
           </thead>
           <tbody>
             {ordered.map((g) => {
-              const total = g.svcs.reduce((n, [, rs]) => n + rs.length, 0)
+              // 펼친 줄은 표 아래 한 줄이 더 생겨서 그룹·서비스 칸이 그만큼 더 길어짐
+              const span = (rs: ConfigRow[]) => rs.length + rs.filter((r) => openRows.has(r.path)).length
+              const total = g.svcs.reduce((n, [, rs]) => n + span(rs), 0)
               return g.svcs.map(([svc, rs], si) => (
                 <Fragment key={`${g.group}/${svc}`}>
                   {rs.map((r, i) => {
@@ -445,55 +504,77 @@ export default function ConfigRepo() {
                     const groupFirst = si === 0 && i === 0
                     // 경계: 그룹이 바뀌면 진한 선, 서비스가 바뀌면 보통 선
                     const cls = [groupFirst ? 'grp-start' : i === 0 ? 'svc-start' : '', r.merged_into ? 'row-merged' : ''].join(' ').trim()
+                    const isOpen = openRows.has(r.path)
                     return (
-                      <tr key={r.path} className={cls || undefined}>
-                        {groupFirst && (
-                          <td className="grp-cell" rowSpan={total}>
-                            {g.group}
-                            <div className="muted" style={{ fontWeight: 400, fontSize: 12 }}>
-                              서비스 {g.svcs.length}개
-                            </div>
-                          </td>
-                        )}
-                        {i === 0 && (
-                          <td className="svc-cell" rowSpan={rs.length}>
-                            {svc}
-                          </td>
-                        )}
-                        <td>{typeCell(r)}</td>
-                        <td>{codeCell(r)}</td>
-                        <td>
-                          {r.runtime ? (
-                            <Ver
-                              text={`${r.runtime}${r.runtime_version ? ` ${r.runtime_version}` : ''}`}
-                              old={!r.merged_into && isOld(rt, newestRuntime)}
-                              newest={rt ? `${rt[0]} ${newestRuntime.get(rt[0])}` : undefined}
-                            />
-                          ) : (
-                            <span className="muted">—</span>
+                      <Fragment key={r.path}>
+                        <tr className={cls || undefined}>
+                          {groupFirst && (
+                            <td className="grp-cell" rowSpan={total}>
+                              {g.group}
+                              <div className="muted" style={{ fontWeight: 400, fontSize: 12 }}>
+                                서비스 {g.svcs.length}개
+                              </div>
+                            </td>
                           )}
-                        </td>
-                        <td>
-                          {r.base_image ? (
-                            // 앞의 저장소 경로(infra/ 등)는 줄여서 한 줄에 — 전체 이름은 마우스
-                            <span title={`${r.base_image}${r.base_tag ? `:${r.base_tag}` : ''}`}>
+                          {i === 0 && (
+                            <td className="svc-cell" rowSpan={span(rs)}>
+                              {svc}
+                            </td>
+                          )}
+                          <td>
+                            <button
+                              type="button"
+                              className="row-toggle"
+                              aria-expanded={isOpen}
+                              aria-label={`${r.path} 환경별 자세히`}
+                              title="환경별 자세히 — 어디서 읽었나 · 위치 · 못 읽은 이유"
+                              onClick={() => toggleRow(r.path)}
+                            >
+                              {isOpen ? '▾' : '▸'}
+                            </button>
+                            {typeCell(r)}
+                          </td>
+                          <td>{codeCell(r)}</td>
+                          <td>
+                            {r.runtime ? (
                               <Ver
-                                text={`${r.base_image.split('/').pop()}${r.base_tag ? `:${r.base_tag}` : ''}`}
-                                old={!r.merged_into && isOld(base, newestBase)}
-                                newest={base ? `${base[0]}:${newestBase.get(base[0])}` : undefined}
+                                text={`${r.runtime}${r.runtime_version ? ` ${r.runtime_version}` : ''}`}
+                                old={!r.merged_into && isOld(rt, newestRuntime)}
+                                newest={rt ? `${rt[0]} ${newestRuntime.get(rt[0])}` : undefined}
                               />
-                            </span>
-                          ) : (
-                            <span className="muted">—</span>
-                          )}
-                        </td>
-                        <td>{imageCell(r, envs)}</td>
-                        {envs.map((e) => (
-                          <td key={e}>{serverEnvCell(r, e)}</td>
-                        ))}
-                        {extras.length > 0 && <td className="extras-cell">{extraCell(r, extras)}</td>}
-                        <td>{todoCell(r)}</td>
-                      </tr>
+                            ) : (
+                              <span className="muted">—</span>
+                            )}
+                          </td>
+                          <td>
+                            {r.base_image ? (
+                              // 앞의 저장소 경로(infra/ 등)는 줄여서 한 줄에 — 전체 이름은 마우스
+                              <span title={`${r.base_image}${r.base_tag ? `:${r.base_tag}` : ''}`}>
+                                <Ver
+                                  text={`${r.base_image.split('/').pop()}${r.base_tag ? `:${r.base_tag}` : ''}`}
+                                  old={!r.merged_into && isOld(base, newestBase)}
+                                  newest={base ? `${base[0]}:${newestBase.get(base[0])}` : undefined}
+                                />
+                              </span>
+                            ) : (
+                              <span className="muted">—</span>
+                            )}
+                          </td>
+                          <td>{imageCell(r, envs)}</td>
+                          {envs.map((e) => (
+                            <td key={e}>{serverEnvCell(r, e)}</td>
+                          ))}
+                          {extras.length > 0 && <td className="extras-cell">{extraCell(r, extras)}</td>}
+                          <td>{todoCell(r)}</td>
+                        </tr>
+                        {isOpen && (
+                          <tr className="row-detail">
+                            <td colSpan={9 + (extras.length ? 1 : 0)}>
+                              {envDetail(r, [...envs, ...extras.filter((e) => r.compose?.[e] || r.compose_miss?.[e])])}
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
                     )
                   })}
                 </Fragment>

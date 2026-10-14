@@ -73,8 +73,8 @@ test('배포·executor 칸 — 쉬운 말 + 마우스 올리면 뜻', async () =
   await userEvent.click(screen.getByLabelText('repo 나머지 2개 펼치기'))
   expect(lines[1]).toHaveAttribute('open')
   // 펼친 job 표: job | image | 러너 (열 맞춤)
-  const jobRows = (el: Element) => [...el.querySelectorAll('table.exec-jobs tbody tr')].map((tr) => [...tr.querySelectorAll('td')].map((td) => td.textContent).join(' | '))
-  expect([...lines[1].querySelectorAll('table.exec-jobs th')].map((th) => th.textContent)).toEqual(['job', 'image', '러너'])
+  const jobRows = (el: Element) => [...el.querySelectorAll('table.mini-table tbody tr')].map((tr) => [...tr.querySelectorAll('td')].map((td) => td.textContent).join(' | '))
+  expect([...lines[1].querySelectorAll('table.mini-table th')].map((th) => th.textContent)).toEqual(['job', 'image', '러너'])
   expect(jobRows(lines[1])).toEqual(['build | 없음 — 러너 서버에서 바로 | old-shell', 'push_src | 없음 — 러너 서버에서 바로 | old-shell'])
   expect(jobRows(lines[0])).toEqual(['notify | node:22 | new-runner'])
   // image 를 모으기 전의 옛 데이터(images 없음)는 '없음' 이 아니라 '모름'

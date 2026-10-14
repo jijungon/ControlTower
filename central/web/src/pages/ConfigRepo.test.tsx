@@ -210,3 +210,26 @@ test('그룹 칸·그룹 필터 — 빌드·배포 표처럼 그룹 → 서비�
   expect(screen.queryByLabelText('런타임 필터')).toBeNull()
   expect(table.getByText('c')).toBeInTheDocument()
 })
+
+test('줄마다 ▸ 펼치면 환경 | 처음 실행할 명령 | 어디서 읽었나 | 위치·이유 표', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(ROWS), { status: 200 })))
+  render(<ConfigRepo />)
+  const table = within(await screen.findByRole('table'))
+  const toggle = screen.getByRole('button', { name: 'shop/web 환경별 자세히' })
+  expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  fireEvent.click(toggle)
+  expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  const mini = document.querySelector('tr.row-detail table.mini-table')!
+  expect([...mini.querySelectorAll('th')].map((th) => th.textContent)).toEqual(['환경', '처음 실행할 명령', '어디서 읽었나', '위치 · 이유'])
+  const rows = [...mini.querySelectorAll(':scope > tbody > tr')].map((tr) => [...tr.querySelectorAll('td')].map((td) => td.textContent).join(' | '))
+  expect(rows).toEqual([
+    '(이미지) | start.sh | config repo | shop/web/',
+    'dev | 서버 compose — compose 가 덮어씀 | gw | gw-dev → 10.0.0.1:/app/web-shop/docker-compose.yml',
+    'stg | 안 읽음 | — | 아직 서버를 안 봄',
+    'prod | start.sh — start.sh 넣음 | 옛 사본 | old/prod.yml',
+  ])
+  // 서비스 칸이 펼친 줄만큼 길어짐(rowspan 6 → 7)
+  expect(table.getByText('shop').closest('td')).toHaveAttribute('rowspan', '7')
+  fireEvent.click(toggle)
+  expect(document.querySelector('tr.row-detail')).toBeNull()
+})
