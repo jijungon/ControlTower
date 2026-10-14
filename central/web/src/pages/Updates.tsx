@@ -1,12 +1,15 @@
 import { Fragment, useEffect, useState } from 'react'
 import { fetchUpdates, type UpdateRow } from '../api'
-import SectionHead, { latestTime, runAll } from '../components/SectionHead'
+import Pager, { usePageSize } from '../components/Pager'
+import SectionHead, { fmtTime, latestTime, runAll } from '../components/SectionHead'
 
 export default function Updates() {
   const [rows, setRows] = useState<UpdateRow[] | null>(null)
   const [err, setErr] = useState(false)
   const [open, setOpen] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [page, setPage] = useState(0)
+  const [size, setSize] = usePageSize('updates')
 
   const load = (first = false) =>
     fetchUpdates()
@@ -23,6 +26,8 @@ export default function Updates() {
   }, [])
 
   const totalSecurity = (rows ?? []).reduce((a, r) => a + r.security, 0)
+  // 서버 수만큼이라 한 번에 받고 화면에서 나눠 보여줌
+  const shown = (rows ?? []).slice(page * size, (page + 1) * size)
 
   return (
     <div>
@@ -46,7 +51,7 @@ export default function Updates() {
             </tr>
           </thead>
           <tbody>
-            {(rows ?? []).map((r) => {
+            {shown.map((r) => {
               const isOpen = open === r.hostname
               return (
                 <Fragment key={r.server_id}>
@@ -63,7 +68,7 @@ export default function Updates() {
                         <span className="muted">0</span>
                       )}
                     </td>
-                    <td className="muted">{r.collected_at ?? '—'}</td>
+                    <td className="muted" title={r.collected_at ?? ''}>{r.collected_at ? fmtTime(r.collected_at) : '—'}</td>
                   </tr>
                   {isOpen && (
                     <tr className="detail-row">
@@ -106,6 +111,8 @@ export default function Updates() {
             })}
           </tbody>
         </table>
+
+        <Pager label="OS 패치" page={page} size={size} total={rows?.length ?? 0} onPage={setPage} onSize={setSize} />
 
         {!rows && !err && (
           <div className="placeholder" style={{ padding: '28px 16px' }}>불러오는 중…</div>

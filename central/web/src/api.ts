@@ -150,10 +150,13 @@ export type AuditRow = {
   created_at?: string | null
 }
 
-export async function fetchAudit(): Promise<AuditRow[]> {
-  const res = await fetch('/api/audit')
+// 작업이력 한 페이지(최신순) + 전체 건수(X-Total-Count)
+export async function fetchAuditPage(limit: number, offset: number): Promise<{ rows: AuditRow[]; total: number }> {
+  const res = await fetch(`/api/audit?limit=${limit}&offset=${offset}`)
   if (!res.ok) throw new Error(`GET /api/audit ${res.status}`)
-  return res.json()
+  const rows = (await res.json()) as AuditRow[]
+  const total = Number(res.headers.get('X-Total-Count') ?? rows.length)
+  return { rows, total: Number.isFinite(total) ? total : rows.length }
 }
 
 export type VersionRow = {

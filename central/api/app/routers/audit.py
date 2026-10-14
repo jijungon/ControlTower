@@ -1,7 +1,7 @@
 """작업이력 / 감사 로그 조회 (읽기 전용, 최신순)."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from sqlalchemy.orm import Session
 
 from ..db import get_db
@@ -11,8 +11,10 @@ router = APIRouter(prefix="/api", tags=["audit"])
 
 
 @router.get("/audit")
-def list_audit(limit: int = 100, db: Session = Depends(get_db)) -> list[dict]:
-    rows = db.query(AuditLog).order_by(AuditLog.id.desc()).limit(min(limit, 500)).all()
+def list_audit(response: Response, limit: int = 100, offset: int = 0, db: Session = Depends(get_db)) -> list[dict]:
+    """최신순으로 limit 개(최대 500), offset 부터 — 화면 페이지 넘김용. 전체 건수는 X-Total-Count 헤더로."""
+    response.headers["X-Total-Count"] = str(db.query(AuditLog).count())
+    rows = db.query(AuditLog).order_by(AuditLog.id.desc()).offset(max(offset, 0)).limit(max(min(limit, 500), 1)).all()
     return [
         {
             "id": r.id,

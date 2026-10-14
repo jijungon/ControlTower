@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { fetchAudit, type AuditRow } from '../api'
-import SectionHead, { latestTime, runAll } from '../components/SectionHead'
+import { fetchAuditPage, type AuditRow } from '../api'
+import Pager, { usePageSize } from '../components/Pager'
+import SectionHead, { fmtTime, runAll } from '../components/SectionHead'
 
 const ACTION_LABEL: Record<string, string> = {
   'server.import': '서버 임포트',
@@ -27,27 +28,34 @@ function target(r: AuditRow): string {
 
 export default function Jobs() {
   const [rows, setRows] = useState<AuditRow[] | null>(null)
+  const [total, setTotal] = useState(0)
+  const [latest, setLatest] = useState<string | null>(null)
+  const [page, setPage] = useState(0)
+  const [size, setSize] = usePageSize('jobs')
   const [err, setErr] = useState(false)
   const [busy, setBusy] = useState(false)
 
+  // 계속 쌓이니까 한 페이지씩만 받아 옴(최신순)
   const load = () =>
-    fetchAudit()
-      .then((r) => {
+    fetchAuditPage(size, page * size)
+      .then(({ rows: r, total: t }) => {
         setRows(r)
+        setTotal(t)
+        if (page === 0) setLatest(r[0]?.created_at ?? null)
         setErr(false)
       })
       .catch(() => setErr(true))
 
   useEffect(() => {
     load()
-  }, [])
+  }, [page, size])
 
   return (
     <div>
       <SectionHead
         title="작업이력 (전체)"
-        sub={`ControlTower 가 한 모든 일${rows ? ` · ${rows.length}건` : ''}`}
-        asOf={latestTime((rows ?? []).map((r) => r.created_at))}
+        sub={`ControlTower 가 한 모든 일${rows ? ` · ${total}건` : ''}`}
+        asOf={latest}
         onRefresh={() => runAll(setBusy, [load])}
         busy={busy}
         source="중앙 API 가 러너·화면 동작을 그때그때 기록"
@@ -67,7 +75,7 @@ export default function Jobs() {
           <tbody>
             {(rows ?? []).map((r) => (
               <tr key={r.id}>
-                <td className="mono">{r.created_at ?? '—'}</td>
+                <td className="mono" title={r.created_at ?? ''}>{r.created_at ? fmtTime(r.created_at) : '—'}</td>
                 <td>{ACTION_LABEL[r.action] ?? r.action}</td>
                 <td>{target(r)}</td>
                 <td className="muted">{r.actor}</td>
@@ -76,6 +84,8 @@ export default function Jobs() {
             ))}
           </tbody>
         </table>
+
+        <Pager label="작업이력" page={page} size={size} total={total} onPage={setPage} onSize={setSize} />
 
         {!rows && !err && (
           <div className="placeholder" style={{ padding: '28px 16px' }}>불러오는 중…</div>

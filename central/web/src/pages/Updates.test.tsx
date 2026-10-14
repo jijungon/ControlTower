@@ -40,3 +40,15 @@ test('빈 상태 안내', async () => {
   render(<Updates />)
   expect(await screen.findByText(/수집된 업데이트가 없습니다/)).toBeInTheDocument()
 })
+
+test('OS 패치는 10개씩 페이지로', async () => {
+  const many = Array.from({ length: 12 }, (_, i) => ({ server_id: i + 1, hostname: `srv-${String(i + 1).padStart(2, '0')}`, pending: 0, security: 0, packages: [] }))
+  mockFetch(many)
+  localStorage.removeItem('pager:updates')
+  render(<Updates />)
+  expect(await screen.findByText('1–10 / 12')).toBeInTheDocument()
+  expect(screen.queryByText('srv-11')).toBeNull()
+  await userEvent.click(screen.getByRole('button', { name: 'OS 패치 다음 페이지' }))
+  expect(screen.getByText('srv-11')).toBeInTheDocument()
+  expect(screen.queryByText('srv-01')).toBeNull()
+})
