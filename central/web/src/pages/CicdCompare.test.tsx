@@ -54,13 +54,18 @@ test('배포·executor 칸 — 쉬운 말 + 마우스 올리면 뜻', async () =
   render(<CicdCompare />)
   const table = within(await screen.findByRole('table'))
   // 배포 칸: 윗줄 방식 + 아랫줄 누가(repo/center) — 칸 전체에 마우스를 올리면 뜻
-  const repoCell = table.getByText('repo', { selector: '.cell-sub' }).parentElement!
-  expect(repoCell).toHaveTextContent('파일 복사repo')
-  expect(repoCell).toHaveAttribute('title', expect.stringContaining('직배포'))
-  expect(table.getByText('center', { selector: '.cell-sub' }).parentElement).toHaveAttribute('title', expect.stringContaining('center CI'))
+  const repoChip = table.getByText('repo', { selector: '.cell-sub' }).parentElement!
+  expect(repoChip).toHaveTextContent('파일 복사repo')
+  expect(repoChip.closest('[title]')).toHaveAttribute('title', expect.stringContaining('직배포'))
+  expect(table.getByText('center', { selector: '.cell-sub' }).closest('[title]')).toHaveAttribute('title', expect.stringContaining('center CI'))
   expect(table.getAllByText('수동', { selector: '.cell-sub' }).length).toBeGreaterThan(0)
   expect(table.getByText('빌드만')).toBeInTheDocument()
-  expect(table.getByText('compose 기준', { selector: '.cell-sub' }).parentElement).toHaveAttribute('title', expect.stringContaining('짐작'))
+  expect(table.getByText('compose 기준', { selector: '.cell-sub' }).closest('[title]')).toHaveAttribute('title', expect.stringContaining('짐작'))
+  // 색: 이미지 초록(표준) · 파일 복사 노랑(옮길 곳) · 빌드만 회색, compose 로 짐작한 칸은 점선
+  expect(repoChip).toHaveClass('path-chip', 'path-chip--direct')
+  expect(table.getByText('빌드만')).toHaveClass('path-chip--build')
+  expect(table.getAllByText('수동', { selector: '.cell-sub' })[0].parentElement).toHaveClass('path-chip--image')
+  expect(table.getByText('compose 기준', { selector: '.cell-sub' }).parentElement).toHaveClass('path-chip--direct', 'path-chip--guess')
   expect(table.getByText('⚠ compose 다름')).toHaveAttribute('title', expect.stringContaining('파일 복사'))
   // executor: job 별로 한 줄씩 — 적은 쪽은 job 이름, 가장 많은 쪽은 '나머지'
   const shop = table.getByText('mall').closest('tr')!

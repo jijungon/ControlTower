@@ -28,6 +28,17 @@ function split(r: ShapeRow): { app: string; kind: string } {
   return { app: r.service, kind: t || '—' }
 }
 
+// 배포 방식 칩 — 색 = 표준에서 얼마나 먼가: 이미지(초록, 표준) · 파일 복사(노랑, 이미지로 옮길 대상) · 빌드만(회색).
+// 아랫줄(누가 복사 · 수동 · compose 기준)은 칩 안 작은 글씨, compose 로 짐작한 칸은 점선(executor 추정과 같은 뜻)
+export function PathChip({ path, label, sub, guess }: { path: DeployCell['path']; label: string; sub?: string; guess?: boolean }) {
+  return (
+    <span className={`path-chip path-chip--${path}${guess ? ' path-chip--guess' : ''}`}>
+      {label}
+      {sub && <span className="cell-sub">{sub}</span>}
+    </span>
+  )
+}
+
 function deployCell(c?: DeployCell) {
   if (!c) return <span className="muted">—</span>
   const p = PATH[pathKey(c)] ?? { label: c.path, title: '' }
@@ -35,7 +46,7 @@ function deployCell(c?: DeployCell) {
   const sub = [p.sub, c.manual ? '수동' : null].filter(Boolean).join(' · ')
   return (
     <span title={`${p.title}${c.manual ? ' · 수동: 사람이 GitLab 에서 버튼을 눌러야 배포' : ''}`}>
-      {p.label}
+      <PathChip path={c.path} label={p.label} sub={sub || undefined} guess={c.by === 'compose'} />
       {c.mismatch && (
         <span
           className="badge badge--warn"
@@ -45,7 +56,6 @@ function deployCell(c?: DeployCell) {
           ⚠ compose 다름
         </span>
       )}
-      {sub && <span className="cell-sub">{sub}</span>}
     </span>
   )
 }
@@ -297,12 +307,12 @@ const LEGEND: LegendRow[] = [
     term: 'dev · stg · prod',
     what: '그 환경에 어떻게 배포하나',
     items: [
-      [<Key>이미지</Key>, '도커 이미지로 배포'],
-      [<Key>파일 복사</Key>, '결과물을 서버에 복사'],
-      [<Key>빌드만</Key>, '배포 안 함'],
-      [<Key sub="repo · center">파일 복사</Key>, '아랫줄 = 누가 복사'],
-      [<Key sub="수동">이미지</Key>, '아랫줄 = 버튼 눌러 배포'],
-      [<Key sub="compose 기준">이미지</Key>, '아랫줄 = 서버 compose 로 짐작'],
+      [<PathChip path="image" label="이미지" />, '도커 이미지로 배포 (표준)'],
+      [<PathChip path="direct" label="파일 복사" />, '결과물을 서버에 복사 (이미지로 옮길 곳)'],
+      [<PathChip path="build" label="빌드만" />, '배포 안 함'],
+      [<PathChip path="direct" label="파일 복사" sub="repo · center" />, '아랫줄 = 누가 복사'],
+      [<PathChip path="image" label="이미지" sub="수동" />, '아랫줄 = GitLab 에서 버튼 눌러 배포'],
+      [<PathChip path="image" label="이미지" sub="compose 기준" guess />, '점선 = 서버 compose 로 짐작'],
     ],
   },
   { term: <span className="badge badge--warn">⚠ compose 다름</span>, what: 'CI 와 서버 compose 의 배포 모양이 다름' },
