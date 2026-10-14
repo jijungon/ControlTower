@@ -494,6 +494,10 @@ def build_row(spec: dict, files: dict[str, Any], runners: dict[str, str] | None 
         "group": spec.get("group"),
         "data": {
             "type": svc_type,
+            # 어디서 빌드하나 — GitHub repo 를 적었으면 github, GitLab(repo/center) 이면 gitlab, 둘 다 없으면 None
+            "host": "github" if spec.get("github") else (
+                "gitlab" if any(spec.get(k) for k in ("repo", "center", "repo_ci", "center_ci")) else None
+            ),
             "note": spec.get("note"),  # 표에 작게 붙는 메모(예: '옛 사본')
             "runtime": docker["runtime"] if docker else None,
             "runtime_version": docker["runtime_version"] if docker else None,

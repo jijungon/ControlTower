@@ -469,6 +469,7 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
     dirs: dict[str, list[str]] = {}
     readers: dict[str, Any] = {}
     dir_group: dict[str, str] = {}
+    dir_repo: dict[str, str] = {}  # 폴더 → 어느 config repo 에서 왔나(GitLab 프로젝트, 없으면 로컬 경로)
     merged_map: dict[str, str] = {}
     compose_map: dict[str, dict] = {}
     for c in configs:
@@ -482,6 +483,7 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
                 print(f"  config 폴더 이름이 겹침: {k} — 먼저 적은 config repo 것을 씀")
                 continue
             dirs[k], readers[k] = names, reader
+            dir_repo[k] = str(c.get("project") or c.get("file") or "")
             if c.get("group"):
                 dir_group[k] = str(c["group"])
         merged_map.update({str(k): str(v) for k, v in (c.get("merged") or {}).items()})
@@ -659,6 +661,8 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
                 data["merged_into"] = str(merged)
             data["code"] = code_by_dir.get(key)  # 코드에 적힌 버전(없으면 None)
             data["group"] = group_by_key.get(key) or dir_group.get(cdir) or default_group
+            if dir_repo.get(cdir):
+                data["config_repo"] = dir_repo[cdir]  # 화면 그룹 칸에 '어느 config repo' 로
             items.append({"path": key, "data": data})
 
     api = CentralAPI(cfg.central_url, cfg.api_token)

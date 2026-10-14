@@ -49,6 +49,17 @@ function deployCell(c?: DeployCell) {
   )
 }
 
+// 어디서 빌드하나 배지 — GitLab(주황) · GitHub(검정)
+const HOST_NAME: Record<string, string> = { gitlab: 'GitLab', github: 'GitHub' }
+export function HostBadge({ host }: { host?: string | null }) {
+  if (!host) return null
+  return (
+    <span className={`host-badge host-badge--${host}`} title={host === 'github' ? 'GitHub 에서 빌드 — 아직 CI 를 못 읽음' : 'GitLab 에서 빌드(repo·center CI)'}>
+      {HOST_NAME[host] ?? host}
+    </span>
+  )
+}
+
 // executor 알약 — docker 하늘 · shell 연두, 추정이면 점선 테두리
 function ExecPill({ value, guess }: { value: string; guess?: boolean }) {
   const kind = value === 'docker' ? 'docker' : value === 'shell' ? 'shell' : 'other'
@@ -296,6 +307,7 @@ export default function CicdCompare() {
   const [rows, setRows] = useState<ShapeRow[] | null>(null)
   const [err, setErr] = useState(false)
   const [groupSel, setGroupSel] = useState('')
+  const [hostSel, setHostSel] = useState('') // 빌드: 전체 · GitLab · GitHub
   const [busy, setBusy] = useState(false)
 
   const load = () =>
@@ -318,7 +330,7 @@ export default function CicdCompare() {
     return i < 0 ? 99 : i
   }
   const byGroup = new Map<string, Map<string, ShapeRow[]>>()
-  for (const r of all.filter((x) => !groupSel || (x.group || '기타') === groupSel)) {
+  for (const r of all.filter((x) => (!groupSel || (x.group || '기타') === groupSel) && (!hostSel || x.host === hostSel))) {
     const g = r.group || '기타'
     const apps = byGroup.get(g) ?? new Map<string, ShapeRow[]>()
     apps.set(split(r).app, [...(apps.get(split(r).app) ?? []), r])
@@ -333,6 +345,7 @@ export default function CicdCompare() {
         .sort((a, b) => a.app.localeCompare(b.app)),
     }))
   const groupNames = [...new Set(all.map((r) => r.group || '기타'))].sort()
+  const hosts = ['gitlab', 'github'].filter((h) => all.some((r) => r.host === h))
   const appCount = ordered.reduce((n, g) => n + g.apps.length, 0)
 
   return (
@@ -351,6 +364,7 @@ export default function CicdCompare() {
       />
       <div className="toolbar" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
         <GroupFilter groups={groupNames} value={groupSel} onChange={setGroupSel} />
+        {hosts.length > 1 && <GroupFilter label="빌드" groups={hosts} names={HOST_NAME} value={hostSel} onChange={setHostSel} />}
       </div>
 
       <div className="card" style={{ overflowX: 'auto' }}>
@@ -389,11 +403,17 @@ export default function CicdCompare() {
                           {i === 0 && (
                             <td className="svc-cell" rowSpan={a.rows.length}>
                               {a.app}
+                              {/* 어디서 빌드하나 — 이름 아래 줄(칸 폭을 늘리지 않게) */}
+                              <div className="host-line">
+                                {[...new Set(a.rows.map((x) => x.host))].map((h) => (
+                                  <HostBadge key={h ?? '-'} host={h} />
+                                ))}
+                              </div>
                             </td>
                           )}
                           <td>
                           {split(r).kind}
-                          {r.note && <span className="cell-sub">{r.note}</span>}
+                          {r.note && <span className="cell-sub cell-sub--note">{r.note}</span>}
                         </td>
                           {envs.map((e) => (
                             <td key={e}>{deployCell(r.deploy?.[e])}</td>

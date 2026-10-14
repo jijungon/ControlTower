@@ -905,6 +905,13 @@ def test_cmd_shape_reads_several_config_repos(monkeypatch, tmp_path, capsys):
     cli.cmd_shape(cfg)
     assert set(sent) == {"shop/web", "vault/web"}
     assert (sent["shop/web"]["group"], sent["vault/web"]["group"]) == ("mall", "vault")
+    assert (sent["shop/web"]["config_repo"], sent["vault/web"]["config_repo"]) == ("cfg-a", "cfg-b")  # 어느 config repo 에서
     assert sent["shop/web"]["state"] == "done" and sent["vault/web"]["state"] == "legacy"  # 각자 자기 repo 의 Dockerfile
     out = capsys.readouterr().out
     assert "config 폴더 이름이 겹침: shop/web" in out and "config 폴더 건너뜀(Dockerfile·start.sh 없음): docs/deploy" in out
+
+
+def test_build_row_host_gitlab_or_github():
+    assert build_row({"name": "a", "center": "g/a"}, {})["data"]["host"] == "gitlab"
+    assert build_row({"name": "b", "github": "org/b"}, {})["data"]["host"] == "github"  # GitHub 에서 빌드(아직 못 읽음)
+    assert build_row({"name": "c", "compose": {}}, {})["data"]["host"] is None

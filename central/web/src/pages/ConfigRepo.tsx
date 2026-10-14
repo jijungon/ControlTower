@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from 'react'
-import { fetchConfig, type ComposeSrc, type ConfigRow } from '../api'
+import { fetchConfig, fetchShapes, type ComposeSrc, type ConfigRow } from '../api'
 import GroupFilter from '../components/GroupFilter'
 import Legend, { type LegendRow } from '../components/Legend'
 import SectionHead, { latestTime, runAll } from '../components/SectionHead'
@@ -383,13 +383,20 @@ export default function ConfigRepo() {
       return next
     })
 
+  const [ghServices, setGhServices] = useState<string[]>([]) // GitHub 에서 빌드 → config repo 가 없어 이 표에 없음
+
   const load = () =>
-    fetchConfig()
-      .then((d) => {
-        setRows(Array.isArray(d) ? d : [])
-        setErr(false)
-      })
-      .catch(() => setErr(true))
+    Promise.all([
+      fetchConfig()
+        .then((d) => {
+          setRows(Array.isArray(d) ? d : [])
+          setErr(false)
+        })
+        .catch(() => setErr(true)),
+      fetchShapes()
+        .then((d) => setGhServices((Array.isArray(d) ? d : []).filter((r) => r.host === 'github').map((r) => r.service)))
+        .catch(() => setGhServices([])),
+    ])
 
   useEffect(() => {
     load()
@@ -514,6 +521,21 @@ export default function ConfigRepo() {
                               <div className="muted" style={{ fontWeight: 400, fontSize: 12 }}>
                                 서비스 {g.svcs.length}개
                               </div>
+                              {/* 어느 config repo 에서 왔나 — 여기 줄은 전부 GitLab config repo */}
+                              {[...new Set(g.svcs.flatMap(([, rs]) => rs.flatMap((r) => (r.config_repo ? [r.config_repo] : []))))].map((repo) => (
+                                <div key={repo} className="muted grp-repo" title={`config repo: ${repo} (GitLab)`}>
+                                  {/* '/' 에서만 줄바꿈 — 그룹 칸이 넓어지지 않게 */}
+                                  {repo.split('/').map((part, i, arr) => (
+                                    <span key={i} className="grp-repo-part">
+                                      {part}
+                                      {i < arr.length - 1 ? '/' : ''}
+                                    </span>
+                                  ))}
+                                  <div>
+                                    <span className="host-badge host-badge--gitlab">GitLab</span>
+                                  </div>
+                                </div>
+                              ))}
                             </td>
                           )}
                           {i === 0 && (
@@ -596,6 +618,14 @@ export default function ConfigRepo() {
           </div>
         )}
       </div>
+      {ghServices.length > 0 && (
+        <p className="note-line">
+          <span className="host-badge host-badge--github" style={{ marginLeft: 0 }}>
+            GitHub
+          </span>{' '}
+          에서 빌드하는 서비스는 GitLab config repo 를 안 써서 이 표에 없어요 — {ghServices.join(', ')} (빌드·배포 탭에서 봐요)
+        </p>
+      )}
     </div>
   )
 }

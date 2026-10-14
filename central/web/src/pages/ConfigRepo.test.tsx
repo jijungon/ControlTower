@@ -20,7 +20,7 @@ const ROWS: ConfigRow[] = [
 ]
 
 test('처음 실행할 명령(이미지·서버)·정리할 것 — 한 가지 말로 + 오래된 버전 빨간 칸', async () => {
-  const fetchMock = vi.fn(async () => new Response(JSON.stringify(ROWS), { status: 200 }))
+  const fetchMock = vi.fn(async (_url: string) => new Response(JSON.stringify(ROWS), { status: 200 }))
   vi.stubGlobal('fetch', fetchMock)
   render(<ConfigRepo />)
   const table = within(await screen.findByRole('table'))
@@ -98,7 +98,7 @@ test('처음 실행할 명령(이미지·서버)·정리할 것 — 한 가지 �
   expect(table.getByText('shop').closest('td')).toHaveAttribute('rowspan', '6')
   // 새로고침 = 다시 불러오기
   await userEvent.click(screen.getByRole('button', { name: 'config 폴더 새로고침' }))
-  expect(fetchMock).toHaveBeenCalledTimes(2)
+  expect(fetchMock.mock.calls.filter(([u]) => String(u).includes('/api/cicd/config')).length).toBe(2)
 })
 
 test('빈 상태 안내', async () => {
@@ -232,4 +232,14 @@ test('줄마다 ▸ 펼치면 환경 | 처음 실행할 명령 | 어디서 읽�
   expect(table.getByText('shop').closest('td')).toHaveAttribute('rowspan', '7')
   fireEvent.click(toggle)
   expect(document.querySelector('tr.row-detail')).toBeNull()
+})
+
+test('그룹 칸에 config repo(GitLab), GitHub 서비스는 표 아래 안내', async () => {
+  const cfg: ConfigRow[] = [{ path: 'shop/web', group: 'g1', config_repo: 'shop/config', runtime: 'node', runtime_version: '22', start: 'dockerfile', start_files: [], state: 'done' }]
+  const shapes = [{ service: 'tv2 web', host: 'github' }, { service: 'shop web', host: 'gitlab' }]
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(url.includes('/api/cicd/shape') ? shapes : cfg), { status: 200 })))
+  render(<ConfigRepo />)
+  const table = within(await screen.findByRole('table'))
+  expect(table.getByText('g1').closest('td')).toHaveTextContent('shop/configGitLab')
+  expect(await screen.findByText(/에서 빌드하는 서비스는 GitLab config repo 를 안 써서 이 표에 없어요 — tv2 web/)).toBeInTheDocument()
 })

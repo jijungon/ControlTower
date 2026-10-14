@@ -198,6 +198,7 @@ export type ShapeRow = {
   service: string
   group?: string | null
   type?: string | null
+  host?: 'gitlab' | 'github' | null // 어디서 빌드하나
   note?: string | null
   runtime?: string | null
   runtime_version?: string | null
@@ -231,6 +232,7 @@ export type ConfigRow = {
   compose_miss?: Record<string, { state: 'fail' | 'planned'; reason: string }> // 못 읽음(이유) / 위치만 찾음
   deploy_envs?: string[] // 이 폴더 서비스가 배포하는 환경(CI 기준) — 여기 없는 환경 칸은 '—'
   group?: string | null // 그룹(프로젝트 묶음) — 연결된 서비스의 group
+  config_repo?: string // 어느 config repo 에서 왔나(GitLab 프로젝트)
   folder?: string // 역할 줄(예: jobs/manager)일 때 실제 config 폴더(예: jobs/web) — 같은 이미지를 역할별로 띄움
   merged_into?: string // 다른 폴더로 합쳐져 안 쓰는 폴더면 그 폴더(예: chat/was)
   compose?: Record<string, 'mount' | 'command' | 'image'> // start.sh 형태(서버 compose): shell(마운트) / compose(command:) / Dockerfile(이미지 CMD)
