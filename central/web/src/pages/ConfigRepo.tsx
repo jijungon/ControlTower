@@ -1,7 +1,7 @@
-import { Fragment, useEffect, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { fetchConfig, type ComposeSrc, type ConfigRow } from '../api'
 import GroupFilter from '../components/GroupFilter'
-import Legend from '../components/Legend'
+import Legend, { type LegendRow } from '../components/Legend'
 import SectionHead, { latestTime, runAll } from '../components/SectionHead'
 import { isOld, newestBy, Ver, verParts } from '../vercmp'
 
@@ -254,56 +254,77 @@ function todoCell(r: ConfigRow) {
   )
 }
 
-// 표 읽는 법 — 칸마다 한 줄
-const LEGEND: [ReactNode, ReactNode][] = [
-  [
-    '버전',
-    <>
-      <b>코드에 적힌 버전</b>(.nvmrc·package.json·pom.xml, ≥20 = 20 이상) · <b>런타임</b>(이미지 안 node·java) · <b>베이스 이미지</b>(Dockerfile FROM).{' '}
-      <span className="badge badge--warn">⚠ 다름</span> 코드≠이미지 · <span className="ver ver--old">⚠ 빨간 칸</span> 같은 종류 중 최신 아님
-    </>,
-  ],
-  [
-    '처음 실행할 명령',
-    <>
-      앱을 띄우는 명령이 어디 있나 — <span className="badge badge--warn">start.sh</span> <span className="badge badge--ok">Dockerfile CMD</span>{' '}
-      <span className="badge badge--ok">서버 compose</span> <span className="badge badge--muted">베이스 이미지</span>(java 가 jar 실행){' '}
-      <span className="badge badge--warn">없음 → 서버가 줌</span>
-    </>,
-  ],
-  [
-    '(이미지) 칸',
-    <>
-      config 의 Dockerfile 이 넣어 둔 명령. <span className="run-dot" />= 그대로 쓰는 서버가 있음 ·{' '}
-      <span className="run-unused">
-        <span className="badge badge--warn">흐린 배지</span>
-      </span>{' '}
-      = 서버가 모두 덮어써서 안 씀
-    </>,
-  ],
-  [
-    '(서버) dev·stg·prod',
-    <>
-      <span className="run-dot" />
-      <span className="badge badge--ok">서버 compose</span> 서버가 덮어써서 실행 · <span className="st-asis">← 이미지</span> 이미지 명령 그대로 ·{' '}
-      <span className="st-unread">안 읽음</span> · <span className="miss-fail st-fail">못 읽음</span> · <span className="muted">—</span> 읽을 게 없음(배포 안 함 등). 옆 작은 글씨
-      = 어디서 읽었나(서버·gw·사본…)
-    </>,
-  ],
-  [
-    '정리할 것',
-    <>
-      <span className="badge badge--danger">CMD 로 옮기기</span> <span className="badge badge--warn">start.sh 지우기</span>{' '}
-      <span className="badge badge--warn">CMD 넣기</span> <span className="badge badge--ok">없음</span>{' '}
-      <span className="badge badge--muted">java 라 start.sh 안 씀</span>
-    </>,
-  ],
-  [
-    '흐린 줄',
-    <>
-      <span className="badge badge--muted">합쳐짐 → chat/was</span> 다른 폴더로 합쳐져 안 씀(요약 숫자에서 빠짐)
-    </>,
-  ],
+// 표 읽는 법 — 칸마다 '무엇을 보여주나' + '값 → 뜻'
+const LEGEND: LegendRow[] = [
+  {
+    term: '버전',
+    what: '세 칸을 나란히 비교',
+    items: [
+      ['코드에 적힌 버전', 'repo 코드(.nvmrc · package.json · pom.xml)에 적힌 값 — ≥20 은 20 이상이면 됨'],
+      ['런타임 (이미지)', '이미지 안의 node · java 버전'],
+      ['베이스 이미지', 'Dockerfile 첫 줄 FROM'],
+      [<span className="badge badge--warn">⚠ 다름</span>, '코드에 적힌 버전과 이미지가 다름'],
+      [<span className="ver ver--old">⚠ 빨간 칸</span>, '같은 종류 중 최신이 아님'],
+    ],
+  },
+  {
+    term: '처음 실행할 명령',
+    what: '컨테이너가 켜질 때 앱을 띄우는 명령이 어디 있나',
+    items: [
+      [<span className="badge badge--warn">start.sh</span>, '별도 스크립트가 띄움'],
+      [<span className="badge badge--ok">Dockerfile CMD</span>, '이미지 안의 CMD 가 띄움'],
+      [<span className="badge badge--ok">서버 compose</span>, '서버 docker-compose 의 command: 가 띄움'],
+      [<span className="badge badge--muted">베이스 이미지</span>, '베이스 이미지가 알아서 띄움 (java 가 jar 실행)'],
+      [<span className="badge badge--warn">없음 → 서버가 줌</span>, '이미지 혼자선 못 띄움 — 서버 compose 가 명령을 줘야 함'],
+    ],
+  },
+  {
+    term: '(이미지) 칸',
+    what: 'config 의 Dockerfile 이 이미지에 넣어 둔 명령',
+    items: [
+      [<span className="run-dot" />, '이 명령을 그대로 쓰는 서버가 있음'],
+      [
+        <span className="run-unused">
+          <span className="badge badge--warn">흐린 배지</span>
+        </span>,
+        '읽은 서버가 모두 덮어써서 안 씀',
+      ],
+    ],
+  },
+  {
+    term: '(서버) dev·stg·prod',
+    what: '그 서버에서 실제로 앱을 띄우는 명령 — 서버 compose 가 이미지 명령을 덮어쓸 수 있음',
+    items: [
+      [
+        <>
+          <span className="run-dot" />
+          <span className="badge badge--ok">서버 compose</span>
+        </>,
+        '서버가 덮어써서 이 명령이 실행됨',
+      ],
+      [<span className="st-asis">← 이미지</span>, '덮어쓰지 않음 — (이미지) 칸 명령 그대로'],
+      [<span className="st-unread">안 읽음</span>, '아직 서버를 안 봄'],
+      [<span className="miss-fail st-fail">못 읽음</span>, '읽으려다 실패 — 옆에 짧은 이유'],
+      [<span className="muted">—</span>, '읽을 게 없음 (그 환경엔 배포 안 함 등)'],
+      [<span className="cell-tag">gw · 사본</span>, '옆 작은 글씨 = 어디서 읽었나 (서버 · gw · 사본 · 템플릿)'],
+    ],
+  },
+  {
+    term: '정리할 것',
+    what: 'start.sh 기준으로 다음에 할 일',
+    items: [
+      [<span className="badge badge--danger">CMD 로 옮기기</span>, 'start.sh 를 Dockerfile CMD 로 옮기고 start.sh 없애기'],
+      [<span className="badge badge--warn">start.sh 지우기</span>, '이미 CMD 로 뜸 — 남은 파일만 지우면 됨'],
+      [<span className="badge badge--warn">CMD 넣기</span>, '지금은 서버가 명령을 줌 — 이미지에 CMD 넣기'],
+      [<span className="badge badge--ok">없음</span>, '할 일 없음'],
+      [<span className="badge badge--muted">java 라 start.sh 안 씀</span>, '베이스 이미지가 jar 를 띄움'],
+    ],
+  },
+  {
+    term: '흐린 줄',
+    what: '다른 폴더로 합쳐져 안 쓰는 폴더 — 요약 숫자에서 빠짐',
+    items: [[<span className="badge badge--muted">합쳐짐 → chat/was</span>, '이 폴더 대신 chat/was 를 씀']],
+  },
 ]
 
 export default function ConfigRepo() {

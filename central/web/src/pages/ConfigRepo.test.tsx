@@ -89,7 +89,11 @@ test('처음 실행할 명령(이미지·서버)·정리할 것 — 한 가지 �
   const legend = screen.getByText('표 읽는 법').closest('details')!
   expect(legend).not.toHaveAttribute('open')
   expect(within(legend).getByText('출처').nextElementSibling).toHaveTextContent(/^center config repo/)
-  expect([...legend.querySelectorAll('dt')].map((d) => d.textContent)).toEqual(['버전', '처음 실행할 명령', '(이미지) 칸', '(서버) dev·stg·prod', '정리할 것', '흐린 줄', '출처'])
+  expect([...legend.querySelectorAll('.legend-grid > dt')].map((d) => d.textContent)).toEqual(['버전', '처음 실행할 명령', '(이미지) 칸', '(서버) dev·stg·prod', '정리할 것', '흐린 줄', '출처'])
+  // 칸마다 '무엇을 보여주나' 한 줄 + '값 → 뜻' 목록(값마다 한 줄)
+  const todo = [...legend.querySelectorAll('.legend-grid > dt')].find((d) => d.textContent === '정리할 것')!.nextElementSibling!
+  expect(todo.querySelector('.legend-what')).toHaveTextContent('start.sh 기준으로 다음에 할 일')
+  expect([...todo.querySelectorAll('.legend-items > dt')].map((d) => d.textContent)).toEqual(['CMD 로 옮기기', 'start.sh 지우기', 'CMD 넣기', '없음', 'java 라 start.sh 안 씀'])
   // 서비스별로 묶음: shop 의 6개 폴더가 한 칸
   expect(table.getByText('shop').closest('td')).toHaveAttribute('rowspan', '6')
   // 새로고침 = 다시 불러오기
