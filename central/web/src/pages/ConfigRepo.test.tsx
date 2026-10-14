@@ -269,6 +269,8 @@ test('repo 보기 — 서비스마다 repo 프로젝트 · 빌드(CI 이미지) 
       executor_repo: { value: 'shell', guess: false, groups: [{ tag: 'shell-runner', value: 'shell', guess: false, jobs: ['build'] }] },
       repo: { project: 'team/pnl', read: true, build: [], code: { java: '17', java_from: 'build.gradle' } } },
     { service: 'sync', group: 'g1', type: 'was', host: 'gitlab', repo: null }, // repo 를 안 적음
+    // repo 저장소가 없어짐(repo: false) — 안 읽고 'repo 없음', 실행 이미지는 그대로
+    { service: 'old', group: 'g1', type: 'was', host: 'gitlab', runtime: 'node', runtime_version: '18', repo: { project: null, missing: true } },
     { service: 'tv2 web', group: 'g2', type: 'web', host: 'github' },
   ]
   vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(url.includes('/api/cicd/shape') ? shapes : cfg), { status: 200 })))
@@ -304,6 +306,8 @@ test('repo 보기 — 서비스마다 repo 프로젝트 · 빌드(CI 이미지) 
   // repo CI 를 못 읽은 서비스 · repo 를 안 적은 서비스 · GitHub 서비스
   expect(within(table.getByTitle('repo 프로젝트: team/pay (GitLab)').closest('tr')!).getByText('못 읽음')).toBeInTheDocument()
   expect(screen.getByText(/repo 프로젝트를 안 적은 서비스 — sync/)).toBeInTheDocument()
+  const gone = table.getByText('repo 없음').closest('tr')!
+  expect([...gone.querySelectorAll(':scope > td')].slice(-5).map((td) => td.textContent)).toEqual(['was', '—', '—', 'node 18', '—'])
   expect(screen.getByText(/에서 빌드하는 서비스는 GitLab repo 가 없어 이 표에 없어요 — tv2 web/)).toBeInTheDocument()
   expect(table.queryByText('tv2')).toBeNull()
   expect(screen.getByText('확인할 것 — 빌드≠코드 1 · 빌드≠실행 3 · 코드≠실행 0')).toBeInTheDocument()

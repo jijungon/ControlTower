@@ -199,7 +199,8 @@ export type VersionCell = { version: string; tag: string; at?: string | null; jo
 export type Versions = { build: Record<string, VersionCell>; deploy: Record<string, VersionCell> }
 // 코드에 적힌 버전(.nvmrc · package.json · pom.xml)
 export type CodeVersions = { node?: string; node_from?: string; node_rule?: 'exact' | 'min'; nest?: string; java?: string; java_from?: string }
-// repo 쪽 — 프로젝트 · CI 가 빌드에 쓰는 런타임 이미지 · 코드에 적힌 버전. read=false 면 repo CI 를 못 읽음
+// repo 쪽 — 프로젝트 · CI 가 빌드에 쓰는 런타임 이미지 · 코드에 적힌 버전. read=false 면 repo CI 를 못 읽음,
+// missing=true 면 repo 저장소가 없음(없어짐 — 대상 파일에 repo: false) → 안 읽음
 // from='log' = shell 러너라 CI 에 이미지가 없어 build job 로그에서 읽음(guess = 같은 러너의 다른 job 로그에서 본 값)
 export type RepoBuild = {
   runtime: string
@@ -211,7 +212,7 @@ export type RepoBuild = {
   runner?: string | null
   guess?: boolean
 }
-export type RepoInfo = { project?: string | null; read?: boolean; build?: RepoBuild[]; code?: CodeVersions | null }
+export type RepoInfo = { project?: string | null; read?: boolean; missing?: boolean; build?: RepoBuild[]; code?: CodeVersions | null }
 
 export type ShapeRow = {
   service: string
