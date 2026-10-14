@@ -1,6 +1,7 @@
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import { fetchShapes, type DeployCell, type ExecutorCell, type ShapeRow } from '../api'
 import GroupFilter from '../components/GroupFilter'
+import Legend from '../components/Legend'
 import SectionHead, { latestTime, runAll } from '../components/SectionHead'
 
 // 환경 칸 순서(데이터에 있는 환경만 보인다)
@@ -141,29 +142,25 @@ function ExecCell({ e, side }: { e?: ExecutorCell; side: 'repo' | 'center' }) {
   )
 }
 
-function Legend() {
-  return (
-    <details className="legend" open>
-      <summary>표 읽는 법</summary>
-      <ul>
-        <li>
-          <b>dev · stg · prod 칸</b> = 그 환경에 어떻게 배포하나. 윗줄은 방식, 아랫줄은 누가 — <b>파일 복사 / repo</b>(예전 직배포: repo 가 서버에 바로 복사, 옮길 대상) ·{' '}
-          <b>파일 복사 / center</b>(center 를 거쳐 파일로 복사, 이미지 안 만듦) · <b>이미지</b>(center 가 만든 도커 이미지로 배포) ·{' '}
-          <b>빌드만</b>(배포 안 함) · <b>수동</b>(사람이 버튼을 눌러야 함) · <b>compose 기준</b>(CI 에 없어서 서버 compose 로 짐작)
-        </li>
-        <li>
-          <b>⚠ compose 다름</b> = CI 파일에 적힌 배포 방식과 서버의 docker-compose 모양이 서로 달라요 (예: CI 는 이미지인데 서버는 아직 파일 복사 방식)
-        </li>
-        <li>
-          <b>executor</b> = CI 를 돌리는 방식 — <b>shell</b>(러너 서버에서 바로) · <b>docker</b>(깨끗한 컨테이너 안에서). job 마다 다를 수 있어서{' '}
-          <b>job 이름: 방식</b> 으로 한 줄씩(가장 많은 쪽은 <b>나머지 N개</b>). <b>(추정)</b> = 러너가 확인 안 됨 — job 에 <span className="mono">image:</span> 가 있으면 docker, 없으면
-          shell 로 짐작. 확정은 job 로그 맨 윗줄 <span className="mono">Preparing the "…" executor</span> → 대상 파일 <span className="mono">runners:</span> 에 적기
-        </li>
-        <li className="muted">런타임·베이스 이미지·start.sh 는 <b>config</b> 탭에서 봐요 (이 표는 CI 가 어떻게 빌드·배포하나만)</li>
-      </ul>
-    </details>
-  )
-}
+// 표 읽는 법 — 칸마다 한 줄
+const LEGEND: [ReactNode, ReactNode][] = [
+  [
+    'dev · stg · prod',
+    <>
+      그 환경에 배포하는 방식 — <b>이미지</b> · <b>파일 복사</b>(아랫줄 repo/center = 누가 복사) · <b>빌드만</b>. 아랫줄 <b>수동</b> = 버튼을 눌러야 배포,{' '}
+      <b>compose 기준</b> = CI 에 없어서 서버 compose 로 짐작
+    </>,
+  ],
+  [<span className="badge badge--warn">⚠ compose 다름</span>, 'CI 의 배포 방식과 서버 docker-compose 모양이 서로 다름'],
+  [
+    'executor',
+    <>
+      job 마다 <b>shell</b>(러너 서버에서 바로) / <b>docker</b>(컨테이너 안에서) — <b>job 이름: 방식</b>, 가장 많은 쪽은 <b>나머지 N개</b>. <b>▸</b> 를 누르면 job 과
+      image. <b>(추정)</b> = job 로그로 확인 못 함
+    </>,
+  ],
+  ['버전 · start.sh', <>이 표엔 없음 — <b>config</b> 탭에서</>],
+]
 
 export default function CicdCompare() {
   const [rows, setRows] = useState<ShapeRow[] | null>(null)
@@ -212,13 +209,16 @@ export default function CicdCompare() {
     <div>
       <SectionHead
         title="서비스 비교"
-        sub={rows ? `CI 가 어떻게 빌드·배포하나 · 그룹 ${ordered.length}개 · 서비스 ${appCount}개` : undefined}
+        sub={rows ? `그룹 ${ordered.length} · 서비스 ${appCount}` : undefined}
         asOf={latestTime(all.map((r) => r.collected_at))}
         onRefresh={() => runAll(setBusy, [load])}
         busy={busy}
-        source="repo·center 의 .gitlab-ci.yml (+ 서버 docker-compose 로 확인) · 수집 python -m runner.cli shape · 대상 shape-targets.yml"
       />
-      <Legend />
+      <Legend
+        id="build"
+        rows={LEGEND}
+        source="repo·center GitLab 의 .gitlab-ci.yml · job 로그(+ 서버 docker-compose) — python -m runner.cli shape, 대상 shape-targets.yml"
+      />
       <div className="toolbar" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
         <GroupFilter groups={groupNames} value={groupSel} onChange={setGroupSel} />
       </div>

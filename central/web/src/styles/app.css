@@ -122,6 +122,11 @@ table.grid { width: 100%; border-collapse: collapse; font-size: 15px; }
 .legend { font-size: 13px; color: var(--ink-muted-80); margin: 0 0 12px; }
 .legend summary { cursor: pointer; font-weight: 600; color: var(--ink-muted-80); }
 .legend ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.7; }
+/* '칸 | 뜻' 두 줄 표 */
+.legend-grid { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 18px; margin: 10px 0 4px; padding: 12px 14px;
+  background: var(--canvas); border: 1px solid var(--hairline); border-radius: var(--radius-lg); line-height: 1.6; }
+.legend-grid dt { font-weight: 600; color: var(--ink); white-space: nowrap; }
+.legend-grid dd { margin: 0; }
 .legend b { color: var(--ink); font-weight: 600; }
 /* 묶은 표의 경계: 그룹(진한 선) → 서비스(보통 선) → 타입(기본 얇은 선) */
 .grid tbody tr.grp-start td { border-top: 2px solid var(--ink-muted-48); }

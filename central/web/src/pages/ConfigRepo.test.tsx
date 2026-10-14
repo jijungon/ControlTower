@@ -77,7 +77,7 @@ test('처음 실행할 명령(이미지·서버)·정리할 것 — 한 가지 �
   expect(apiRow.querySelectorAll('.run-dot').length).toBe(1)
   expect(table.getByText('CMD 넣기')).toBeInTheDocument()
   expect(table.getByText('Dockerfile 없음')).toBeInTheDocument()
-  expect(screen.getByText(/CMD 로 옮기기 1 · 파일 지우기 1 · CMD 넣기 1 · 코드↔이미지 다름 1 · 오래된 버전 \d+칸/)).toBeInTheDocument()
+  expect(screen.getByText(/할 일 — CMD 로 옮기기 1 · start\.sh 지우기 1 · CMD 넣기 1 · 코드≠이미지 1 · 오래된 버전 \d+칸/)).toBeInTheDocument()
   // 코드에 적힌 버전: 이미지와 다르면 ⚠, '≥' 는 최소 버전이라 이미지가 더 높으면 괜찮음
   const diff = table.getByText('⚠ 다름')
   expect(diff).toHaveAttribute('title', '코드는 node 22(.nvmrc), 이미지는 node 18')
@@ -85,7 +85,11 @@ test('처음 실행할 명령(이미지·서버)·정리할 것 — 한 가지 �
   expect(diff.parentElement).toHaveAttribute('title', expect.stringContaining('nest 11.0.1')) // nest 는 마우스
   expect(table.getByText('node ≥20')).toBeInTheDocument()
   expect(table.getAllByText('⚠ 다름').length).toBe(1)
-  expect(screen.getByText(/출처: center config repo/)).toBeInTheDocument()
+  // 표 읽는 법: 기본은 접힘, '칸 | 뜻' 표 + 맨 아래 출처
+  const legend = screen.getByText('표 읽는 법').closest('details')!
+  expect(legend).not.toHaveAttribute('open')
+  expect(within(legend).getByText('출처').nextElementSibling).toHaveTextContent(/^center config repo/)
+  expect([...legend.querySelectorAll('dt')].map((d) => d.textContent)).toEqual(['버전', '처음 실행할 명령', '(이미지) 칸', '(서버) dev·stg·prod', '정리할 것', '흐린 줄', '출처'])
   // 서비스별로 묶음: shop 의 6개 폴더가 한 칸
   expect(table.getByText('shop').closest('td')).toHaveAttribute('rowspan', '6')
   // 새로고침 = 다시 불러오기
@@ -145,7 +149,7 @@ test('합쳐진 폴더는 흐리게 + 합쳐짐 → 합쳐진 곳, 요약에서 
   expect(table.queryByText('CMD 로 옮기기')).toBeNull() // 할 일 대신 '합쳐짐'
   expect(within(badge.closest('tr')!).queryByText('안 읽음')).toBeNull() // 안 쓰는 폴더라 서버 칸은 '—'
   expect(table.getByText('node 18')).not.toHaveClass('ver--old') // 비교에서 빠져서 빨간 칸 아님
-  expect(screen.getByText(/CMD 로 옮기기 0 · 파일 지우기 0 · CMD 넣기 0 · 코드↔이미지 다름 0 · 오래된 버전 0칸/)).toBeInTheDocument()
+  expect(screen.getByText(/CMD 로 옮기기 0 · start\.sh 지우기 0 · CMD 넣기 0 · 코드≠이미지 0 · 오래된 버전 0칸/)).toBeInTheDocument()
 })
 
 test("배포 안 하는 환경은 '안 읽음' 대신 '—', CI 를 못 읽어 모르면 그대로 '안 읽음'", async () => {
@@ -180,7 +184,7 @@ test('역할로 나뉜 폴더는 역할마다 한 줄 + 옆에 실제 폴더, �
   expect(mgr).toHaveTextContent(/^manager \(web\)$/)
   expect(mgr).toHaveAttribute('title', expect.stringContaining('config 폴더는 acct/web'))
   expect(table.getByText('acct').closest('td')).toHaveAttribute('rowspan', '2') // 서비스 칸 하나에 두 줄
-  expect(screen.getByText(/파일 지우기 1 ·/)).toBeInTheDocument() // 같은 폴더라 한 번
+  expect(screen.getByText(/start\.sh 지우기 1 ·/)).toBeInTheDocument() // 같은 폴더라 한 번
 })
 
 test('그룹 칸·그룹 필터 — 빌드·배포 표처럼 그룹 → 서비스 → 타입, 런타임 필터는 없음', async () => {

@@ -1,6 +1,7 @@
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import { fetchConfig, type ComposeSrc, type ConfigRow } from '../api'
 import GroupFilter from '../components/GroupFilter'
+import Legend from '../components/Legend'
 import SectionHead, { latestTime, runAll } from '../components/SectionHead'
 import { isOld, newestBy, Ver, verParts } from '../vercmp'
 
@@ -253,6 +254,58 @@ function todoCell(r: ConfigRow) {
   )
 }
 
+// 표 읽는 법 — 칸마다 한 줄
+const LEGEND: [ReactNode, ReactNode][] = [
+  [
+    '버전',
+    <>
+      <b>코드에 적힌 버전</b>(.nvmrc·package.json·pom.xml, ≥20 = 20 이상) · <b>런타임</b>(이미지 안 node·java) · <b>베이스 이미지</b>(Dockerfile FROM).{' '}
+      <span className="badge badge--warn">⚠ 다름</span> 코드≠이미지 · <span className="ver ver--old">⚠ 빨간 칸</span> 같은 종류 중 최신 아님
+    </>,
+  ],
+  [
+    '처음 실행할 명령',
+    <>
+      앱을 띄우는 명령이 어디 있나 — <span className="badge badge--warn">start.sh</span> <span className="badge badge--ok">Dockerfile CMD</span>{' '}
+      <span className="badge badge--ok">서버 compose</span> <span className="badge badge--muted">베이스 이미지</span>(java 가 jar 실행){' '}
+      <span className="badge badge--warn">없음 → 서버가 줌</span>
+    </>,
+  ],
+  [
+    '(이미지) 칸',
+    <>
+      config 의 Dockerfile 이 넣어 둔 명령. <span className="run-dot" />= 그대로 쓰는 서버가 있음 ·{' '}
+      <span className="run-unused">
+        <span className="badge badge--warn">흐린 배지</span>
+      </span>{' '}
+      = 서버가 모두 덮어써서 안 씀
+    </>,
+  ],
+  [
+    '(서버) dev·stg·prod',
+    <>
+      <span className="run-dot" />
+      <span className="badge badge--ok">서버 compose</span> 서버가 덮어써서 실행 · <span className="st-asis">← 이미지</span> 이미지 명령 그대로 ·{' '}
+      <span className="st-unread">안 읽음</span> · <span className="miss-fail st-fail">못 읽음</span> · <span className="muted">—</span> 읽을 게 없음(배포 안 함 등). 옆 작은 글씨
+      = 어디서 읽었나(서버·gw·사본…)
+    </>,
+  ],
+  [
+    '정리할 것',
+    <>
+      <span className="badge badge--danger">CMD 로 옮기기</span> <span className="badge badge--warn">start.sh 지우기</span>{' '}
+      <span className="badge badge--warn">CMD 넣기</span> <span className="badge badge--ok">없음</span>{' '}
+      <span className="badge badge--muted">java 라 start.sh 안 씀</span>
+    </>,
+  ],
+  [
+    '흐린 줄',
+    <>
+      <span className="badge badge--muted">합쳐짐 → chat/was</span> 다른 폴더로 합쳐져 안 씀(요약 숫자에서 빠짐)
+    </>,
+  ],
+]
+
 export default function ConfigRepo() {
   const [rows, setRows] = useState<ConfigRow[] | null>(null)
   const [err, setErr] = useState(false)
@@ -282,7 +335,6 @@ export default function ConfigRepo() {
     (n, r) => n + (isOld(runtimeOf(r), newestRuntime) ? 1 : 0) + (isOld(baseOf(r), newestBase) ? 1 : 0),
     0,
   )
-  const latest = [...newestRuntime].map(([k, v]) => `${k} ${v}`).join(' · ')
   const codeDiff = folders.filter((r) => codeMismatch(r)).length
   // 그룹(프로젝트 묶음) → 서비스 → 타입 으로 묶기 (빌드·배포 표와 같은 모양): 'admin/web' → admin 의 web
   const groupOf = (r: ConfigRow) => r.group || '기타'
@@ -305,69 +357,26 @@ export default function ConfigRepo() {
     <div>
       <div className="page-head">
         <h1 className="page-title">config</h1>
-        <p className="page-sub">
-          center 가 이미지를 만들 때 참조하는 config repo — 폴더(서비스/타입)마다 버전 · 처음 실행할 명령 · 정리할 것
-        </p>
+        <p className="page-sub">이미지가 무엇으로 만들어지고 어떻게 뜨나 — config repo 폴더마다</p>
       </div>
 
       <SectionHead
         title="config 폴더"
         sub={
           rows
-            ? `CMD 로 옮기기 ${count('legacy')} · 파일 지우기 ${count('leftover')} · CMD 넣기 ${count('server')} · 코드↔이미지 다름 ${codeDiff} · 오래된 버전 ${oldCount}칸${latest ? ` · 최신: ${latest}` : ''}`
+            ? `할 일 — CMD 로 옮기기 ${count('legacy')} · start.sh 지우기 ${count('leftover')} · CMD 넣기 ${count('server')} · 코드≠이미지 ${codeDiff} · 오래된 버전 ${oldCount}칸`
             : undefined
         }
         asOf={latestTime(all.map((r) => r.collected_at))}
         onRefresh={() => runAll(setBusy, [load])}
         busy={busy}
-        source="center config repo(Dockerfile·start.sh) · repo 코드(.nvmrc·package.json·pom.xml) · 서버 docker-compose · 수집 python -m runner.cli shape · 대상 shape-targets.yml"
       />
 
-      <details className="legend" open>
-        <summary>표 읽는 법</summary>
-        <ul>
-          <li>
-            <b>처음 실행할 명령</b> = 컨테이너가 켜질 때 앱을 띄우는 명령이 어디 있나. 모든 칸이 이 말만 써요 —{' '}
-            <span className="badge badge--warn">start.sh</span> 별도 스크립트 · <span className="badge badge--ok">Dockerfile CMD</span> 이미지 안 ·{' '}
-            <span className="badge badge--ok">서버 compose</span> 서버의 <span className="mono">command:</span> ·{' '}
-            <span className="badge badge--muted">베이스 이미지</span> springboot 처럼 이미지가 알아서(jar 실행, start.sh 안 씀) ·{' '}
-            <span className="badge badge--warn">없음 → 서버가 줌</span> 이미지 혼자 못 띄움
-          </li>
-          <li>
-            <b>(서버) 칸 모양 4가지</b> — <span className="run-dot" />
-            <span className="badge badge--ok">서버 compose</span> 서버가 덮어씀 · <span className="st-asis">← 이미지</span> 확인됨(이미지 명령 그대로) ·{' '}
-            <span className="st-unread">안 읽음</span> 아직 안 봄 · <span className="miss-fail st-fail">못 읽음</span> 읽으려다 실패(옆에 짧은 이유) ·{' '}
-            <span className="muted">—</span> 읽을 게 없음(그 환경엔 배포 안 함, 또는 start.sh 를 안 쓰는 이미지)
-          </li>
-          <li>
-            <span className="run-dot" /> = 그 서버에서 <b>실제로 실행되는</b> 명령. 기본은 이미지 안의 명령(Dockerfile)이 실행되고, 서버 compose 가 <span className="mono">command:</span> 를 주거나
-            start.sh 를 넣으면 그게 <b>덮어써서</b> 실행돼요. <b>← 이미지</b> = 그 서버는 (이미지) 칸 명령을 그대로 씀
-          </li>
-          <li>
-            <b>(서버) 칸 옆 작은 글씨 = 어디서 읽었나</b> — <b>서버</b>: 실서버에서 직접 읽음 · <b>자동</b>: center CI 의 배포 서버·폴더로 찾아서 읽음 · <b>gw</b>: 게이트웨이를 거쳐 실서버에서 읽음 ·{' '}
-            <b>사본</b>: 복사해 둔 파일(실서버와 다를 수 있음) · <b>옛 사본</b>: 옛날 하네스 파일. 자세한 건 칸에 마우스
-          </li>
-          <li>
-            <b>(이미지)</b> = Dockerfile 이 이미지에 넣어 둔 명령 (<span className="run-unused"><span className="badge badge--warn">흐린 배지</span></span> = 읽은 서버가 모두 덮어써서 안 쓰임) · <b>(서버) dev·stg·prod</b> = 그 서버에서 실제로 앱을 띄우는 명령 (서버 compose 가 명령을 주거나
-            start.sh 를 넣으면 그게 우선, 아니면 이미지 그대로) — 파일 복사로 배포하는 서버는 이미지를 안 써서 둘이 달라질 수 있어요
-          </li>
-          <li>
-            <b>정리할 것</b> — <span className="badge badge--danger">CMD 로 옮기기</span> start.sh 를 Dockerfile CMD 로 ·{' '}
-            <span className="badge badge--warn">start.sh 지우기</span> 안 쓰는 파일 · <span className="badge badge--warn">CMD 넣기</span> 지금은 서버가 띄움 ·{' '}
-            <span className="badge badge--ok">없음</span> · <span className="badge badge--muted">java 라 start.sh 안 씀</span> 베이스 이미지가 jar 를 띄움
-          </li>
-          <li>
-            흐린 줄 + <span className="badge badge--muted">합쳐짐 → chat/was</span> = 다른 폴더로 합쳐져 안 쓰는 폴더(요약 숫자에서 빠짐)
-          </li>
-          <li>
-            <b>코드에 적힌 버전</b> = repo 코드의 <span className="mono">.nvmrc</span>·<span className="mono">package.json</span>·<span className="mono">pom.xml</span> 에 "이 버전으로
-            빌드해라" 고 적힌 값 (<b>≥20</b> = 20 이상이면 됨). 옆의 런타임(이미지)과 다르면 <span className="badge badge--warn">⚠ 다름</span>
-          </li>
-          <li>
-            <span className="ver ver--old">⚠ 빨간 칸</span> = 같은 종류 중 최신이 아닌 버전
-          </li>
-        </ul>
-      </details>
+      <Legend
+        id="config"
+        rows={LEGEND}
+        source="center config repo(Dockerfile·start.sh) · repo 코드(.nvmrc·package.json·pom.xml) · 서버 docker-compose — python -m runner.cli shape, 대상 shape-targets.yml"
+      />
 
       <div className="toolbar" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
         <GroupFilter groups={groupNames} value={groupSel} onChange={setGroupSel} />
