@@ -915,3 +915,39 @@ def test_build_row_host_gitlab_or_github():
     assert build_row({"name": "a", "center": "g/a"}, {})["data"]["host"] == "gitlab"
     assert build_row({"name": "b", "github": "org/b"}, {})["data"]["host"] == "github"  # GitHub 에서 빌드(아직 못 읽음)
     assert build_row({"name": "c", "compose": {}}, {})["data"]["host"] is None
+
+
+def test_executor_from_logs_skips_unstarted_jobs_and_caches_by_runner(monkeypatch):
+    """로그 확인은 실제로 돈 job 만(대기·수동·건너뜀 제외), 같은 러너는 한 번만 읽음."""
+    import types
+
+    import runner.cli as cli
+
+    jobs = [
+        {"id": 9, "name": "build", "status": "manual", "runner_id": None},
+        {"id": 8, "name": "build", "status": "success", "runner_id": 5},
+        {"id": 7, "name": "lint", "status": "failed", "runner_id": 5},
+    ]
+    logs: list[int] = []
+    monkeypatch.setattr(cli, "fetch_recent_jobs", lambda *a, **k: jobs)
+    monkeypatch.setattr(cli, "fetch_job_log_head", lambda u, t, p, jid, timeout=8: logs.append(jid) or 'Preparing the "shell" executor')
+    cfg = types.SimpleNamespace(gitlab_url="http://repo", gitlab_token="t", gitlab_center_url="", gitlab_center_token="", connect_timeout=1)
+    cell = {"groups": [{"tag": "a", "jobs": ["build"], "images": {}}, {"tag": "b", "jobs": ["lint"], "images": {}}]}
+    out = cli._executor_from_logs("repo", "g/p", cell, cfg, {})
+    assert out == {"a": {"executor": "shell", "job_id": 8}, "b": {"executor": "shell", "job_id": 8}}  # 같은 러너(5) → 로그 한 번
+    assert logs == [8]
+    # 토큰이 없으면 아무것도 안 함
+    cfg.gitlab_token = ""
+    assert cli._executor_from_logs("repo", "g/p", cell, cfg, {}) == {}
+
+
+def test_ci_source_ref_and_local_fallback():
+    import types
+
+    from runner.cli import _ci_source
+
+    cfg = types.SimpleNamespace(gitlab_url="", gitlab_token="", gitlab_center_url="", gitlab_center_token="")
+    svc = {"repo": {"project": "g/web", "ref": "dev"}, "repo_ci": {"file": "a.yml"}}
+    assert _ci_source(svc, "repo", cfg, "api") == ({"gitlab": "repo", "project": "g/web", "path": ".gitlab-ci.yml", "ref": "dev"}, ("g/web", "dev"))
+    assert _ci_source(svc, "repo", cfg, "local") == ({"file": "a.yml"}, None)
+    assert _ci_source({"repo_ci": {"file": "b.yml"}}, "repo", cfg, "api") == ({"file": "b.yml"}, None)  # 프로젝트 이름 없으면 로컬

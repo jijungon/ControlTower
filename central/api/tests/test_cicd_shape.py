@@ -70,3 +70,16 @@ def test_config_upload_list_and_replace(client):
     assert r.json() == {"accepted": 1, "removed": 1}
     assert [x["path"] for x in client.get("/api/cicd/config").json()] == ["shop/web"]
     assert "cicd.config" in [a["action"] for a in client.get("/api/audit").json()]
+
+
+def test_new_fields_pass_through_unchanged(client):
+    """러너가 늘린 값(빌드 위치·job 별 이미지·러너 이름·config repo·역할 폴더 등)은 data 안에 그대로 저장·조회 — 스키마 변경 없음."""
+    ex = {"value": "shell", "guess": False, "groups": [{"tag": "b", "value": "shell", "guess": False, "why": "job 로그 #1", "jobs": ["build"], "images": {}, "runner_name": "r-01", "default_image": "x:1"}]}
+    client.post("/api/cicd/shape", json={"shapes": [_shape("a web", host="github", executor_center=ex)]}, headers=AUTH)
+    row = client.get("/api/cicd/shape").json()[0]
+    assert row["host"] == "github" and row["executor_center"] == ex
+    item = {"path": "a/manager", "data": {"state": "done", "folder": "a/web", "config_repo": "a/config", "group": "g", "deploy_envs": ["dev"],
+                                          "compose_miss": {"prod": {"state": "fail", "reason": "x"}}}}
+    client.post("/api/cicd/config", json={"items": [item]}, headers=AUTH)
+    got = client.get("/api/cicd/config").json()[0]
+    assert {k: got[k] for k in ("folder", "config_repo", "group", "deploy_envs", "compose_miss")} == {k: item["data"][k] for k in ("folder", "config_repo", "group", "deploy_envs", "compose_miss")}

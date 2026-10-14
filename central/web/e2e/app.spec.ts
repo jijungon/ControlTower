@@ -71,8 +71,23 @@ test.beforeAll(async () => {
   const shape = await api.post('/api/cicd/shape', {
     data: {
       shapes: [
-        { service: 'shop web', group: 'shop', data: { runtime: 'node', runtime_version: '18', deploy: { dev: { path: 'direct', by: 'repo', manual: false } }, startup: true } },
-        { service: 'shop admin', group: 'shop', data: { runtime: 'node', runtime_version: '20', deploy: { dev: { path: 'image', manual: false } }, startup: false } },
+        { service: 'shop web', group: 'shop', data: { runtime: 'node', runtime_version: '18', deploy: { dev: { path: 'direct', by: 'repo', manual: false } }, startup: true, host: 'gitlab' } },
+        {
+          service: 'shop admin', group: 'shop',
+          data: {
+            runtime: 'node', runtime_version: '20', deploy: { dev: { path: 'image', manual: false } }, startup: false, host: 'gitlab',
+            // job 로그로 확정한 executor — 펼치면 job | image | 러너, 아래 러너 표에 등록된 이름
+            executor_center: {
+              value: 'docker', guess: false, tags: ['builder', 'deployer'], counts: { shell: 1, docker: 2 },
+              groups: [
+                { tag: 'builder', value: 'shell', guess: false, why: 'job 로그 #11', jobs: ['build'], images: {}, runner_name: 'build-host-01' },
+                { tag: 'deployer', value: 'docker', guess: false, why: 'job 로그 #12', jobs: ['deploy-dev', 'deploy-prod'], images: { 'deploy-dev': 'deploy-image:latest', 'deploy-prod': 'deploy-image:latest' }, runner_name: 'gw-dev-01' },
+              ],
+            },
+          },
+        },
+        // GitHub 에서 빌드하는 서비스 — 그룹 칸에 [GitHub], config 표 아래 '여기 없음'
+        { service: 'blog web', group: 'blog', data: { deploy: { dev: { path: 'image', by: 'compose', manual: null } }, host: 'github' } },
       ],
     },
   })
@@ -82,8 +97,18 @@ test.beforeAll(async () => {
   const cfg = await api.post('/api/cicd/config', {
     data: {
       items: [
-        { path: 'shop/web', data: { runtime: 'node', runtime_version: '18', base_image: 'infra/nodejs', base_tag: 'v18', start: 'start.sh', start_files: ['node-startup.sh'], state: 'legacy', compose: { dev: 'mount' }, code: { node: '22', node_from: '.nvmrc', node_rule: 'exact' } } },
-        { path: 'shop/api', data: { runtime: 'node', runtime_version: '22', base_image: 'node', base_tag: '22-slim', start: 'dockerfile', start_files: [], state: 'done', compose: { dev: 'command' } } },
+        {
+          path: 'shop/web',
+          data: {
+            runtime: 'node', runtime_version: '18', base_image: 'infra/nodejs', base_tag: 'v18', start: 'start.sh', start_files: ['node-startup.sh'], state: 'legacy',
+            compose: { dev: 'mount' }, code: { node: '22', node_from: '.nvmrc', node_rule: 'exact' }, group: 'shop', config_repo: 'shop/config',
+            compose_src: { dev: { kind: 'ssh', auto: true, via: 'gw-dev', where: 'gw-dev → web-dev:/app/web-shop/docker-compose.yml' } },
+            compose_miss: { prod: { state: 'fail', reason: 'SSH 로 못 읽음 — gw-prod → web-prod (Host key verification failed.)' } },
+            deploy_envs: ['dev', 'prod'],
+          },
+        },
+        { path: 'shop/api', data: { runtime: 'node', runtime_version: '22', base_image: 'node', base_tag: '22-slim', start: 'dockerfile', start_files: [], state: 'done', compose: { dev: 'command' }, group: 'shop', config_repo: 'shop/config' } },
+        { path: 'shop/old', data: { state: 'none', merged_into: 'shop/api', group: 'shop', config_repo: 'shop/config' } },
       ],
     },
   })
@@ -144,7 +169,7 @@ test('서버 탭에 서버마다 깔린 도구 버전이 보인다', async ({ pa
 test('빌드·배포 탭 서비스 비교표 — 배포 방식·범례', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: '빌드·배포' }).click()
-  await expect(page.getByText('shop admin')).toBeVisible()
+  await expect(page.locator('td.svc-cell', { hasText: 'shop admin' })).toBeVisible() // 러너 표에도 서비스 이름이 나와서 칸으로 좁힘
   await expect(page.locator('table.grid--nowrap').getByText('repo', { exact: true })).toBeVisible()
   await expect(page.getByText('표 읽는 법')).toBeVisible()
 })
@@ -172,4 +197,54 @@ test('config 탭 — 처음 실행할 명령(이미지·서버)·정리할 것 +
   await expect(page.locator('table.grid--nowrap').getByText('⚠ 다름')).toBeVisible() // 코드 node 22 ≠ 이미지 node 18
   await page.getByRole('button', { name: 'config 폴더 새로고침' }).click()
   await expect(page.getByText(/데이터 기준/)).toBeVisible()
+})
+
+test('빌드·배포 — 그룹 칸 GitLab/GitHub, executor 펼치면 job | image | 러너, 러너 표', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: '빌드·배포', exact: true }).click()
+  const table = page.locator('table.grid--nowrap')
+  await expect(table.locator('td.grp-cell', { hasText: 'shop' })).toContainText('GitLab')
+  await expect(table.locator('td.grp-cell', { hasText: 'blog' })).toContainText('GitHub')
+  // executor ▸ 펼치기 — 열 맞춘 작은 표
+  await page.getByLabel('center 나머지 2개 펼치기').click()
+  const mini = table.locator('details.exec-more[open] table.mini-table') // 닫힌 줄의 표도 DOM 엔 있어서 펼친 것만
+  await expect(mini.locator('th')).toHaveText(['job', 'image', '러너'])
+  await expect(mini.locator('tbody tr').first()).toContainText('deploy-dev')
+  await expect(mini.locator('tbody tr').first()).toContainText('deploy-image:latest')
+  // 러너 표: 태그마다 방식 · 확인 근거 · 등록된 이름
+  await expect(page.getByRole('heading', { name: '러너' })).toBeVisible()
+  const runners = page.locator('.section-head', { hasText: '러너' }).locator('+ .card')
+  await expect(runners.locator('tr', { hasText: 'builder' })).toContainText('확정 · job 로그 #11')
+  await expect(runners.locator('tr', { hasText: 'builder' })).toContainText('build-host-01')
+  // 표 읽는 법은 기본 접힘 → 펼치면 칸 | 뜻
+  const legend = page.locator('details.legend')
+  await expect(legend).not.toHaveAttribute('open', '')
+  await legend.locator('summary').click()
+  await expect(legend.locator('.legend-grid > dt').first()).toHaveText('dev · stg · prod')
+})
+
+test('config — ▸ 줄 펼치면 환경별 표, 그룹 칸 config repo, GitHub 서비스 안내', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'config' }).click()
+  const table = page.locator('table.grid--nowrap')
+  await expect(table.locator('td.grp-cell', { hasText: 'shop' })).toContainText('shop/config')
+  await expect(page.locator('.note-line')).toContainText('blog web')
+  await page.getByRole('button', { name: 'shop/web 환경별 자세히' }).click()
+  const detail = table.locator('tr.row-detail table.mini-table')
+  await expect(detail.locator('th')).toHaveText(['환경', '처음 실행할 명령', '어디서 읽었나', '위치 · 이유'])
+  await expect(detail.locator('tbody tr', { hasText: 'dev' })).toContainText('gw-dev → web-dev')
+  await expect(detail.locator('tbody tr', { hasText: 'prod' })).toContainText('못 읽음')
+  await expect(detail.locator('tbody tr', { hasText: 'stg' })).toContainText('이 환경엔 배포 안 함')
+  // 합쳐진 폴더는 흐린 줄 + 합쳐짐
+  await expect(table.getByText('합쳐짐 → shop/api')).toBeVisible()
+})
+
+test('대시보드 카드를 누르면 그 탭으로 · 작업이력은 페이지로', async ({ page }) => {
+  await page.goto('/')
+  await page.locator('a.stat', { hasText: '파일 복사 배포' }).click()
+  await expect(page.getByRole('heading', { name: '빌드 · 배포' })).toBeVisible()
+  await page.getByRole('button', { name: 'OS 패치·작업이력' }).click()
+  const pager = page.getByRole('navigation', { name: '작업이력 페이지' })
+  await expect(pager).toContainText(/^1–\d+ \/ \d+/)
+  await expect(pager.getByRole('radio', { name: '20개' })).toBeVisible()
 })
