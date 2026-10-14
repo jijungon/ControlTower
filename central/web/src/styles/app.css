@@ -125,15 +125,16 @@ table.grid { width: 100%; border-collapse: collapse; font-size: 15px; }
 /* '칸 | 뜻' 두 줄 표 */
 .legend-grid { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0 18px; margin: 10px 0 4px; padding: 4px 14px;
   background: var(--canvas); border: 1px solid var(--hairline); border-radius: var(--radius-lg); line-height: 1.6; }
-.legend-grid > dt, .legend-grid > dd { padding: 10px 0; border-top: 1px solid var(--divider-soft); }
+.legend-grid > dt, .legend-grid > dd { padding: 8px 0; border-top: 1px solid var(--divider-soft); }
 .legend-grid > dt:first-of-type, .legend-grid > dt:first-of-type + dd { border-top: 0; }
 .legend-grid > dt { font-weight: 600; color: var(--ink); white-space: nowrap; }
 .legend-grid > dd { margin: 0; }
 .legend-what { color: var(--ink); } /* 이 칸이 무엇을 보여주나 */
-/* 값 → 뜻: 값마다 한 줄 */
-.legend-items { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 12px; margin: 6px 0 0; align-items: center; }
-.legend-items > dt { font-weight: 400; color: var(--ink); white-space: nowrap; }
-.legend-items > dd { margin: 0; color: var(--ink-muted-80); }
+/* 값 → 뜻: 한 쌍씩 옆으로 흐름(쌍 사이는 넓게, 쌍 안은 좁게) */
+.legend-items { display: flex; flex-wrap: wrap; gap: 6px 26px; margin: 6px 0 0; padding: 0; list-style: none; }
+.legend-items > li { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.legend-v { color: var(--ink); }
+.legend-m { color: var(--ink-muted-80); }
 .legend b { color: var(--ink); font-weight: 600; }
 /* 묶은 표의 경계: 그룹(진한 선) → 서비스(보통 선) → 타입(기본 얇은 선) */
 .grid tbody tr.grp-start td { border-top: 2px solid var(--ink-muted-48); }

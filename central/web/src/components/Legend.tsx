@@ -1,6 +1,6 @@
 import { Fragment, useState, type ReactNode } from 'react'
 
-// 표 읽는 법 한 칸: 이 칸이 무엇을 보여주나(what) + 칸에 나올 수 있는 값 → 뜻(items, 값마다 한 줄)
+// 표 읽는 법 한 칸: 이 칸이 무엇을 보여주나(what) + 칸에 나올 수 있는 값 → 뜻(items, 짧게)
 export type LegendRow = { term: ReactNode; what: ReactNode; items?: [ReactNode, ReactNode][] }
 
 // '표 읽는 법' — 기본은 접어 두고, 펼치면 칸마다 '무엇을 보여주나' + '값 → 뜻'. 맨 아래 '출처'.
@@ -36,14 +36,15 @@ export default function Legend({ id, rows, source }: { id: string; rows: LegendR
             <dd>
               <div className="legend-what">{r.what}</div>
               {r.items && (
-                <dl className="legend-items">
+                // 값 → 뜻 한 쌍씩, 옆으로 흘려서(넓으면 한 줄에 여러 쌍) 높이를 줄임
+                <ul className="legend-items">
                   {r.items.map(([value, meaning], j) => (
-                    <Fragment key={j}>
-                      <dt>{value}</dt>
-                      <dd>{meaning}</dd>
-                    </Fragment>
+                    <li key={j}>
+                      <span className="legend-v">{value}</span>
+                      <span className="legend-m">{meaning}</span>
+                    </li>
                   ))}
-                </dl>
+                </ul>
               )}
             </dd>
           </Fragment>

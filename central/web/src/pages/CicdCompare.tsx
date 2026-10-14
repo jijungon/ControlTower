@@ -142,37 +142,31 @@ function ExecCell({ e, side }: { e?: ExecutorCell; side: 'repo' | 'center' }) {
   )
 }
 
-// 표 읽는 법 — 칸마다 '무엇을 보여주나' + '값 → 뜻'
+// 표 읽는 법 — 칸마다 '무엇을 보여주나' + '값 → 뜻'(짧게)
 const LEGEND: LegendRow[] = [
   {
     term: 'dev · stg · prod',
-    what: '그 환경에 어떻게 배포하나 (윗줄 = 방식, 아랫줄 = 덧붙임)',
+    what: '그 환경에 어떻게 배포하나',
     items: [
-      ['이미지', 'center 가 만든 도커 이미지로 배포'],
-      ['파일 복사', '빌드 결과물을 서버에 바로 복사(이미지 안 만듦)'],
-      ['빌드만', '빌드만 하고 배포는 안 함'],
-      [<span className="muted">아랫줄 repo · center</span>, '파일 복사를 누가 하나 — repo 는 예전 직배포(옮길 대상)'],
-      [<span className="muted">아랫줄 수동</span>, '사람이 GitLab 에서 버튼을 눌러야 배포'],
-      [<span className="muted">아랫줄 compose 기준</span>, 'CI 에 없어서 서버 compose 로 짐작한 값'],
-      [<span className="muted">—</span>, '그 환경엔 배포 안 함'],
+      ['이미지', '도커 이미지로 배포'],
+      ['파일 복사', '결과물을 서버에 복사'],
+      ['빌드만', '배포 안 함'],
+      [<span className="muted">아랫줄 repo · center</span>, '누가 복사'],
+      [<span className="muted">아랫줄 수동</span>, '버튼 눌러 배포'],
+      [<span className="muted">아랫줄 compose 기준</span>, '서버 compose 로 짐작'],
     ],
   },
-  {
-    term: <span className="badge badge--warn">⚠ compose 다름</span>,
-    what: 'CI 에 적힌 배포 방식과 서버 docker-compose 모양이 서로 다름 — 둘 중 하나가 옛날 상태',
-  },
+  { term: <span className="badge badge--warn">⚠ compose 다름</span>, what: 'CI 와 서버 compose 의 배포 모양이 다름' },
   {
     term: 'executor',
-    what: "CI job 을 어디서 돌리나 — 'job 이름: 방식' 으로 한 줄씩, 가장 많은 쪽은 '나머지 N개'",
+    what: 'job 을 어디서 돌리나 (job 이름: 방식)',
     items: [
-      [<b>shell</b>, '러너 서버에서 바로 실행'],
-      [<b>docker</b>, '컨테이너 안에서 실행'],
-      [<small className="muted">(추정)</small>, 'job 로그로 확인 못 한 값 — image: 가 있으면 docker, 없으면 shell 로 짐작'],
-      ['▸', '누르면 job 하나하나와 쓰는 image'],
-      [<span className="muted">—</span>, '그 CI 파일을 안 읽음'],
+      [<b>shell</b>, '러너 서버에서'],
+      [<b>docker</b>, '컨테이너에서'],
+      [<small className="muted">(추정)</small>, '로그로 확인 못 함'],
+      ['▸', 'job · image 보기'],
     ],
   },
-  { term: '버전 · start.sh', what: <>이 표엔 없음 — <b>config</b> 탭에서</> },
 ]
 
 export default function CicdCompare() {
@@ -230,7 +224,7 @@ export default function CicdCompare() {
       <Legend
         id="build"
         rows={LEGEND}
-        source="repo·center GitLab 의 .gitlab-ci.yml · job 로그(+ 서버 docker-compose) — python -m runner.cli shape, 대상 shape-targets.yml"
+        source="repo·center GitLab(.gitlab-ci.yml · job 로그) + 서버 docker-compose — runner shape"
       />
       <div className="toolbar" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
         <GroupFilter groups={groupNames} value={groupSel} onChange={setGroupSel} />

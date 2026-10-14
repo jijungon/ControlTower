@@ -27,7 +27,7 @@ test('탭 5개 — 빌드·배포 / config / OS 패치·작업이력', async () 
   expect(screen.queryByRole('heading', { name: '버전' })).toBeNull()
   expect(screen.queryByRole('heading', { name: '파이프라인 상태' })).toBeNull()
   // 출처는 '표 읽는 법'(접힘) 맨 아래로
-  expect(screen.getByText('출처').nextElementSibling).toHaveTextContent(/^repo·center GitLab 의 \.gitlab-ci\.yml/)
+  expect(screen.getByText('출처').nextElementSibling).toHaveTextContent(/^repo·center GitLab\(\.gitlab-ci\.yml/)
   await userEvent.click(screen.getByRole('button', { name: 'config' }))
   expect(screen.getByRole('heading', { name: 'config 폴더' })).toBeInTheDocument()
   await userEvent.click(screen.getByRole('button', { name: 'OS 패치·작업이력' }))
