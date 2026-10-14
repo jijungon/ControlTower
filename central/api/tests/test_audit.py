@@ -35,3 +35,12 @@ def test_audit_conn_test_recorded(client):
     client.post("/api/connection-tests", json={"results": [{"server_id": sid, "ok": True}]}, headers=AUTH)
     row = next(a for a in client.get("/api/audit").json() if a["action"] == "conn.test")
     assert row["detail"] == "1/1 OK"
+
+
+def test_audit_paging_offset_and_total(client):
+    for i in range(3):
+        client.post("/api/servers/import", json={"servers": [{"hostname": f"web-0{i}", "ssh_user": "deploy"}]}, headers=AUTH)
+    full = client.get("/api/audit").json()
+    r = client.get("/api/audit", params={"limit": 2, "offset": 1})
+    assert r.headers["X-Total-Count"] == str(len(full))  # 전체 건수 — 화면 '1–10 / N'
+    assert [a["id"] for a in r.json()] == [a["id"] for a in full[1:3]]  # 최신순에서 1 건 건너뛰고 2 건

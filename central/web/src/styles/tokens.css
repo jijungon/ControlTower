@@ -50,4 +50,8 @@
   --ok: #1d8a4e;     --ok-bg: #e8f5ee;
   --warn: #8a6d00;   --warn-bg: #faf1d8;
   --danger: #b3261e; --danger-bg: #fbe9e7;
+
+  /* executor 색 — docker = 하늘(도커 색), shell = 연두(터미널 글자색). 글자는 읽히게 조금 진하게 */
+  --exec-docker: #1b78c8; --exec-docker-bg: #e3f1fc;
+  --exec-shell: #2f9a35;  --exec-shell-bg: #e7f7e3;
 }

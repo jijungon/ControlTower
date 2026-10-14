@@ -41,10 +41,33 @@ button { font-family: inherit; cursor: pointer; }
 }
 .tab:hover { color: var(--ink); }
 .tab--active { color: var(--primary); background: var(--canvas); }
+/* 알약 버튼 묶음(그룹 필터) — 상단 탭과 같은 모양, 빌드·배포·config 가 같이 씀 */
+.seg { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--hairline); border-radius: var(--radius-pill); background: var(--canvas); }
+.seg-label { font-size: 12px; color: var(--ink-muted-48); padding: 0 6px 0 10px; }
+.seg-btn { border: 0; background: transparent; color: var(--ink-muted-80); font-size: 13px; padding: 5px 13px; border-radius: var(--radius-pill); cursor: pointer; }
+.seg-btn:hover { color: var(--ink); }
+.seg-btn--active { color: var(--primary); background: rgba(245, 245, 247, 0.9); font-weight: 600; }
+/* 어디서 빌드하나 — GitLab(주황) · GitHub(검정) */
+.host-badge { display: inline-block; font-size: 10px; font-weight: 600; line-height: 1.5; padding: 0 6px; border-radius: 999px; margin-left: 6px; vertical-align: middle; }
+.host-badge--gitlab { color: #c2410c; background: #fdeee6; }
+.host-badge--github { color: #1f2328; background: #eceef0; }
+.grp-repo { font-weight: 400; font-size: 10.5px; margin-top: 4px; white-space: normal; }
+.grp-repo-part { display: inline-block; white-space: nowrap; } /* 'group/' 'config' 단위로만 줄바꿈 */
+.grp-repo .host-badge { margin-left: 0; margin-top: 2px; }
+.grp-host { margin-top: 4px; line-height: 1; }
+/* 서비스 메모(타입 칸 아래)는 길면 칸 안에서 줄바꿈 — 표 폭을 메모가 잡아먹지 않게 */
+.grid--nowrap td .cell-sub--note { white-space: normal; max-width: 230px; }
+.grp-host .host-badge { margin-left: 0; margin-right: 4px; }
+.note-line { font-size: 13px; color: var(--ink-muted-80); margin: 10px 2px 0; }
+/* 표 아래 페이지 넘김 */
+.pager { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 10px 16px; border-top: 1px solid var(--divider-soft); font-size: 13px; }
+.pager-nav { display: inline-flex; align-items: center; gap: 6px; }
+.pager .seg-btn { font-size: 12px; padding: 3px 10px; }
 
 /* content */
-.content { flex: 1; width: 100%; max-width: 1440px; margin: 0 auto; padding: var(--space-lg) var(--space-lg) 64px; }
+.content { flex: 1; width: 100%; max-width: 1920px; margin: 0 auto; padding: var(--space-lg) var(--space-lg) 64px; }
 .page-head { margin: var(--space-xs) 0 var(--space-lg); }
+.page-head--row { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
 .page-title { font-family: var(--font-display); font-size: 28px; font-weight: 600; letter-spacing: -0.28px; margin: 0; }
 .page-sub { color: var(--ink-muted-48); font-size: 14px; letter-spacing: -0.224px; margin: 6px 0 0; }
 
@@ -93,6 +116,59 @@ table.grid { width: 100%; border-collapse: collapse; font-size: 15px; }
 .stat--ok .num { color: var(--ok); }
 .stat--warn .num { color: var(--warn); }
 .stat--danger .num { color: var(--danger); }
+/* 대시보드 카드 6개 — 누르면 그 탭으로 */
+.stats--6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+@media (max-width: 1200px) { .stats--6 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 700px) { .stats--6 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.stat--link { display: block; text-align: left; color: inherit; text-decoration: none; cursor: pointer; transition: border-color 0.15s; }
+.stat--link:hover { border-color: var(--primary); }
+.stat-tab { font-size: 11px; color: var(--ink-muted-48); margin-bottom: 2px; }
+.stat-sub { font-size: 12px; color: var(--ink-muted-48); margin-top: 6px; line-height: 1.4; }
+
+/* 섹션 머리줄: 제목 · 기준 시각 · 새로고침 */
+.section-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 28px 0 10px; }
+.section-head .spacer { flex: 1; }
+.section-title { font-size: 15px; font-weight: 600; color: var(--ink); margin: 0; }
+.section-sub { font-size: 13px; color: var(--ink-muted-48); }
+.section-asof { font-size: 12px; color: var(--ink-muted-48); }
+.section-source { font-size: 12px; color: var(--ink-muted-48); margin: -4px 0 10px; }
+.icon-btn {
+  width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--hairline);
+  background: var(--surface-pearl); color: var(--ink); font-size: 16px; line-height: 1; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; padding: 0;
+}
+.icon-btn:hover { background: var(--canvas); }
+.icon-btn:disabled { cursor: default; opacity: 0.6; }
+.icon-btn--spin { animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .icon-btn--spin { animation: none; } }
+/* 표 읽는 법(범례) */
+.legend { font-size: 13px; color: var(--ink-muted-80); margin: 0 0 12px; }
+.legend summary { cursor: pointer; font-weight: 600; color: var(--ink-muted-80); }
+.legend ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.7; }
+/* '칸 | 뜻' 두 줄 표 */
+.legend-grid { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0 18px; margin: 10px 0 4px; padding: 4px 14px;
+  background: var(--canvas); border: 1px solid var(--hairline); border-radius: var(--radius-lg); line-height: 1.6; }
+.legend-grid > dt, .legend-grid > dd { padding: 8px 0; border-top: 1px solid var(--divider-soft); }
+.legend-grid > dt:first-of-type, .legend-grid > dt:first-of-type + dd { border-top: 0; }
+.legend-grid > dt { font-weight: 600; color: var(--ink); white-space: nowrap; }
+.legend-grid > dd { margin: 0; }
+.legend-what { color: var(--ink); } /* 이 칸이 무엇을 보여주나 */
+/* 값 → 뜻: 한 쌍씩 옆으로 흐름(쌍 사이는 넓게, 쌍 안은 좁게) */
+.legend-items { display: flex; flex-wrap: wrap; gap: 6px 26px; margin: 6px 0 0; padding: 0; list-style: none; }
+.legend-items > li { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.legend-v { color: var(--ink); }
+.legend-m { color: var(--ink-muted-80); }
+.legend b { color: var(--ink); font-weight: 600; }
+/* 묶은 표의 경계: 그룹(진한 선) → 서비스(보통 선) → 타입(기본 얇은 선) */
+.grid tbody tr.grp-start td { border-top: 2px solid var(--ink-muted-48); }
+.grid tbody tr.svc-start td { border-top: 2px solid var(--hairline); }
+.grid td.grp-cell { font-weight: 700; vertical-align: top; background: var(--canvas-parchment); border-right: 1px solid var(--hairline); }
+.grid td.svc-cell { font-weight: 600; vertical-align: top; border-right: 1px solid var(--divider-soft); }
+/* 좌우 2단(넓을 때만). 좁으면 위아래로 */
+.split { display: grid; grid-template-columns: 1fr; gap: 0 24px; }
+@media (min-width: 1100px) { .split { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+.split .card { overflow-x: auto; }
 
 /* section subhead */
 .subhead { font-size: 14px; font-weight: 600; color: var(--ink-muted-80); margin: 24px 0 10px; }
@@ -132,6 +208,83 @@ table.subgrid { width: 100%; border-collapse: collapse; font-size: 13px; }
 /* version matrix cells */
 .ver { font-family: var(--font-mono); font-size: 13px; }
 .ver--eol { color: var(--danger); }
+/* 서비스 비교표: 같은 종류 중 최신이 아닌 버전 */
+.ver--old { color: var(--danger); background: var(--danger-bg); padding: 2px 8px; border-radius: 6px; font-weight: 600; white-space: nowrap; }
+/* 칸이 많은 비교표: 줄바꿈 대신 카드 안에서 가로 스크롤(정말 좁을 때만) */
+.grid--nowrap th, .grid--nowrap td { white-space: nowrap; }
+.grid--nowrap td.wrap { white-space: normal; min-width: 150px; }
+.grid--nowrap td.wrap-sm { white-space: normal; min-width: 70px; } /* 배지 여러 개는 좁으면 줄바꿈 */
+/* 촘촘한 표: 글자·여백을 줄여 가로 스크롤 없이 보이게 */
+.grid--dense { font-size: 12.5px; }
+.grid--dense thead th { padding: 6px 8px; font-size: 11.5px; }
+.grid--dense thead th { white-space: normal; word-break: keep-all; } /* 긴 머리글은 두 줄로(칸 폭을 머리글이 잡아먹지 않게) — 한글은 띄어쓰기에서만 끊기 */
+.grid thead th.th-group { text-align: center; border-bottom: 1px solid var(--hairline); padding-bottom: 4px; }
+.grid thead th.th-sub { padding-top: 4px; }
+.grid thead th .th-flow { display: block; font-weight: 400; font-size: 11px; color: var(--ink-muted-48); margin-top: 2px; }
+.grid thead tr.th-band th.th-group { color: var(--ink); font-size: 12px; }
+.grid thead th.th-start { background: var(--canvas-parchment); }
+.grid--dense tbody td { padding: 6px 8px; }
+.grid--dense .ver, .grid--dense .mono { font-size: 11.5px; }
+.grid--dense .badge { font-size: 10.5px; padding: 1px 7px; }
+/* ● 실제로 실행되는 명령 표시 */
+.miss-fail { color: var(--danger); }
+/* (서버) 칸 상태 4가지가 한눈에 갈리게: 덮어씀(배지) · 확인됨(초록) · 안 읽음(점선 회색) · 못 읽음(빨간 알약) */
+.grid tbody tr.row-merged td:not(.svc-cell) { opacity: 0.5; }
+.st-asis { color: var(--ok); font-weight: 600; }
+.st-unread { display: inline-block; color: var(--ink-muted-48); border: 1px dashed var(--hairline); border-radius: 999px; padding: 0 7px; font-size: 11px; }
+.st-unread-text { color: var(--ink-muted-48); }
+.st-fail { display: inline-block; background: var(--danger-bg); border-radius: 999px; padding: 0 7px; font-size: 11px; font-weight: 600; }
+.extra-line { font-size: 11.5px; }
+.extra-part { white-space: nowrap; } /* 'lab·preview' · '● start.sh' 는 안 끊기게 — 좁으면 둘 사이에서만 줄바꿈 */
+/* 칸 안 같은 줄 끝의 작은 글씨(어디서 읽었나·못 읽은 이유) — 줄을 늘리지 않게 */
+.cell-tag { font-size: 10.5px; color: var(--ink-muted-48); margin-left: 1px; }
+.cell-tag.miss-fail { color: var(--danger); margin-left: 4px; }
+.cell-badge { margin-left: 4px; }
+.run-unused .badge { opacity: 0.45; }
+.run-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--danger); margin-right: 4px; vertical-align: middle; }
+.exec-lines { display: inline-flex; flex-direction: column; gap: 1px; } /* executor: job 별 한 줄씩 */
+.exec-line { white-space: nowrap; }
+/* executor 알약: docker 하늘 · shell 연두 — node 버전 칸처럼 고정폭 굵은 글자 */
+.exec-pill { display: inline-block; font-family: var(--font-mono); font-weight: 600; font-size: 11px; line-height: 1.5; padding: 0 8px; border-radius: 999px; border: 1px solid transparent; }
+.exec-pill--docker { color: var(--exec-docker); background: var(--exec-docker-bg); }
+.exec-pill--shell { color: var(--exec-shell); background: var(--exec-shell-bg); }
+.exec-pill--other { color: var(--ink-muted-80); background: var(--surface-pearl); }
+.exec-pill--guess { background: transparent; border-style: dashed; border-color: currentColor; opacity: 0.8; } /* 추정 = 점선 테두리 */
+/* ▸ 를 누르면 아래로 펼침: job 하나하나 + image */
+.exec-more summary { cursor: pointer; list-style: none; }
+.exec-more summary::-webkit-details-marker { display: none; }
+.exec-more summary::before { content: '▸ '; color: var(--ink-muted-48); }
+.exec-more[open] summary::before { content: '▾ '; }
+/* 펼친 작은 표(빌드·배포 job | image | 러너, config 환경 | 명령 | 어디서 | 위치) — 열을 맞춤 */
+/*   바깥 표(.grid)의 칸 여백·테두리·배경을 물려받지 않게 안쪽 표만 따로(선택자를 더 구체적으로) */
+table.grid table.mini-table { width: auto; border-collapse: collapse; margin: 4px 0 6px 12px; font-size: 11.5px; line-height: 1.5; }
+table.grid table.mini-table thead tr th {
+  text-align: left; font-weight: 500; font-size: 10.5px; color: var(--ink-muted-48); background: none;
+  padding: 0 14px 2px 0; border: 0; border-bottom: 1px solid var(--divider-soft); white-space: nowrap;
+}
+table.grid table.mini-table tbody tr td { padding: 1px 14px 1px 0; border: 0; background: none; white-space: nowrap; vertical-align: top; opacity: 1; }
+table.grid table.mini-table tbody tr:hover { background: none; }
+table.grid table.mini-table .mono { font-size: 11px; }
+/* config: 줄마다 ▸ 펼치기 — 펼친 줄은 표 아래 한 줄 전체 */
+.row-toggle { border: 0; background: none; color: var(--ink-muted-48); cursor: pointer; padding: 0 4px 0 0; font-size: 11px; }
+.row-toggle:hover { color: var(--primary); }
+table.grid tbody tr.row-detail > td { background: var(--canvas-parchment); padding-top: 2px; padding-bottom: 6px; }
+.cell-sub { display: block; font-size: 11px; color: var(--ink-muted-48); line-height: 1.3; }
+/* 좁은 화면: 글자·여백을 한 단계 더 줄여 한 줄 그대로 */
+@media (max-width: 1500px) {
+  .grid--dense { font-size: 12px; }
+  .grid--dense thead th, .grid--dense tbody td { padding-left: 5px; padding-right: 5px; }
+  .grid--dense .ver, .grid--dense .mono, .grid--dense .extra-line { font-size: 11px; }
+  .grid--dense .badge { font-size: 10px; padding: 1px 6px; }
+  .grid--dense .st-unread, .grid--dense .st-fail { font-size: 10.5px; padding: 0 6px; }
+}
+/* 1280 언저리: 여백을 더 줄이고, '기타' 칸만(환경 여러 개일 때) 두 줄 허용 — 가로 스크롤보다 낫게 */
+@media (max-width: 1360px) {
+  .grid--dense thead th, .grid--dense tbody td { padding-left: 3px; padding-right: 3px; }
+  .grid--nowrap td.extras-cell { white-space: normal; }
+  .grid--dense .cell-tag:not(.miss-fail):not(.type-roles) { display: none; } /* 출처(gw·사본)는 마우스로 */
+  .grid--dense td.svc-cell, .grid--dense td.grp-cell { font-size: 11.5px; }
+}
 .ver--none { color: var(--ink-muted-48); }
 
 /* 버튼 (conf 적용 등) */

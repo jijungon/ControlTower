@@ -19,6 +19,8 @@ keystore.toml
 runner/keystore.toml
 !keystore.example.toml
 !runner/keystore.example.toml
+# 비교표 대상(사내 GitLab 경로) — 예시(.example)만 커밋
+shape-targets.yml
 secrets/
 *.secret
 credentials*.json

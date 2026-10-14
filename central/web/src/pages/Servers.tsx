@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react'
-import { createGroup, fetchGroups, fetchServers, setServerMeta, type Group, type Server } from '../api'
+import { createGroup, fetchGroups, fetchServers, fetchVersions, setServerMeta, type Group, type Server, type VersionRow } from '../api'
+import SectionHead, { latestTime, runAll } from '../components/SectionHead'
+import Conf from './Conf'
+import { isOld, newestBy, Ver } from '../vercmp'
+
+const TOOL_ORDER = ['node', 'npm', 'java', 'python', 'docker']
 
 function authCell(s: Server) {
   if (s.needs_2fa === true) return <span className="badge badge--warn">2FA</span>
@@ -22,12 +27,30 @@ export default function Servers() {
   const [editTags, setEditTags] = useState('')
   const [msg, setMsg] = useState<string | null>(null)
 
-  const load = () => fetchServers().then(setServers).catch(() => setErr(true))
+  const [busy, setBusy] = useState(false)
+
+  const load = () =>
+    fetchServers()
+      .then((r) => {
+        setServers(r)
+        setErr(false)
+      })
+      .catch(() => setErr(true))
   const loadGroups = () => fetchGroups().then(setGroups).catch(() => setGroups([]))
+  const [tools, setTools] = useState<Record<string, Record<string, string>>>({})
+  const loadTools = () =>
+    fetchVersions()
+      .then((rows: VersionRow[]) => {
+        const m: Record<string, Record<string, string>> = {}
+        for (const r of Array.isArray(rows) ? rows : []) if (r.kind === 'server' && r.tools) m[r.name] = r.tools
+        setTools(m)
+      })
+      .catch(() => setTools({}))
 
   useEffect(() => {
     load()
     loadGroups()
+    loadTools()
   }, [])
 
   function startEdit(s: Server) {
@@ -71,6 +94,21 @@ export default function Servers() {
     return true
   })
 
+  // 같은 도구(node 끼리…) 중 최신이 아니면 빨간 칸
+  const toolPairs = Object.values(tools).flatMap((t) => Object.entries(t))
+  const newestTool = newestBy(toolPairs, (kv) => kv)
+  const toolsCell = (host: string) => {
+    const t = tools[host]
+    if (!t || Object.keys(t).length === 0) return <span className="muted">—</span>
+    const rank = (n: string) => (TOOL_ORDER.includes(n) ? TOOL_ORDER.indexOf(n) : 99)
+    const names = Object.keys(t).sort((a, b) => rank(a) - rank(b))
+    return names.map((n) => (
+      <span key={n} style={{ marginRight: 6 }}>
+        <Ver text={`${n} ${t[n]}`} old={isOld([n, t[n]], newestTool)} newest={`${n} ${newestTool.get(n)}`} />
+      </span>
+    ))
+  }
+
   return (
     <div>
       <div className="page-head">
@@ -79,6 +117,15 @@ export default function Servers() {
           ~/.ssh/config 기준 · 그룹·태그로 묶어 보기{servers ? ` · ${servers.length}대` : ''}
         </p>
       </div>
+
+      <SectionHead
+        title="서버 목록"
+        sub="접속 키 · 접속 확인"
+        asOf={latestTime((servers ?? []).map((s) => s.last_checked_at))}
+        onRefresh={() => runAll(setBusy, [load, loadGroups, loadTools])}
+        busy={busy}
+        source="내 PC 의 ~/.ssh/config(runner import) · 접속 확인(runner test·probe) · 깔린 도구 = 서버마다 SSH 로 node/java/docker --version(runner versions)"
+      />
 
       <div className="toolbar" style={{ flexWrap: 'wrap' }}>
         <input className="search" placeholder="서버 · IP · user 검색" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -114,6 +161,7 @@ export default function Servers() {
               <th>그룹</th>
               <th>태그</th>
               <th>키</th>
+              <th>깔린 도구</th>
               <th>편집</th>
             </tr>
           </thead>
@@ -144,6 +192,7 @@ export default function Servers() {
                       <input className="search" style={{ height: 30, minWidth: 140 }} placeholder="태그, 쉼표로" value={editTags} onChange={(e) => setEditTags(e.target.value)} />
                     </td>
                     <td className="mono">{s.credential_alias ?? '—'}</td>
+                    <td>{toolsCell(s.hostname)}</td>
                     <td>
                       <button className="btn btn--sm btn--primary" onClick={() => saveEdit(s.id)}>저장</button>
                       <button className="btn btn--sm" onClick={() => setEditId(null)}>취소</button>
@@ -164,6 +213,7 @@ export default function Servers() {
                       )}
                     </td>
                     <td className="mono">{s.credential_alias ?? '—'}</td>
+                    <td>{toolsCell(s.hostname)}</td>
                     <td>
                       <button className="btn btn--sm" onClick={() => startEdit(s)}>편집</button>
                     </td>
@@ -189,6 +239,8 @@ export default function Servers() {
           </div>
         )}
       </div>
+
+      <Conf />
     </div>
   )
 }

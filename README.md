@@ -136,6 +136,55 @@ CI/CD 파이프라인 상태와 repo 선언본 버전(node/nest/java)은 GitLab 
 
 > GitLab 이 아직이면 이 두 기능만 비어 있고, 나머지(서버·conf·업데이트·툴체인·작업이력)는 그대로 동작한다. 토큰은 **러너 로컬에만** 두며 중앙 DB엔 결과 상태만 저장된다.
 
+### 서비스 비교표 · config (빌드·배포 탭 / config 탭)
+
+- **빌드·배포 탭** — CI 가 **어떻게 빌드·배포하나**(CI 파일 기준). 그룹(프로젝트 묶음) → 서비스 → 타입(web·was)으로 묶어 **환경별 배포(파일 복사 · repo / 파일 복사 · center / 이미지 / 빌드만) · executor**를 나란히 비교. 표 위 "표 읽는 법"에 각 칸의 뜻.
+- **config 탭** — 이미지가 **무엇으로, 어떻게 실행되나**(config repo + 서버 compose 기준). 폴더(서비스/타입)마다 **런타임·베이스 이미지(같은 종류 중 최신이 아니면 빨간 칸, 런타임 필터) · 실행 명령 위치(Dockerfile CMD / start.sh) · start.sh 상태(구형/잔재/완료) · start.sh 형태**(서버 compose 기준: shell = start.sh 마운트 / compose = `command:` 직접 / Dockerfile = 이미지 CMD) 표시.
+
+1. `cp runner/shape-targets.example.yml shape-targets.yml` 후 읽을 파일을 적는다 (커밋 안 됨).
+   - GitLab: `{gitlab: repo|center, project, path}` — center 는 별도 인스턴스라 `CT_GITLAB_CENTER_URL/TOKEN`
+   - 로컬 사본: `{file: 경로}` · 서버의 실제 파일(compose 등): `{ssh: 호스트별칭, path}`
+   - `config:` 에 config repo 를 적으면 폴더를 자동으로 훑고, 서비스는 `config_dir:` 로 연결. 서비스 묶음마다 config repo 가 따로면 `config:` 를 **목록**으로(`- project: …` 한 덩어리 추가, `group:` 은 연결 안 된 폴더의 그룹). Dockerfile·start.sh 없는 폴더는 건너뜀
+2. `python -m runner.cli shape` (`make collect` 도 대상 파일이 있으면 포함)
+3. 서버 compose 를 실서버에서 읽기(선택): center CI 의 `DEPLOY_<환경>[_<타입>]_SERVERS` 와 `APP_DIR` 로 서버·폴더를 찾아
+   - `python -m runner.cli shape --ssh-plan` — 어느 서버의 어떤 파일을 읽을지 **목록만** (접속 안 함)
+   - `python -m runner.cli shape --ssh` — 그 목록대로 SSH 로 읽음(읽기만). 서버가 `~/.ssh/config` 에 직접 있거나,
+     대상 파일의 `gateways:`(환경 → gw 별칭)를 거쳐 들어감(PC → gw → 서버, 안쪽은 gw 의 키·설정)
+     - gw 의 `~/.ssh/config` 에 이름으로 등록된 서버는 그 이름으로 접속(gw 가 맞춰 둔 계정·키·지문 그대로)
+     - 안쪽 서버가 gw 의 root 계정에만 등록돼 있으면 `gateway_sudo: [gw 별칭]` — `sudo -n` 으로 root 설정을 씀(읽기만)
+     - CI 에 배포 단계가 없는 서비스는 `compose: {prod: {ssh: <gw 의 이름>, via: <gw 별칭>, path: …}}` 로 직접 적기
+   - 이미지 하나를 역할별로 나눠 띄우는 서비스: `type`(표에 보일 이름) · `tag_type`(태그·폴더 타입) · `deploy_role`(`DEPLOY_<환경>_<역할>_SERVERS`)
+     — config 탭은 역할마다 한 줄(옆에 실제 폴더)
+   - config 탭 (서버) 칸 옆에 출처 표시: 서버 · 자동 · gw · 사본 · 옛 사본 (좁은 화면에선 마우스로)
+
+4. **GitLab 에서 읽기(기본)**: 대상 파일의 서비스 `repo:`/`center:`, `config:` 의 `project:` 에 적힌 GitLab 프로젝트를 **무조건 API 로** 읽는다.
+   - 토큰: runner 쪽 `.env` 의 `CT_GITLAB_URL`·`CT_GITLAB_TOKEN`(repo), `CT_GITLAB_CENTER_URL`·`CT_GITLAB_CENTER_TOKEN`(center) — 읽기 전용 `read_api`, 그룹 토큰 권장. 없으면 빈 표를 올리지 않고 멈춤
+   - API 로 읽은 쪽은 러너마다 최근 job 로그 맨 윗줄(`Preparing the "shell" executor`)로 **executor 를 확정**(같은 러너는 한 번만 읽음, 근거 = job 번호). image: 없이 도는 job 은 로그에 찍힌 러너 기본 이미지도 보여줌
+   - 로컬 사본(`repo_ci`/`center_ci`/`file`)은 **고를 때만**: `python -m runner.cli shape --source local`. 프로젝트 이름이 없는 서비스만 로컬 사본을 읽고, 실행할 때 알려줌
+   - 실행 첫 줄 `읽는 곳:` 에 어디서 읽는지 표시. 토큰은 runner 에만 있고 중앙엔 안 올라감(나중엔 OpenBao 에서 실행할 때만 받기)
+
+> 읽기 전용. 읽은 파일 원문은 중앙에 올리지 않고 결과 칸만 올린다. CI 변수는 **값 없이** 개수 + 해시만 보낸다(화면엔 안 보임). executor 는 **job 마다** 정한다(job 이름: 방식, 가장 많은 쪽은 '나머지 N개'). CI 파일만으로는 확정할 수 없어 대상 파일의 `runners:` 표(태그→shell/docker)에 있으면 확정, 없으면 `image:` 유무로 `(추정)` — 확정은 job 로그 맨 윗줄 `Preparing the "…" executor`. (GitLab 토큰이 있으면 이 로그를 API 로 읽어 자동 확정 — 4번)
+
+### 탭별 출처 — 고칠 때 어디를 보면 되나
+
+기준: **방식(어떻게)은 빌드·배포, 버전(무엇으로)은 config, 서버에 깔린 것은 서버 탭.** 화면의 표마다 같은 "출처" 줄이 붙어 있다.
+
+| 탭 · 표 | 무엇을 | 어디서 읽나 | 수집(러너) | API · 화면 코드 |
+|---|---|---|---|---|
+| 대시보드 | 아래 수집 결과 요약 | (각 탭 데이터) | — | `Dashboard.tsx` |
+| 서버 · 서버 목록 | 서버·접속 키·접속 확인 | 내 PC `~/.ssh/config` · SSH 접속 | `import` · `test` · `probe` | `/api/servers` · `Servers.tsx` |
+| 서버 · 깔린 도구 칸 | 서버마다 node/java/docker 버전 | 서버마다 SSH 로 `--version` | `versions` | `/api/versions` · `Servers.tsx` |
+| 서버 · 서버 설정 파일 (/etc) | 서버마다 같아야 하는 파일 비교·적용 | 서버마다 SSH 로 등록한 파일 | `conf` · `apply` | `/api/conf` · `Conf.tsx` |
+| 빌드·배포 · 서비스 비교 | 환경별 배포 방식 · executor | repo·center `.gitlab-ci.yml` (+ 서버 compose 로 확인) | `shape` (대상 `shape-targets.yml`) | `/api/cicd/shape` · `CicdCompare.tsx` |
+| config · config 폴더 | 코드에 적힌 버전 · 런타임/베이스 이미지 · 실행 명령 위치 · start.sh 상태·형태 | center config repo(Dockerfile·start.sh) · repo 코드(`.nvmrc`·`package.json`·`pom.xml`) · 서버 compose | `shape` (대상 `shape-targets.yml`) | `/api/cicd/config` · `ConfigRepo.tsx` |
+| OS 패치·작업이력 · OS 패치 | 서버마다 안 깔린 패치 | 서버마다 SSH 로 apt(→yum/dnf) | `updates` | `/api/updates` · `Updates.tsx` |
+| OS 패치·작업이력 · 작업이력 | ControlTower 가 한 모든 일 | 중앙 API 가 기록 | — | `/api/audit` · `Jobs.tsx` |
+
+- 수집은 `python -m runner.cli <명령>`, 한 번에 다 돌리려면 `all` (`make collect`).
+- 판독 규칙은 `runner/cishape.py`(CI·Dockerfile·compose·코드 버전), 버전 비교(빨간 칸)는 `central/web/src/vercmp.tsx`.
+- 표마다 ↻ 는 **화면 새로고침**(중앙에 저장된 값을 다시 읽음)이다. 서버·GitLab 을 다시 읽는 건 러너 몫.
+- 쓰지 않게 된 것: 파이프라인 상태(`runner cicd`, `/api/cicd`·`/api/cicd/targets`)와 GitLab 선언본 대상(`runner versions-repo`, `/api/versions/repo-*`)은 화면에서 뺐다. 코드에 적힌 버전은 이제 `shape` 가 config 탭으로 모은다.
+
 ## 저장소 구조
 
 ```

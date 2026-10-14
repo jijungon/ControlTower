@@ -1,0 +1,84 @@
+# 서비스 비교표 대상 — 복사해서 shape-targets.yml 로 쓰세요(커밋 안 됨: 사내 경로가 들어감).
+#   cp runner/shape-targets.example.yml shape-targets.yml
+#   python -m runner.cli shape
+#
+# 소스 한 칸은 셋 중 하나:
+#   {gitlab: repo|center, project: group/repo, path: 파일경로, ref: main}   ← GitLab API(읽기 토큰)
+#   {file: 경로}                                                              ← 로컬 파일(이 파일 기준 상대경로 가능)
+#   {ssh: 호스트별칭, path: /app/web-shop/docker-compose.yml}                 ← 서버의 실제 파일(~/.ssh/config 별칭)
+# 읽은 파일 내용은 판독에만 쓰고 중앙엔 올리지 않는다(결과 칸만 올라감).
+#
+# 기본은 GitLab: 서비스의 repo:/center:, config 의 project: 에 적힌 프로젝트를 무조건 GitLab API 로 읽는다
+#   (.gitlab-ci.yml · .nvmrc · package.json · config 폴더, 토큰 = .env 의 CT_GITLAB_TOKEN · CT_GITLAB_CENTER_TOKEN, read_api).
+#   토큰이 없으면 빈 표를 올리지 않고 멈춘다. API 로 읽은 쪽은 러너마다 최근 job 로그 맨 윗줄로 executor 를 확정.
+#   로컬 사본(repo_ci/center_ci/file)은 고를 때만: python -m runner.cli shape --source local
+# 빈 칸은 그냥 빼면 됩니다(표에 '—').
+
+# GitLab 은 러너의 executor 를 알려주지 않음 → 사람이 한 번 확인해 적어 두는 표.
+# 여기 없는 태그는 화면에 'shell (추정)' 처럼 짐작값으로 표시됩니다.
+runners:
+  shell-runner: shell
+  builder: docker           # (예) center 빌더 — 배포 job 이 image: 를 쓰면 docker 일 가능성이 큼
+  builder-docker: docker
+
+# (선택) 배포 서버가 ~/.ssh/config 에 직접 없을 때 거칠 게이트웨이(환경 → ~/.ssh/config 별칭).
+# shape --ssh 가 PC → gw → 서버 로 들어가 compose 를 읽음(안쪽 접속은 gw 의 키·설정 사용, 읽기만).
+gateways:
+  dev: shop-gw-dev
+  prod: shop-gw-prod
+# gateway_user: app          # (선택) gw 에서 안쪽 서버로 들어갈 사용자
+# gateway_sudo: [shop-gw-prod] # (선택) 안쪽 서버가 gw 의 root 계정 ssh 설정에만 있을 때 — sudo -n 으로 root 설정·키를 씀(읽기만)
+
+# center config repo 들 — 각자 <서비스>/<타입>/ 폴더를 자동으로 훑어 config 탭 한 표로 모음.
+#   서비스 묶음마다 config repo 가 따로면 '- project:' 덩어리를 하나 더 추가(group = 서비스와 연결 안 된 폴더의 그룹).
+#   Dockerfile·start.sh 가 없는 폴더(문서·템플릿)는 건너뜀 — merged 에 적었거나 서비스가 config_dir 로 연결한 폴더는 남김.
+config:
+  - gitlab: center
+    project: shop/config
+    # file: ../config-clone        # --source local 일 때 읽을 로컬 사본
+    group: shop
+    compose:                       # (선택) 서비스와 연결 안 된 폴더의 서버 compose. 폴더: {환경: 소스}
+      shop/was: {prod: {ssh: shop-prod-01, path: /app/was-shop/docker-compose.yml}}
+    # merged: {shop/old: shop/web}   # (선택) 합쳐져 안 쓰는 폴더 → 흐리게 '합쳐짐 → …'
+  - project: blog/config           # 다른 묶음의 config repo
+    group: blog
+
+services:
+  - name: shop web          # 표에 보이는 이름
+    repo:   shop/shop-web     # repo GitLab 프로젝트 — 기본은 여기를 GitLab API 로(repo_ci 는 --source local 때만)
+    center: shop/shop         # center GitLab 프로젝트 — 기본은 여기를 GitLab API 로(center_ci 는 --source local 때만)
+    group: shop             # 서비스보다 큰 묶음(프로젝트 그룹) — 표에서 그룹별로 나뉨
+    note: 옛 사본            # (선택) 표에 작게 붙는 서비스 메모(예: repo: other-repo)
+    source_note: 옛 사본     # (선택) 이 서비스 파일들의 출처 메모 — config 탭 (서버) 칸 아래에 표시
+    type: web               # web | was — 태그 정규식(<env>-<type>-v1.2.3) 판정용
+    repo_ci:    {gitlab: repo,   project: shop/shop-web, path: .gitlab-ci.yml}
+    center_ci:  {gitlab: center, project: shop/shop,     path: .gitlab-ci.yml}
+    config_dir: shop/web    # config 폴더에서 Dockerfile·start.sh 를 알아서 읽음 (아래 두 줄 대신)
+    # dockerfile: {gitlab: center, project: shop/config, path: shop/web/Dockerfile}
+    # startup:    {gitlab: center, project: shop/config, path: shop/web/node-startup.sh}
+    compose:                # 선택 — 서버 compose. 파일마다 note: 를 달면 화면 출처 칸에 그대로(예: note: 옛 사본)
+      prod: {gitlab: center, project: shop/deploy, path: prod/docker-compose-shop-web.yml}
+
+  - name: shop was
+    group: shop
+    type: was
+    repo_ci:    {file: ../ci-copies/shop/repo/shop-was.gitlab-ci.yml}
+    dockerfile: {file: ../ci-copies/shop/config/shop-was.Dockerfile}
+
+  # 이미지 하나를 역할별로 나눠 띄우는 서비스(서버 compose 의 command: 로 역할을 고름)
+  #   type = 표에 보일 이름, tag_type = 태그·폴더에 쓰는 타입(<env>-app-v1.2.3, BUILD_INFO=app)
+  #   deploy_role = center CI 의 DEPLOY_<ENV>_<ROLE>_SERVERS 중 이 역할의 서버(없는 환경은 DEPLOY_<ENV>_SERVERS)
+  - name: jobs manager
+    group: shop
+    type: manager
+    tag_type: app
+    deploy_role: mgr
+    center_ci:  {gitlab: center, project: shop/jobs, path: .gitlab-ci.yml}
+    config_dir: jobs/web
+  - name: jobs worker
+    group: shop
+    type: worker
+    tag_type: app
+    deploy_role: wrk
+    center_ci:  {gitlab: center, project: shop/jobs, path: .gitlab-ci.yml}
+    config_dir: jobs/web

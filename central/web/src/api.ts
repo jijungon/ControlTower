@@ -150,10 +150,13 @@ export type AuditRow = {
   created_at?: string | null
 }
 
-export async function fetchAudit(): Promise<AuditRow[]> {
-  const res = await fetch('/api/audit')
+// 작업이력 한 페이지(최신순) + 전체 건수(X-Total-Count)
+export async function fetchAuditPage(limit: number, offset: number): Promise<{ rows: AuditRow[]; total: number }> {
+  const res = await fetch(`/api/audit?limit=${limit}&offset=${offset}`)
   if (!res.ok) throw new Error(`GET /api/audit ${res.status}`)
-  return res.json()
+  const rows = (await res.json()) as AuditRow[]
+  const total = Number(res.headers.get('X-Total-Count') ?? rows.length)
+  return { rows, total: Number.isFinite(total) ? total : rows.length }
 }
 
 export type VersionRow = {
@@ -169,33 +172,82 @@ export async function fetchVersions(): Promise<VersionRow[]> {
   return res.json()
 }
 
-export type CicdRow = {
+// 서비스 비교표 — 러너가 .gitlab-ci.yml·compose 를 읽어 만든 한 행
+export type DeployCell = { path: 'direct' | 'image' | 'build'; by?: 'repo' | 'center' | 'compose'; manual: boolean | null; mismatch?: boolean }
+// 러너 태그 하나와 그걸 쓰는 job 들(why = 어떻게 정했나, images = job → image:)
+// default_image = job 로그로 본 러너 기본 이미지(image: 없이 도는 job 이 실제로 쓰는 것)
+export type ExecutorGroup = {
+  tag: string
+  value: string
+  guess: boolean
+  why?: string
+  jobs: string[]
+  images?: Record<string, string>
+  default_image?: string
+  runner_name?: string // GitLab 에 등록된 러너 이름(job 로그로 확인했을 때)
+}
+export type ExecutorCell = {
+  value: string
+  guess: boolean
+  tags?: string[]
+  counts?: Record<string, number> // job 마다 섞여 있을 때 방식별 job 수
+  groups?: ExecutorGroup[]
+} | null
+
+export type ShapeRow = {
   service: string
-  project?: string | null
-  has_cicd: boolean
-  status?: string | null
-  ref?: string | null
-  sha?: string | null
-  web_url?: string | null
+  group?: string | null
+  type?: string | null
+  host?: 'gitlab' | 'github' | null // 어디서 빌드하나
+  note?: string | null
+  runtime?: string | null
+  runtime_version?: string | null
+  base_image?: string | null
+  base_tag?: string | null
+  deploy?: Record<string, DeployCell>
+  executor_repo?: ExecutorCell
+  executor_center?: ExecutorCell
+  startup?: boolean | null
+  start_state?: 'legacy' | 'leftover' | 'server' | 'done' | 'base' | 'none' | null // config 폴더 기준(연결된 경우)
+  env_keys?: number | null
+  env_changed_at?: string | null
   collected_at?: string | null
 }
 
-export async function fetchCicd(): Promise<CicdRow[]> {
-  const res = await fetch('/api/cicd')
-  if (!res.ok) throw new Error(`GET /api/cicd ${res.status}`)
+// 서버 compose 를 어디서 읽었나 — ssh(서버에서 직접) / file(복사해 둔 사본) / gitlab
+export type ComposeSrc = { kind: 'ssh' | 'file' | 'gitlab' | 'unknown'; auto?: boolean; via?: string; note?: string | null; where?: string } // via = 거친 게이트웨이
+
+// center config repo 폴더 하나(<서비스>/<타입>)
+export type ConfigRow = {
+  path: string
+  runtime?: string | null
+  runtime_version?: string | null
+  base_image?: string | null
+  base_tag?: string | null
+  start?: 'dockerfile' | 'start.sh' | 'server' | 'base' | null // 처음 실행할 명령(이미지 기준)
+  start_files?: string[]
+  state: 'legacy' | 'leftover' | 'server' | 'done' | 'base' | 'none' // 정리할 것
+  code?: { node?: string; node_from?: string; node_rule?: 'exact' | 'min'; nest?: string; java?: string } | null // 코드에 적힌 버전
+  compose_src?: Record<string, ComposeSrc | null> // 환경별 서버 compose 를 어디서 읽었나
+  compose_miss?: Record<string, { state: 'fail' | 'planned'; reason: string }> // 못 읽음(이유) / 위치만 찾음
+  deploy_envs?: string[] // 이 폴더 서비스가 배포하는 환경(CI 기준) — 여기 없는 환경 칸은 '—'
+  group?: string | null // 그룹(프로젝트 묶음) — 연결된 서비스의 group
+  config_repo?: string // 어느 config repo 에서 왔나(GitLab 프로젝트)
+  folder?: string // 역할 줄(예: jobs/manager)일 때 실제 config 폴더(예: jobs/web) — 같은 이미지를 역할별로 띄움
+  merged_into?: string // 다른 폴더로 합쳐져 안 쓰는 폴더면 그 폴더(예: chat/was)
+  compose?: Record<string, 'mount' | 'command' | 'image'> // start.sh 형태(서버 compose): shell(마운트) / compose(command:) / Dockerfile(이미지 CMD)
+  collected_at?: string | null
+}
+
+export async function fetchConfig(): Promise<ConfigRow[]> {
+  const res = await fetch('/api/cicd/config')
+  if (!res.ok) throw new Error(`GET /api/cicd/config ${res.status}`)
   return res.json()
 }
 
-export const addCicdTarget = (service: string, project: string) =>
-  postJsonServer('/api/cicd/targets', { service, project })
-
-export type RepoTarget = { repo: string; project: string }
-
-export async function fetchRepoTargets(): Promise<RepoTarget[]> {
-  const res = await fetch('/api/versions/repo-targets')
-  if (!res.ok) throw new Error(`GET /api/versions/repo-targets ${res.status}`)
+export async function fetchShapes(): Promise<ShapeRow[]> {
+  const res = await fetch('/api/cicd/shape')
+  if (!res.ok) throw new Error(`GET /api/cicd/shape ${res.status}`)
   return res.json()
 }
 
-export const addRepoTarget = (repo: string, project: string) =>
-  postJsonServer('/api/versions/repo-targets', { repo, project })

@@ -1,32 +1,44 @@
 import { Fragment, useEffect, useState } from 'react'
 import { fetchUpdates, type UpdateRow } from '../api'
+import Pager, { usePageSize } from '../components/Pager'
+import SectionHead, { fmtTime, latestTime, runAll } from '../components/SectionHead'
 
 export default function Updates() {
   const [rows, setRows] = useState<UpdateRow[] | null>(null)
   const [err, setErr] = useState(false)
   const [open, setOpen] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [page, setPage] = useState(0)
+  const [size, setSize] = usePageSize('updates')
 
-  useEffect(() => {
+  const load = (first = false) =>
     fetchUpdates()
       .then((r) => {
         setRows(r)
-        const first = r.find((x) => x.pending > 0)
-        if (first) setOpen(first.hostname)
+        setErr(false)
+        const f = r.find((x) => x.pending > 0)
+        if (first && f) setOpen(f.hostname) // 처음 열 때만 자동 펼침(새로고침은 펼친 상태 유지)
       })
       .catch(() => setErr(true))
+
+  useEffect(() => {
+    load(true)
   }, [])
 
   const totalSecurity = (rows ?? []).reduce((a, r) => a + r.security, 0)
+  // 서버 수만큼이라 한 번에 받고 화면에서 나눠 보여줌
+  const shown = (rows ?? []).slice(page * size, (page + 1) * size)
 
   return (
     <div>
-      <div className="page-head">
-        <h1 className="page-title">업데이트</h1>
-        <p className="page-sub">
-          서버별 대기 중인 OS 패치(apt) · 서버를 누르면 항목 표시
-          {rows ? ` · 보안 ${totalSecurity}건` : ''}
-        </p>
-      </div>
+      <SectionHead
+        title="OS 패치"
+        sub={`서버마다 아직 안 깔린 패치 · 서버를 누르면 항목${rows ? ` · 보안 ${totalSecurity}건` : ''}`}
+        asOf={latestTime((rows ?? []).map((r) => r.collected_at))}
+        onRefresh={() => runAll(setBusy, [() => load()])}
+        busy={busy}
+        source="서버마다 SSH 로 apt(없으면 yum/dnf) 대기 패치 · 수집 python -m runner.cli updates"
+      />
 
       <div className="card">
         <table className="grid">
@@ -39,7 +51,7 @@ export default function Updates() {
             </tr>
           </thead>
           <tbody>
-            {(rows ?? []).map((r) => {
+            {shown.map((r) => {
               const isOpen = open === r.hostname
               return (
                 <Fragment key={r.server_id}>
@@ -56,7 +68,7 @@ export default function Updates() {
                         <span className="muted">0</span>
                       )}
                     </td>
-                    <td className="muted">{r.collected_at ?? '—'}</td>
+                    <td className="muted" title={r.collected_at ?? ''}>{r.collected_at ? fmtTime(r.collected_at) : '—'}</td>
                   </tr>
                   {isOpen && (
                     <tr className="detail-row">
@@ -99,6 +111,8 @@ export default function Updates() {
             })}
           </tbody>
         </table>
+
+        <Pager label="OS 패치" page={page} size={size} total={rows?.length ?? 0} onPage={setPage} onSize={setSize} />
 
         {!rows && !err && (
           <div className="placeholder" style={{ padding: '28px 16px' }}>불러오는 중…</div>
