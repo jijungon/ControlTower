@@ -54,18 +54,18 @@ def fetch_repo_file(
     token: str,
     project: str,
     path: str,
-    ref: str = "main",
+    ref: str = "",
     timeout: int = 8,
     *,
     transport: httpx.BaseTransport | None = None,
 ) -> str | None:
-    """repo 파일 원문을 읽는다(raw). 없거나 오류면 None. 선언본 버전 파싱용(읽기 전용)."""
+    """repo 파일 원문을 읽는다(raw). 없거나 오류면 None. ref 를 비우면 프로젝트 기본 브랜치(읽기 전용)."""
     pid = quote(str(project), safe="")
     fpath = quote(path, safe="")
     url = f"{base_url.rstrip('/')}/api/v4/projects/{pid}/repository/files/{fpath}/raw"
     try:
         with httpx.Client(transport=transport, timeout=timeout) as c:
-            r = c.get(url, params={"ref": ref}, headers={"PRIVATE-TOKEN": token})
+            r = c.get(url, params={"ref": ref} if ref else {}, headers={"PRIVATE-TOKEN": token})
     except httpx.HTTPError:
         return None
     if r.status_code != 200:
@@ -77,7 +77,7 @@ def fetch_repo_tree(
     base_url: str,
     token: str,
     project: str,
-    ref: str = "main",
+    ref: str = "",
     timeout: int = 8,
     *,
     transport: httpx.BaseTransport | None = None,
@@ -93,7 +93,7 @@ def fetch_repo_tree(
             for _ in range(max_pages):
                 r = c.get(
                     url,
-                    params={"ref": ref, "recursive": "true", "per_page": 100, "page": page},
+                    params={**({"ref": ref} if ref else {}), "recursive": "true", "per_page": 100, "page": page},
                     headers={"PRIVATE-TOKEN": token},
                 )
                 if r.status_code != 200:

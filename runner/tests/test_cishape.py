@@ -848,3 +848,12 @@ def test_cmd_shape_reads_gitlab_by_default_local_only_when_chosen(monkeypatch, t
     calls.clear()
     cli.cmd_shape(cfg("tok"), source="local")
     assert calls == []
+
+
+def test_pick_gitlab_or_local_copy():
+    from runner.cli import _pick
+
+    both = {"gitlab": "center", "project": "g/config", "path": "web/Dockerfile", "file": "~/c/web/Dockerfile", "note": "x"}
+    assert _pick(both, "api") == {"gitlab": "center", "project": "g/config", "path": "web/Dockerfile", "note": "x"}
+    assert _pick(both, "local") == {"file": "~/c/web/Dockerfile", "note": "x"}
+    assert _pick({"file": "a"}, "api") == {"file": "a"} and _pick(None, "api") is None  # 하나만 적은 건 그대로

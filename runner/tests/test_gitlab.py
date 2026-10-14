@@ -97,3 +97,12 @@ def test_job_log_head_reads_only_the_start():
     head = fetch_job_log_head("http://gl", "tok", "g/r", 9, transport=_t(handler), max_bytes=100)
     assert head is not None and len(head) == 100 and 'Preparing the "shell" executor' in head
     assert fetch_job_log_head("http://gl", "tok", "g/r", 9, transport=_t(lambda r: httpx.Response(404))) is None
+
+
+def test_repo_file_without_ref_uses_default_branch():
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert "ref" not in req.url.params  # 브랜치를 안 적으면 GitLab 이 프로젝트 기본 브랜치(main·dev 등)
+        return httpx.Response(200, text="x")
+
+    assert fetch_repo_file("http://gl", "tok", "g/r", ".gitlab-ci.yml", transport=_t(handler)) == "x"
+    assert fetch_repo_tree("http://gl", "tok", "g/r", transport=_t(lambda r: httpx.Response(200, json=[]))) == []

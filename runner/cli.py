@@ -272,7 +272,7 @@ def _read_source(src: object, cfg: RunnerConfig, base_dir: str) -> tuple[bool, s
     if not url or not token or not src.get("project") or not src.get("path"):
         return False, None
     text = fetch_repo_file(
-        url, token, str(src["project"]), str(src["path"]), str(src.get("ref") or cfg.gitlab_ref), cfg.connect_timeout
+        url, token, str(src["project"]), str(src["path"]), str(src.get("ref") or cfg.gitlab_ref or ""), cfg.connect_timeout
     )
     return True, text
 
@@ -322,6 +322,15 @@ def _api_ready(side: str, cfg: RunnerConfig) -> bool:
 def _use_api(project: str | None, source: str) -> bool:
     """이 GitLab 을 API 로 읽나 — 기본(api)은 프로젝트 이름이 적힌 곳은 무조건 API, local 을 고를 때만 로컬 사본."""
     return bool(project) and source != "local"
+
+
+def _pick(src: object, source: str) -> object:
+    """GitLab 과 로컬 사본을 둘 다 적은 소스({gitlab, project, path, file}) → 기본은 GitLab, --source local 이면 file."""
+    if not (isinstance(src, dict) and src.get("gitlab") and src.get("file")):
+        return src
+    if source == "local":
+        return {k: v for k, v in src.items() if k not in ("gitlab", "project", "path", "ref")}
+    return {k: v for k, v in src.items() if k != "file"}
 
 
 def _ci_source(svc: dict, side: str, cfg: RunnerConfig, source: str) -> tuple[object, tuple[str, str | None] | None]:
@@ -391,7 +400,7 @@ def _config_listing(config: dict, cfg: RunnerConfig, base_dir: str):
     url, token = _gitlab_of(config, cfg)
     if not url or not token or not config.get("project"):
         return None
-    ref = str(config.get("ref") or cfg.gitlab_ref)
+    ref = str(config.get("ref") or cfg.gitlab_ref or "")  # 비우면 프로젝트 기본 브랜치
     tree = fetch_repo_tree(url, token, str(config["project"]), ref, cfg.connect_timeout)
     if tree is None:
         return None
@@ -492,7 +501,7 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
             api0.close()
     code_by_dir: dict[str, dict] = {}  # config 폴더 ↔ 코드에 적힌 버전(서비스의 repo CI 옆 파일들)
     for cdir, envs in ((config or {}).get("compose") or {}).items():
-        for env, src in (envs or {}).items():
+        for env, src in ((e, _pick(x, source)) for e, x in (envs or {}).items()):
             tried, text = _read_source(src, cfg, base_dir)
             if tried and text is None:
                 missing.append(f"config {cdir}:compose.{env}")
@@ -507,7 +516,7 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
         repo_src, api_repo = _ci_source(svc, "repo", cfg, source)
         center_src, api_center = _ci_source(svc, "center", cfg, source)
         api.update({k: v for k, v in (("repo", api_repo), ("center", api_center)) if v})
-        srcs = {"repo_ci": repo_src, "center_ci": center_src, "dockerfile": svc.get("dockerfile"), "startup": svc.get("startup")}
+        srcs = {"repo_ci": repo_src, "center_ci": center_src, "dockerfile": _pick(svc.get("dockerfile"), source), "startup": _pick(svc.get("startup"), source)}
         for key in ("repo_ci", "center_ci", "dockerfile", "startup"):
             tried, text = _read_source(srcs[key], cfg, base_dir)
             if tried:
@@ -521,7 +530,7 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
             files.setdefault("dockerfile", df_text)
             files.setdefault("startup", sh)
         compose = {}
-        for env, src in (svc.get("compose") or {}).items():
+        for env, src in ((e, _pick(x, source)) for e, x in (svc.get("compose") or {}).items()):
             tried, text = _read_source(src, cfg, base_dir)
             if tried and text is None:
                 missing.append(f"{svc['name']}:compose.{env}")
