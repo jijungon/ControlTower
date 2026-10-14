@@ -257,19 +257,6 @@ function ExecCell({ e, side }: { e?: ExecutorCell; side: 'repo' | 'center' }) {
 // 표 읽는 법 — 칸마다 '무엇을 보여주나' + '값 → 뜻'(짧게)
 const LEGEND: LegendRow[] = [
   {
-    term: 'dev · stg · prod',
-    what: '그 환경에 어떻게 배포하나',
-    items: [
-      ['이미지', '도커 이미지로 배포'],
-      ['파일 복사', '결과물을 서버에 복사'],
-      ['빌드만', '배포 안 함'],
-      [<span className="muted">아랫줄 repo · center</span>, '누가 복사'],
-      [<span className="muted">아랫줄 수동</span>, '버튼 눌러 배포'],
-      [<span className="muted">아랫줄 compose 기준</span>, '서버 compose 로 짐작'],
-    ],
-  },
-  { term: <span className="badge badge--warn">⚠ compose 다름</span>, what: 'CI 와 서버 compose 의 배포 모양이 다름' },
-  {
     term: '빌드 버전 · 배포 버전',
     what: '환경마다 마지막으로 성공한 빌드·배포 job 의 tag (마우스 = tag · 날짜)',
     items: [
@@ -285,6 +272,19 @@ const LEGEND: LegendRow[] = [
       [<span className="muted">모름</span>, 'API 로 안 읽음'],
     ],
   },
+  {
+    term: 'dev · stg · prod',
+    what: '그 환경에 어떻게 배포하나',
+    items: [
+      ['이미지', '도커 이미지로 배포'],
+      ['파일 복사', '결과물을 서버에 복사'],
+      ['빌드만', '배포 안 함'],
+      [<span className="muted">아랫줄 repo · center</span>, '누가 복사'],
+      [<span className="muted">아랫줄 수동</span>, '버튼 눌러 배포'],
+      [<span className="muted">아랫줄 compose 기준</span>, '서버 compose 로 짐작'],
+    ],
+  },
+  { term: <span className="badge badge--warn">⚠ compose 다름</span>, what: 'CI 와 서버 compose 의 배포 모양이 다름' },
   {
     term: 'executor',
     what: 'job 을 어디서 돌리나 (job 이름: 방식)',
@@ -465,11 +465,11 @@ export default function CicdCompare() {
               <th>그룹</th>
               <th>서비스</th>
               <th>타입</th>
+              <th>빌드 버전</th>
+              <th>배포 버전</th>
               {envs.map((e) => (
                 <th key={e}>{e}</th>
               ))}
-              <th>빌드 버전</th>
-              <th>배포 버전</th>
               <th>executor · repo</th>
               <th>executor · center</th>
             </tr>
@@ -508,15 +508,15 @@ export default function CicdCompare() {
                           {split(r).kind}
                           {r.note && <span className="cell-sub cell-sub--note">{r.note}</span>}
                         </td>
-                          {envs.map((e) => (
-                            <td key={e}>{deployCell(r.deploy?.[e])}</td>
-                          ))}
                           <td>
                             <BuildVersions r={r} />
                           </td>
                           <td>
                             <DeployVersions r={r} />
                           </td>
+                          {envs.map((e) => (
+                            <td key={e}>{deployCell(r.deploy?.[e])}</td>
+                          ))}
                           <td>
                             <ExecCell e={r.executor_repo} side="repo" />
                           </td>

@@ -231,7 +231,7 @@ test('빌드·배포 — 그룹 칸 GitLab/GitHub, executor 펼치면 job | imag
   const legend = page.locator('details.legend')
   await expect(legend).not.toHaveAttribute('open', '')
   await legend.locator('summary').click()
-  await expect(legend.locator('.legend-grid > dt').first()).toHaveText('dev · stg · prod')
+  await expect(legend.locator('.legend-grid > dt').first()).toHaveText('빌드 버전 · 배포 버전') // 칸 순서대로
 })
 
 test('빌드·배포 — 빌드 버전 · 배포 버전 칸, 배포가 밀린 환경은 빨간 칸', async ({ page }) => {
