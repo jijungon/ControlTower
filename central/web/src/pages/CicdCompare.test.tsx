@@ -119,7 +119,7 @@ test('그룹 → 서비스 → 타입: 맨 앞 그룹 칸이 그룹의 모든 �
   // 경계 줄: 그룹 시작 3개, 그룹 안에서 서비스가 바뀌는 곳은 없음(각 그룹 서비스 1개)
   expect(document.querySelectorAll('tr.grp-start').length).toBe(3)
   // 그룹 필터
-  fireEvent.change(screen.getByLabelText('그룹 필터'), { target: { value: 'outlet' } })
+  fireEvent.click(within(screen.getByRole('radiogroup', { name: '그룹 필터' })).getByRole('radio', { name: 'outlet' }))
   expect([...document.querySelectorAll('td.grp-cell')].map((td) => td.firstChild?.textContent)).toEqual(['outlet'])
 })
 

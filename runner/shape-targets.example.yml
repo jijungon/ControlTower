@@ -29,13 +29,19 @@ gateways:
 # gateway_user: app          # (선택) gw 에서 안쪽 서버로 들어갈 사용자
 # gateway_sudo: [shop-gw-prod] # (선택) 안쪽 서버가 gw 의 root 계정 ssh 설정에만 있을 때 — sudo -n 으로 root 설정·키를 씀(읽기만)
 
-# center config repo — <서비스>/<web|was>/ 폴더를 자동으로 훑어 config 탭을 채움
+# center config repo 들 — 각자 <서비스>/<타입>/ 폴더를 자동으로 훑어 config 탭 한 표로 모음.
+#   서비스 묶음마다 config repo 가 따로면 '- project:' 덩어리를 하나 더 추가(group = 서비스와 연결 안 된 폴더의 그룹).
+#   Dockerfile·start.sh 가 없는 폴더(문서·템플릿)는 건너뜀 — merged 에 적었거나 서비스가 config_dir 로 연결한 폴더는 남김.
 config:
-  gitlab: center
-  project: shop/config
-  # file: ../config-clone        # 로컬 사본이면 이렇게
-  compose:                       # (선택) 서버 compose → 'start.sh 형태' 칸(shell/compose/Dockerfile). 폴더: {환경: 소스}
-    shop/was: {prod: {ssh: shop-prod-01, path: /app/was-shop/docker-compose.yml}}
+  - gitlab: center
+    project: shop/config
+    # file: ../config-clone        # --source local 일 때 읽을 로컬 사본
+    group: shop
+    compose:                       # (선택) 서비스와 연결 안 된 폴더의 서버 compose. 폴더: {환경: 소스}
+      shop/was: {prod: {ssh: shop-prod-01, path: /app/was-shop/docker-compose.yml}}
+    # merged: {shop/old: shop/web}   # (선택) 합쳐져 안 쓰는 폴더 → 흐리게 '합쳐짐 → …'
+  - project: blog/config           # 다른 묶음의 config repo
+    group: blog
 
 services:
   - name: shop web          # 표에 보이는 이름

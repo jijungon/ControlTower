@@ -22,6 +22,7 @@ import os
 import re
 import time
 from collections import Counter
+from typing import Any
 
 from . import applier
 from .api import CentralAPI
@@ -417,19 +418,22 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
         return
     with open(path, encoding="utf-8") as f:
         targets_text = f.read()
-    runners, services, config = parse_targets(targets_text)
+    runners, services, configs = parse_targets(targets_text)
     gateways, gateway_user = parse_gateways(targets_text)
     gateway_sudo = parse_gateway_sudo(targets_text)  # 이 gw 들은 root 의 ssh 설정으로(sudo -n)
-    if not services and not config:
+    if not services and not configs:
         print(f"비교표 대상이 비어 있음 — {path} 의 services: / config: 를 채우세요.")
         return
     base_dir = os.path.dirname(os.path.abspath(path))
-    # config 도 project: 가 있으면 API 로(--source local 일 때만 file:)
-    cproj, cref = _project_of((config or {}).get("project"))
-    cside = str((config or {}).get("gitlab") or "center")
-    config_api = bool(config) and _use_api(cproj, source)
-    if config_api:
-        config = {k: v for k, v in config.items() if k != "file"} | {"gitlab": cside, "project": cproj, **({"ref": cref} if cref else {})}
+    # config repo 들도 project: 가 있으면 API 로(--source local 일 때만 file:)
+    cfg_api_sides: set[str] = set()
+    for i, c in enumerate(configs):
+        cproj, cref = _project_of(c.get("project"))
+        cside = str(c.get("gitlab") or "center")
+        if _use_api(cproj, source):
+            configs[i] = {k: v for k, v in c.items() if k != "file"} | {"gitlab": cside, "project": cproj, **({"ref": cref} if cref else {})}
+            cfg_api_sides.add(cside)
+    config_api = bool(cfg_api_sides)
     api_sides = {side for side in ("repo", "center") if any(_use_api(_project_of(s.get(side))[0], source) for s in services)}
     print(
         "읽는 곳: "
@@ -438,7 +442,7 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
         + (" (--source local)" if source == "local" else "")
     )
     # 기본은 무조건 GitLab — 토큰이 없으면 빈 표를 올리지 않고 멈춤
-    no_token = sorted({*api_sides, *([cside] if config_api else [])} - {s for s in ("repo", "center") if _api_ready(s, cfg)})
+    no_token = sorted({*api_sides, *cfg_api_sides} - {s for s in ("repo", "center") if _api_ready(s, cfg)})
     if no_token:
         env = {"repo": "CT_GITLAB_URL·CT_GITLAB_TOKEN", "center": "CT_GITLAB_CENTER_URL·CT_GITLAB_CENTER_TOKEN"}
         print(
@@ -454,17 +458,45 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
         ]
         if local_only:
             print(f"  프로젝트 이름이 없어 로컬 사본을 읽음: {', '.join(local_only)} — repo:/center: 를 적으면 GitLab 으로")
-    listing = _config_listing(config, cfg, base_dir) if config else None
-    if config and listing is None:
-        print("  config 를 읽지 못함 — config: 의 file 경로 또는 GitLab 설정을 확인하세요.")
-    dirs, read_cfg = listing if listing else ({}, None)
+    # config repo 들의 폴더를 한 표로 모음 — 폴더마다 어느 repo 에서 읽나(reader)·그 repo 의 group
+    dirs: dict[str, list[str]] = {}
+    readers: dict[str, Any] = {}
+    dir_group: dict[str, str] = {}
+    merged_map: dict[str, str] = {}
+    compose_map: dict[str, dict] = {}
+    for c in configs:
+        listing = _config_listing(c, cfg, base_dir)
+        if listing is None:
+            print(f"  config 를 읽지 못함({c.get('project') or c.get('file')}) — file 경로 또는 GitLab 설정을 확인하세요.")
+            continue
+        found, reader = listing
+        for k, names in found.items():
+            if k in dirs:  # 다른 config repo 에 같은 폴더 이름 — 먼저 적은 쪽
+                print(f"  config 폴더 이름이 겹침: {k} — 먼저 적은 config repo 것을 씀")
+                continue
+            dirs[k], readers[k] = names, reader
+            if c.get("group"):
+                dir_group[k] = str(c["group"])
+        merged_map.update({str(k): str(v) for k, v in (c.get("merged") or {}).items()})
+        compose_map.update(c.get("compose") or {})
+    # Dockerfile·start.sh 가 없는 폴더(문서·템플릿 등)는 건너뜀 — 합쳐짐(merged)·서비스가 연결한 폴더는 남김
+    keep = set(merged_map) | {str(sv["config_dir"]) for sv in services if sv.get("config_dir")}
+    skipped = [
+        k for k, names in dirs.items()
+        if k not in keep and not any(is_dockerfile(n) or re.search(r"start[\w-]*\.sh", n, re.I) for n in names)
+    ]
+    for k in skipped:
+        dirs.pop(k)
+    if skipped:
+        print(f"  config 폴더 건너뜀(Dockerfile·start.sh 없음): {', '.join(sorted(skipped))}")
 
     def config_files(cdir: str) -> tuple[str | None, str | None]:
         """config 폴더의 (Dockerfile 원문, start.sh 이름|None)."""
         names = dirs.get(cdir, [])
         df = next((n for n in names if is_dockerfile(n)), None)
         sh = next((n for n in names if re.search(r"start[\w-]*\.sh", n, re.I)), None)
-        return (read_cfg(f"{cdir}/{df}") if (df and read_cfg) else None), sh
+        reader = readers.get(cdir)
+        return (reader(f"{cdir}/{df}") if (df and reader) else None), sh
 
     rows, missing = [], []
     compose_by_dir: dict[str, dict[str, str | None]] = {}
@@ -500,7 +532,7 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
         finally:
             api0.close()
     code_by_dir: dict[str, dict] = {}  # config 폴더 ↔ 코드에 적힌 버전(서비스의 repo CI 옆 파일들)
-    for cdir, envs in ((config or {}).get("compose") or {}).items():
+    for cdir, envs in compose_map.items():
         for env, src in ((e, _pick(x, source)) for e, x in (envs or {}).items()):
             tried, text = _read_source(src, cfg, base_dir)
             if tried and text is None:
@@ -599,8 +631,8 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
         rows.append(row)
 
     items = []
-    # 서비스와 연결 안 된 폴더의 그룹: config.group, 없으면 이 config repo 에 연결된 서비스들의 가장 많은 그룹
-    default_group = (config or {}).get("group") or (Counter(group_by_key.values()).most_common(1) or [(None, 0)])[0][0]
+    # 서비스와 연결 안 된 폴더의 그룹: 그 config repo 의 group, 없으면 연결된 서비스들의 가장 많은 그룹
+    default_group = (Counter(group_by_key.values()).most_common(1) or [(None, 0)])[0][0]
     for cdir in sorted(dirs):
         df_text, _ = config_files(cdir)
         svc_name = cdir.partition("/")[0]
@@ -615,11 +647,11 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
                 data["deploy_envs"] = sorted(envs_by_dir[key])
             if key != cdir:  # 역할 줄 — 실제 config 폴더
                 data["folder"] = cdir
-            merged = ((config or {}).get("merged") or {}).get(cdir)
+            merged = merged_map.get(cdir)
             if merged:  # 다른 폴더로 합쳐져 안 쓰는 폴더(예: repo 둘이 center 에서 하나로)
                 data["merged_into"] = str(merged)
             data["code"] = code_by_dir.get(key)  # 코드에 적힌 버전(없으면 None)
-            data["group"] = group_by_key.get(key) or default_group
+            data["group"] = group_by_key.get(key) or dir_group.get(cdir) or default_group
             items.append({"path": key, "data": data})
 
     api = CentralAPI(cfg.central_url, cfg.api_token)
@@ -627,7 +659,7 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
         if services:
             res = api.upload_shapes(rows, replace=True)  # 대상 파일이 기준 — 빠진 서비스는 표에서 내림
             print(f"비교표 수집: {res['accepted']}개 서비스")
-        if listing:
+        if configs:
             res = api.upload_config(items, replace=True)
             print(f"config 수집: {res['accepted']}개 줄")  # 보통 폴더 하나 = 한 줄(역할로 나뉘면 역할마다)
     finally:

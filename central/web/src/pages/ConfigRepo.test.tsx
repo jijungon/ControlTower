@@ -93,16 +93,6 @@ test('처음 실행할 명령(이미지·서버)·정리할 것 — 한 가지 �
   expect(fetchMock).toHaveBeenCalledTimes(2)
 })
 
-test('런타임 필터 — node 18 만 보기', async () => {
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(ROWS), { status: 200 })))
-  render(<ConfigRepo />)
-  const table = within(await screen.findByRole('table'))
-  await table.findByText('⚠ node 18')
-  fireEvent.change(screen.getByLabelText('런타임 필터'), { target: { value: 'node 18' } })
-  expect(table.getAllByText('web').length).toBe(1)
-  expect(table.queryByText('was')).toBeNull()
-})
-
 test('빈 상태 안내', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => new Response('[]', { status: 200 })))
   render(<ConfigRepo />)
@@ -193,7 +183,7 @@ test('역할로 나뉜 폴더는 역할마다 한 줄 + 옆에 실제 폴더, �
   expect(screen.getByText(/파일 지우기 1 ·/)).toBeInTheDocument() // 같은 폴더라 한 번
 })
 
-test('그룹 칸·그룹 필터 — 빌드·배포 표처럼 그룹 → 서비스 → 타입', async () => {
+test('그룹 칸·그룹 필터 — 빌드·배포 표처럼 그룹 → 서비스 → 타입, 런타임 필터는 없음', async () => {
   const mk = (path: string, group: string): ConfigRow => ({ path, group, runtime: 'node', runtime_version: '22', base_image: 'node', base_tag: '22-slim', start: 'dockerfile', start_files: [], state: 'done' })
   const rows = [mk('a/web', 'g1'), mk('a/was', 'g1'), mk('b/web', 'g1'), mk('c/web', 'g2')]
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(rows), { status: 200 })))
@@ -204,7 +194,11 @@ test('그룹 칸·그룹 필터 — 빌드·배포 표처럼 그룹 → 서비�
   expect(g1).toHaveAttribute('rowspan', '3')
   expect(g1).toHaveTextContent('서비스 2개')
   expect(g1.closest('tr')).toHaveClass('grp-start')
-  fireEvent.change(screen.getByLabelText('그룹 필터'), { target: { value: 'g2' } })
+  const seg = screen.getByRole('radiogroup', { name: '그룹 필터' }) // 빌드·배포 탭과 같은 알약 버튼
+  expect(within(seg).getByRole('radio', { name: '전체' })).toHaveAttribute('aria-checked', 'true')
+  fireEvent.click(within(seg).getByRole('radio', { name: 'g2' }))
+  expect(within(seg).getByRole('radio', { name: 'g2' })).toHaveAttribute('aria-checked', 'true')
   expect(table.queryByText('g1')).toBeNull()
+  expect(screen.queryByLabelText('런타임 필터')).toBeNull()
   expect(table.getByText('c')).toBeInTheDocument()
 })

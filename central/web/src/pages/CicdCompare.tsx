@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState } from 'react'
 import { fetchShapes, type DeployCell, type ExecutorCell, type ShapeRow } from '../api'
+import GroupFilter from '../components/GroupFilter'
 import SectionHead, { latestTime, runAll } from '../components/SectionHead'
 
 // 환경 칸 순서(데이터에 있는 환경만 보인다)
@@ -219,12 +220,7 @@ export default function CicdCompare() {
       />
       <Legend />
       <div className="toolbar" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
-        <select className="search" style={{ minWidth: 140 }} value={groupSel} onChange={(e) => setGroupSel(e.target.value)} aria-label="그룹 필터">
-          <option value="">그룹: 전체</option>
-          {groupNames.map((g) => (
-            <option key={g} value={g}>{g}</option>
-          ))}
-        </select>
+        <GroupFilter groups={groupNames} value={groupSel} onChange={setGroupSel} />
       </div>
 
       <div className="card" style={{ overflowX: 'auto' }}>

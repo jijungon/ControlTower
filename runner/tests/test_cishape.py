@@ -238,8 +238,12 @@ def test_parse_targets():
     runners, services, config = parse_targets(
         "runners: {a: shell}\nservices:\n  - {name: one, type: web}\n  - {type: was}\n  - nope\nconfig: {file: cfg}\n"
     )
-    assert runners == {"a": "shell"} and [s["name"] for s in services] == ["one"] and config == {"file": "cfg"}
-    assert parse_targets("services: []\n")[2] is None
+    assert runners == {"a": "shell"} and [s["name"] for s in services] == ["one"] and config == [{"file": "cfg"}]
+    assert parse_targets("services: []\n")[2] == []
+    # config repo 여러 개(목록) — 서비스 묶음마다 config repo 가 따로일 때
+    assert parse_targets("config:\n  - {project: a/config}\n  - {project: b/config, group: b}\n  - nope\n")[2] == [
+        {"project": "a/config"}, {"project": "b/config", "group": "b"},
+    ]
 
 
 def test_config_dirs_depth_three_and_flat_dockerfile():
@@ -857,3 +861,49 @@ def test_pick_gitlab_or_local_copy():
     assert _pick(both, "api") == {"gitlab": "center", "project": "g/config", "path": "web/Dockerfile", "note": "x"}
     assert _pick(both, "local") == {"file": "~/c/web/Dockerfile", "note": "x"}
     assert _pick({"file": "a"}, "api") == {"file": "a"} and _pick(None, "api") is None  # 하나만 적은 건 그대로
+
+
+def test_cmd_shape_reads_several_config_repos(monkeypatch, tmp_path, capsys):
+    """config repo 가 서비스 묶음마다 따로면 config: 를 목록으로 — 폴더를 한 표로 모으고, 폴더마다 자기 repo 에서 Dockerfile 을 읽고,
+    연결 안 된 폴더는 그 repo 의 group."""
+    import types
+
+    import runner.cli as cli
+
+    for repo, svc, df in (("cfg-a", "shop", DOCKER_NEW), ("cfg-b", "vault", DOCKER_LEGACY)):
+        (tmp_path / repo / svc / "web").mkdir(parents=True)
+        (tmp_path / repo / svc / "web" / "Dockerfile").write_text(df)
+    (tmp_path / "cfg-b" / "docs" / "deploy").mkdir(parents=True)  # 문서 폴더(Dockerfile 없음) → 건너뜀
+    (tmp_path / "cfg-b" / "docs" / "deploy" / "FLOW.md").write_text("# flow\n")
+    (tmp_path / "cfg-b" / "shop" / "web").mkdir(parents=True)  # 다른 repo 에 같은 폴더 이름 → 먼저 적은 쪽
+    (tmp_path / "cfg-b" / "shop" / "web" / "Dockerfile").write_text(DOCKER_LEGACY)
+    targets = tmp_path / "shape-targets.yml"
+    targets.write_text(
+        "config:\n"
+        "  - {file: cfg-a, group: mall}\n"
+        "  - {file: cfg-b, group: vault}\n"
+    )
+    sent: dict = {}
+
+    class FakeAPI:
+        def __init__(self, *a):
+            pass
+
+        def upload_config(self, items, replace=False):
+            sent.update({i["path"]: i["data"] for i in items})
+            return {"accepted": len(items), "removed": 0}
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(cli, "CentralAPI", FakeAPI)
+    cfg = types.SimpleNamespace(
+        shape_targets=str(targets), central_url="x", api_token="t", gitlab_url="", gitlab_token="",
+        gitlab_center_url="", gitlab_center_token="", gitlab_ref="", connect_timeout=1,
+    )
+    cli.cmd_shape(cfg)
+    assert set(sent) == {"shop/web", "vault/web"}
+    assert (sent["shop/web"]["group"], sent["vault/web"]["group"]) == ("mall", "vault")
+    assert sent["shop/web"]["state"] == "done" and sent["vault/web"]["state"] == "legacy"  # 각자 자기 repo 의 Dockerfile
+    out = capsys.readouterr().out
+    assert "config 폴더 이름이 겹침: shop/web" in out and "config 폴더 건너뜀(Dockerfile·start.sh 없음): docs/deploy" in out

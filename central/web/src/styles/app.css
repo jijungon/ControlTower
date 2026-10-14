@@ -41,6 +41,12 @@ button { font-family: inherit; cursor: pointer; }
 }
 .tab:hover { color: var(--ink); }
 .tab--active { color: var(--primary); background: var(--canvas); }
+/* 알약 버튼 묶음(그룹 필터) — 상단 탭과 같은 모양, 빌드·배포·config 가 같이 씀 */
+.seg { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--hairline); border-radius: var(--radius-pill); background: var(--canvas); }
+.seg-label { font-size: 12px; color: var(--ink-muted-48); padding: 0 6px 0 10px; }
+.seg-btn { border: 0; background: transparent; color: var(--ink-muted-80); font-size: 13px; padding: 5px 13px; border-radius: var(--radius-pill); cursor: pointer; }
+.seg-btn:hover { color: var(--ink); }
+.seg-btn--active { color: var(--primary); background: rgba(245, 245, 247, 0.9); font-weight: 600; }
 
 /* content */
 .content { flex: 1; width: 100%; max-width: 1920px; margin: 0 auto; padding: var(--space-lg) var(--space-lg) 64px; }

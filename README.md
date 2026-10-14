@@ -144,7 +144,7 @@ CI/CD 파이프라인 상태와 repo 선언본 버전(node/nest/java)은 GitLab 
 1. `cp runner/shape-targets.example.yml shape-targets.yml` 후 읽을 파일을 적는다 (커밋 안 됨).
    - GitLab: `{gitlab: repo|center, project, path}` — center 는 별도 인스턴스라 `CT_GITLAB_CENTER_URL/TOKEN`
    - 로컬 사본: `{file: 경로}` · 서버의 실제 파일(compose 등): `{ssh: 호스트별칭, path}`
-   - `config:` 에 config repo 를 적으면 폴더를 자동으로 훑고, 서비스는 `config_dir:` 로 연결
+   - `config:` 에 config repo 를 적으면 폴더를 자동으로 훑고, 서비스는 `config_dir:` 로 연결. 서비스 묶음마다 config repo 가 따로면 `config:` 를 **목록**으로(`- project: …` 한 덩어리 추가, `group:` 은 연결 안 된 폴더의 그룹). Dockerfile·start.sh 없는 폴더는 건너뜀
 2. `python -m runner.cli shape` (`make collect` 도 대상 파일이 있으면 포함)
 3. 서버 compose 를 실서버에서 읽기(선택): center CI 의 `DEPLOY_<환경>[_<타입>]_SERVERS` 와 `APP_DIR` 로 서버·폴더를 찾아
    - `python -m runner.cli shape --ssh-plan` — 어느 서버의 어떤 파일을 읽을지 **목록만** (접속 안 함)

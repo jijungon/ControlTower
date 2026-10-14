@@ -689,10 +689,14 @@ def parse_gateway_sudo(text: str) -> set[str]:
     return {str(g) for g in (doc.get("gateway_sudo") or [])}
 
 
-def parse_targets(text: str) -> tuple[dict[str, str], list[dict], dict | None]:
-    """shape-targets.yml → (runners 표, 서비스 목록, config 섹션)."""
+def parse_targets(text: str) -> tuple[dict[str, str], list[dict], list[dict]]:
+    """shape-targets.yml → (runners 표, 서비스 목록, config repo 목록).
+
+    config: 는 저장소 하나(맵) 또는 여러 개(목록) — 서비스 묶음마다 config repo 가 따로 있으면 목록으로 늘리면 됨.
+    """
     doc = yaml.safe_load(text) or {}
     runners = {str(k): str(v) for k, v in (doc.get("runners") or {}).items()}
     services = [s for s in (doc.get("services") or []) if isinstance(s, dict) and s.get("name")]
-    config = doc.get("config") if isinstance(doc.get("config"), dict) else None
-    return runners, services, config
+    raw = doc.get("config")
+    configs = [raw] if isinstance(raw, dict) else [c for c in (raw or []) if isinstance(c, dict)] if isinstance(raw, list) else []
+    return runners, services, configs

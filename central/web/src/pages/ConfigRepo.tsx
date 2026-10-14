@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState } from 'react'
 import { fetchConfig, type ComposeSrc, type ConfigRow } from '../api'
+import GroupFilter from '../components/GroupFilter'
 import SectionHead, { latestTime, runAll } from '../components/SectionHead'
 import { isOld, newestBy, Ver, verParts } from '../vercmp'
 
@@ -256,7 +257,6 @@ export default function ConfigRepo() {
   const [rows, setRows] = useState<ConfigRow[] | null>(null)
   const [err, setErr] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [runtime, setRuntime] = useState('')
   const [groupSel, setGroupSel] = useState('')
 
   const load = () =>
@@ -278,8 +278,6 @@ export default function ConfigRepo() {
   // 요약 숫자는 폴더 기준 — 역할로 나뉜 줄(manager·syncer)은 같은 폴더라 한 번만 셈
   const folders = [...new Map(active.map((r) => [r.folder ?? r.path, r])).values()]
   const count = (s: ConfigRow['state']) => folders.filter((r) => r.state === s).length
-  const runtimeLabel = (r: ConfigRow) => (r.runtime ? `${r.runtime}${r.runtime_version ? ` ${r.runtime_version}` : ''}` : '')
-  const runtimes = [...new Set(all.map(runtimeLabel).filter(Boolean))].sort()
   const oldCount = folders.reduce(
     (n, r) => n + (isOld(runtimeOf(r), newestRuntime) ? 1 : 0) + (isOld(baseOf(r), newestBase) ? 1 : 0),
     0,
@@ -290,7 +288,7 @@ export default function ConfigRepo() {
   const groupOf = (r: ConfigRow) => r.group || '기타'
   const groupNames = [...new Set(all.map(groupOf))].sort()
   const byGroup = new Map<string, Map<string, ConfigRow[]>>()
-  for (const r of all.filter((x) => (!runtime || runtimeLabel(x) === runtime) && (!groupSel || groupOf(x) === groupSel))) {
+  for (const r of all.filter((x) => !groupSel || groupOf(x) === groupSel)) {
     const svcMap = byGroup.get(groupOf(r)) ?? new Map<string, ConfigRow[]>()
     const svc = r.path.split('/')[0]
     svcMap.set(svc, [...(svcMap.get(svc) ?? []), r])
@@ -372,18 +370,7 @@ export default function ConfigRepo() {
       </details>
 
       <div className="toolbar" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
-        <select className="search" style={{ minWidth: 140 }} value={groupSel} onChange={(e) => setGroupSel(e.target.value)} aria-label="그룹 필터">
-          <option value="">그룹: 전체</option>
-          {groupNames.map((g) => (
-            <option key={g} value={g}>{g}</option>
-          ))}
-        </select>
-        <select className="search" style={{ minWidth: 140 }} value={runtime} onChange={(e) => setRuntime(e.target.value)} aria-label="런타임 필터">
-          <option value="">런타임: 전체</option>
-          {runtimes.map((r) => (
-            <option key={r} value={r}>{r}</option>
-          ))}
-        </select>
+        <GroupFilter groups={groupNames} value={groupSel} onChange={setGroupSel} />
       </div>
 
       <div className="card" style={{ overflowX: 'auto' }}>
