@@ -764,8 +764,8 @@ def test_confirm_executor_overrides_guess_and_resummarizes():
     assert confirm_executor(cell, {}) is cell and confirm_executor(None, {"x": {}}) is None
 
 
-def test_cmd_shape_switches_to_gitlab_api_when_token_set(monkeypatch, tmp_path, capsys):
-    """대상 파일에 repo:/center:/project: 를 적어 두면 토큰이 없을 땐 로컬 파일, 토큰이 생기면 GitLab API 로 읽고
+def test_cmd_shape_reads_gitlab_by_default_local_only_when_chosen(monkeypatch, tmp_path, capsys):
+    """기본은 repo:/center:/project: 를 무조건 GitLab API 로(토큰 없으면 올리지 않고 멈춤), 로컬 사본은 --source local 일 때만.
     API 로 읽은 쪽은 job 로그 맨 윗줄로 executor 를 확정한다."""
     import types
 
@@ -785,8 +785,8 @@ def test_cmd_shape_switches_to_gitlab_api_when_token_set(monkeypatch, tmp_path, 
         "services:\n"
         "  - name: shop web\n"
         "    type: web\n"
-        "    center: shop/shop\n"                      # 토큰이 생기면 이 프로젝트를 API 로
-        "    center_ci: {file: center.yml}\n"         # 그 전엔 로컬 사본
+        "    center: shop/shop\n"                      # 기본: 이 프로젝트를 GitLab API 로
+        "    center_ci: {file: center.yml}\n"         # --source local 일 때만 읽는 로컬 사본
         "    config_dir: shop/web\n"
     )
     sent: dict = {}
@@ -823,12 +823,16 @@ def test_cmd_shape_switches_to_gitlab_api_when_token_set(monkeypatch, tmp_path, 
             gitlab_center_url="http://center" if token else "", gitlab_center_token=token, gitlab_ref="main", connect_timeout=1,
         )
 
-    # 1) 토큰 없음 → 로컬 파일, API 는 안 부름, executor 는 추정
+    # 1) 토큰 없음 → GitLab 을 못 읽으니 멈춤(빈 표를 올리지 않음), API·로컬 둘 다 안 읽음
     cli.cmd_shape(cfg(""))
-    assert calls == [] and "center 로컬 파일 · config 로컬 파일" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert calls == [] and sent == {} and "GitLab 토큰이 없어 멈춤(center)" in out and "--source local" in out
+    # 2) --source local 을 고르면 로컬 사본 — executor 는 추정
+    cli.cmd_shape(cfg(""), source="local")
+    assert calls == [] and "center 로컬 사본 · config 로컬 사본 (--source local)" in capsys.readouterr().out
     ex = sent["shapes"]["shop web"]["executor_center"]
     assert {g["tag"]: g["guess"] for g in ex["groups"]} == {"local-builder": True, "deployer": True}
-    # 2) 토큰 있음 → 같은 대상 파일인데 API 로, job 로그로 확정(같은 러너는 한 번만)
+    # 3) 토큰 있음(기본) → API 로, job 로그로 확정(같은 러너는 한 번만)
     cli.cmd_shape(cfg("tok"))
     out = capsys.readouterr().out
     assert "center GitLab API · config GitLab API" in out
@@ -840,7 +844,7 @@ def test_cmd_shape_switches_to_gitlab_api_when_token_set(monkeypatch, tmp_path, 
     assert (groups["deployer"]["value"], groups["deployer"]["why"]) == ("docker", "job 로그 #7")
     assert "default_image" not in groups["deployer"]  # deploy 는 image: 를 적어 둠 → 러너 기본 이미지 아님
     assert "shop/web" in sent["config"]
-    # 3) --source local 이면 토큰이 있어도 로컬
+    # 4) --source local 이면 토큰이 있어도 로컬
     calls.clear()
     cli.cmd_shape(cfg("tok"), source="local")
     assert calls == []

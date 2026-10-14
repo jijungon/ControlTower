@@ -157,10 +157,11 @@ CI/CD 파이프라인 상태와 repo 선언본 버전(node/nest/java)은 GitLab 
      — config 탭은 역할마다 한 줄(옆에 실제 폴더)
    - config 탭 (서버) 칸 옆에 출처 표시: 서버 · 자동 · gw · 사본 · 옛 사본 (좁은 화면에선 마우스로)
 
-4. **GitLab API 로 바꾸기**(토큰은 나중에): 대상 파일의 서비스에 `repo:`/`center:`, `config:` 에 `project:` 로 GitLab 프로젝트 이름만 적어 둔다.
-   - 토큰이 없으면 지금처럼 로컬 사본(`repo_ci`/`center_ci`/`file`)을 읽고, `.env` 에 `CT_GITLAB_TOKEN`·`CT_GITLAB_CENTER_TOKEN`(읽기 전용 `read_api`, 그룹 토큰 권장)을 넣는 순간 API 로 바뀐다 — 실행할 때 첫 줄 `읽는 곳:` 에 표시
+4. **GitLab 에서 읽기(기본)**: 대상 파일의 서비스 `repo:`/`center:`, `config:` 의 `project:` 에 적힌 GitLab 프로젝트를 **무조건 API 로** 읽는다.
+   - 토큰: runner 쪽 `.env` 의 `CT_GITLAB_URL`·`CT_GITLAB_TOKEN`(repo), `CT_GITLAB_CENTER_URL`·`CT_GITLAB_CENTER_TOKEN`(center) — 읽기 전용 `read_api`, 그룹 토큰 권장. 없으면 빈 표를 올리지 않고 멈춤
    - API 로 읽은 쪽은 러너마다 최근 job 로그 맨 윗줄(`Preparing the "shell" executor`)로 **executor 를 확정**(같은 러너는 한 번만 읽음, 근거 = job 번호). image: 없이 도는 job 은 로그에 찍힌 러너 기본 이미지도 보여줌
-   - `--source local|api` 로 강제 선택. 토큰은 runner 쪽에만 있고 중앙엔 안 올라감(나중엔 OpenBao 에서 실행할 때만 받기)
+   - 로컬 사본(`repo_ci`/`center_ci`/`file`)은 **고를 때만**: `python -m runner.cli shape --source local`. 프로젝트 이름이 없는 서비스만 로컬 사본을 읽고, 실행할 때 알려줌
+   - 실행 첫 줄 `읽는 곳:` 에 어디서 읽는지 표시. 토큰은 runner 에만 있고 중앙엔 안 올라감(나중엔 OpenBao 에서 실행할 때만 받기)
 
 > 읽기 전용. 읽은 파일 원문은 중앙에 올리지 않고 결과 칸만 올린다. CI 변수는 **값 없이** 개수 + 해시만 보낸다(화면엔 안 보임). executor 는 **job 마다** 정한다(job 이름: 방식, 가장 많은 쪽은 '나머지 N개'). CI 파일만으로는 확정할 수 없어 대상 파일의 `runners:` 표(태그→shell/docker)에 있으면 확정, 없으면 `image:` 유무로 `(추정)` — 확정은 job 로그 맨 윗줄 `Preparing the "…" executor`. (GitLab 토큰이 있으면 이 로그를 API 로 읽어 자동 확정 — 4번)
 

@@ -319,16 +319,16 @@ def _api_ready(side: str, cfg: RunnerConfig) -> bool:
     return bool(url and token)
 
 
-def _use_api(project: str | None, side: str, cfg: RunnerConfig, source: str) -> bool:
-    """이 GitLab 을 API 로 읽나 — source: auto(토큰 있으면 API, 없으면 로컬) / api(항상) / local(항상 로컬)."""
-    return bool(project) and source != "local" and (source == "api" or _api_ready(side, cfg))
+def _use_api(project: str | None, source: str) -> bool:
+    """이 GitLab 을 API 로 읽나 — 기본(api)은 프로젝트 이름이 적힌 곳은 무조건 API, local 을 고를 때만 로컬 사본."""
+    return bool(project) and source != "local"
 
 
 def _ci_source(svc: dict, side: str, cfg: RunnerConfig, source: str) -> tuple[object, tuple[str, str | None] | None]:
-    """repo/center CI 를 어디서 읽나 → (소스, API 면 (프로젝트, ref)). 대상 파일의 repo:/center: 에 프로젝트를 적어 두면
-    토큰이 생기는 순간 API 로 바뀌고, 그 전엔 {side}_ci(로컬 파일 등)를 읽는다."""
+    """repo/center CI 를 어디서 읽나 → (소스, API 면 (프로젝트, ref)). 대상 파일의 repo:/center: 프로젝트를 GitLab API 로,
+    --source local 일 때(또는 프로젝트 이름이 없을 때)만 {side}_ci(로컬 사본)."""
     project, ref = _project_of(svc.get(side))
-    if _use_api(project, side, cfg, source):
+    if _use_api(project, source):
         src: dict = {"gitlab": side, "project": project, "path": ".gitlab-ci.yml"}
         if ref:
             src["ref"] = ref
@@ -398,10 +398,10 @@ def _config_listing(config: dict, cfg: RunnerConfig, base_dir: str):
     return config_dirs(tree), lambda rel: fetch_repo_file(url, token, str(config["project"]), rel, ref, cfg.connect_timeout)
 
 
-def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str | None = None, source: str = "auto") -> None:
+def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str | None = None, source: str = "api") -> None:
     """ssh_mode: None = 대상 파일에 적힌 것만 / 'plan' = center CI 로 서버 compose 위치를 찾아 목록만 출력(접속 안 함)
     / 'read' = 그 목록대로 SSH 로 실제 읽음(대상 파일에 이미 적힌 환경은 건드리지 않음).
-    source: GitLab 파일을 어디서 읽나 — auto(토큰 있으면 API, 없으면 로컬) / api / local."""
+    source: GitLab 파일을 어디서 읽나 — api(기본: 무조건 GitLab, 토큰 없으면 멈춤) / local(로컬 사본, 고를 때만)."""
     path = targets_path or cfg.shape_targets
     if not os.path.exists(path):
         print(f"비교표 대상 파일 없음({path}) — runner/shape-targets.example.yml 을 복사해 채우세요.")
@@ -415,19 +415,36 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
         print(f"비교표 대상이 비어 있음 — {path} 의 services: / config: 를 채우세요.")
         return
     base_dir = os.path.dirname(os.path.abspath(path))
-    # config 도 project: 가 있고 토큰이 있으면 API 로(없으면 file:)
+    # config 도 project: 가 있으면 API 로(--source local 일 때만 file:)
     cproj, cref = _project_of((config or {}).get("project"))
     cside = str((config or {}).get("gitlab") or "center")
-    config_api = bool(config) and _use_api(cproj, cside, cfg, source)
+    config_api = bool(config) and _use_api(cproj, source)
     if config_api:
         config = {k: v for k, v in config.items() if k != "file"} | {"gitlab": cside, "project": cproj, **({"ref": cref} if cref else {})}
-    api_sides = {side for side in ("repo", "center") if any(_use_api(_project_of(s.get(side))[0], side, cfg, source) for s in services)}
+    api_sides = {side for side in ("repo", "center") if any(_use_api(_project_of(s.get(side))[0], source) for s in services)}
     print(
         "읽는 곳: "
-        + " · ".join(f"{side} {'GitLab API' if side in api_sides else '로컬 파일'}" for side in ("repo", "center"))
-        + f" · config {'GitLab API' if config_api else '로컬 파일'}"
-        + ("" if api_sides or config_api else " (토큰을 넣으면 repo:/center:/project: 가 적힌 곳은 API 로 바뀜)")
+        + " · ".join(f"{side} {'GitLab API' if side in api_sides else '로컬 사본'}" for side in ("repo", "center"))
+        + f" · config {'GitLab API' if config_api else '로컬 사본'}"
+        + (" (--source local)" if source == "local" else "")
     )
+    # 기본은 무조건 GitLab — 토큰이 없으면 빈 표를 올리지 않고 멈춤
+    no_token = sorted({*api_sides, *([cside] if config_api else [])} - {s for s in ("repo", "center") if _api_ready(s, cfg)})
+    if no_token:
+        env = {"repo": "CT_GITLAB_URL·CT_GITLAB_TOKEN", "center": "CT_GITLAB_CENTER_URL·CT_GITLAB_CENTER_TOKEN"}
+        print(
+            f"  GitLab 토큰이 없어 멈춤({'·'.join(no_token)}) — .env 에 {' / '.join(env[s] for s in no_token)}(read_api) 를 넣거나,"
+            " 로컬 사본으로 보려면 --source local"
+        )
+        return
+    if source != "local":  # 프로젝트 이름이 없어 로컬 사본을 읽는 서비스(알려만 줌)
+        local_only = [
+            f"{s['name']}({'·'.join(side for side in ('repo', 'center') if not _project_of(s.get(side))[0] and s.get(f'{side}_ci'))})"
+            for s in services
+            if any(not _project_of(s.get(side))[0] and s.get(f"{side}_ci") for side in ("repo", "center"))
+        ]
+        if local_only:
+            print(f"  프로젝트 이름이 없어 로컬 사본을 읽음: {', '.join(local_only)} — repo:/center: 를 적으면 GitLab 으로")
     listing = _config_listing(config, cfg, base_dir) if config else None
     if config and listing is None:
         print("  config 를 읽지 못함 — config: 의 file 경로 또는 GitLab 설정을 확인하세요.")
@@ -746,8 +763,8 @@ def main() -> None:
     g.add_argument("--ssh-plan", action="store_true", help="center CI 로 서버 compose 위치를 찾아 목록만 출력(접속 안 함)")
     g.add_argument("--ssh", action="store_true", help="그 목록대로 서버에 SSH 로 접속해 compose 를 읽음(읽기만)")
     shp.add_argument(
-        "--source", choices=["auto", "api", "local"], default="auto",
-        help="GitLab 파일을 어디서 — auto: 토큰 있으면 API(repo:/center:/project:), 없으면 로컬 / api / local",
+        "--source", choices=["api", "local"], default="api",
+        help="GitLab 파일을 어디서 — api(기본): repo:/center:/project: 를 무조건 GitLab 으로(토큰 필요) / local: 로컬 사본",
     )
     allp = sub.add_parser("all", help="모든 수집기 1회 실행(--loop 로 주기 반복)")
     allp.add_argument("--loop", action="store_true", help="간격을 두고 반복 실행")
