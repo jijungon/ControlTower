@@ -163,10 +163,10 @@ table.grid { width: 100%; border-collapse: collapse; font-size: 15px; }
 .legend-key { display: inline-block; padding: 2px 9px; border: 1px solid var(--hairline); border-radius: 6px; background: var(--canvas); color: var(--ink); font-weight: 600; line-height: 1.35; }
 .legend-key .cell-sub { font-weight: 400; }
 .legend-key .ver-env { min-width: 0; margin-right: 4px; }
-/* 배포 방식 칩(빌드·배포 dev·stg·prod 칸 + 표 읽는 법) — 이미지 초록(표준) · 파일 복사 노랑(옮길 곳) · 빌드만 회색, 점선 = compose 로 짐작 */
+/* 배포 방식 칩(빌드·배포 dev·stg·prod 칸 + 표 읽는 법) — 이미지 보라(표준) · 파일 복사 노랑(옮길 곳) · 빌드만 회색, 점선 = compose 로 짐작 */
 .path-chip { display: inline-block; padding: 1px 6px; border: 1px solid transparent; border-radius: 6px; font-weight: 600; line-height: 1.35; white-space: nowrap; }
 .path-chip .cell-sub { font-weight: 400; }
-.path-chip--image { background: var(--ok-bg); color: var(--ok); }
+.path-chip--image { background: var(--deploy-image-bg); color: var(--deploy-image); }
 .path-chip--direct { background: var(--warn-bg); color: var(--warn); }
 .path-chip--build { background: var(--surface-pearl); color: var(--ink-muted-48); border-color: var(--hairline); }
 .path-chip--guess { border-style: dashed; border-color: currentColor; }

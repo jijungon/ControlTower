@@ -54,4 +54,7 @@
   /* executor 색 — docker = 하늘(도커 색), shell = 연두(터미널 글자색). 글자는 읽히게 조금 진하게 */
   --exec-docker: #1b78c8; --exec-docker-bg: #e3f1fc;
   --exec-shell: #2f9a35;  --exec-shell-bg: #e7f7e3;
+
+  /* 배포 방식 '이미지'(표준) — 보라. 초록이면 executor 의 shell 연두와 같아 보여서 겹치지 않는 색으로 */
+  --deploy-image: #6a4fc0; --deploy-image-bg: #f1edfb;
 }

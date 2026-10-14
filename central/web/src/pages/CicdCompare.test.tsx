@@ -61,7 +61,7 @@ test('배포·executor 칸 — 쉬운 말 + 마우스 올리면 뜻', async () =
   expect(table.getAllByText('수동', { selector: '.cell-sub' }).length).toBeGreaterThan(0)
   expect(table.getByText('빌드만')).toBeInTheDocument()
   expect(table.getByText('compose 기준', { selector: '.cell-sub' }).closest('[title]')).toHaveAttribute('title', expect.stringContaining('짐작'))
-  // 색: 이미지 초록(표준) · 파일 복사 노랑(옮길 곳) · 빌드만 회색, compose 로 짐작한 칸은 점선
+  // 색: 이미지 보라(표준) · 파일 복사 노랑(옮길 곳) · 빌드만 회색, compose 로 짐작한 칸은 점선
   expect(repoChip).toHaveClass('path-chip', 'path-chip--direct')
   expect(table.getByText('빌드만')).toHaveClass('path-chip--build')
   expect(table.getAllByText('수동', { selector: '.cell-sub' })[0].parentElement).toHaveClass('path-chip--image')

@@ -28,7 +28,7 @@ function split(r: ShapeRow): { app: string; kind: string } {
   return { app: r.service, kind: t || '—' }
 }
 
-// 배포 방식 칩 — 색 = 표준에서 얼마나 먼가: 이미지(초록, 표준) · 파일 복사(노랑, 이미지로 옮길 대상) · 빌드만(회색).
+// 배포 방식 칩 — 색 = 표준에서 얼마나 먼가: 이미지(보라, 표준 — shell 연두와 안 겹치게) · 파일 복사(노랑, 이미지로 옮길 대상) · 빌드만(회색).
 // 아랫줄(누가 복사 · 수동 · compose 기준)은 칩 안 작은 글씨, compose 로 짐작한 칸은 점선(executor 추정과 같은 뜻)
 export function PathChip({ path, label, sub, guess }: { path: DeployCell['path']; label: string; sub?: string; guess?: boolean }) {
   return (
