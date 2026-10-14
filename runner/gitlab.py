@@ -1,4 +1,4 @@
-"""GitLab CI 조회 (읽기 전용) — 최근 파이프라인 상태 · repo 파일 · 최근 job · job 로그 앞부분.
+"""GitLab CI 조회 (읽기 전용) — 최근 파이프라인 상태 · repo 파일 · 최근 job · tag 로 돈 job · job 로그 앞부분.
 
 토큰은 러너 로컬에만 둔다(PRIVATE-TOKEN 헤더). 중앙엔 결과 상태만 올리고 토큰은 저장하지 않는다.
 transport 인자는 테스트에서 httpx.MockTransport 주입용.
@@ -141,6 +141,48 @@ def fetch_recent_jobs(
         }
         for j in r.json()
     ]
+
+
+def fetch_tag_jobs(
+    base_url: str,
+    token: str,
+    project: str,
+    timeout: int = 8,
+    *,
+    transport: httpx.BaseTransport | None = None,
+    per_page: int = 100,
+    max_pages: int = 5,
+) -> list[dict[str, Any]] | None:
+    """tag 로 돌아 성공한 job 들(최신순) — 빌드·배포 버전 확인용. 오류면 None.
+
+    반환: [{id, name, ref, finished_at}] — ref = tag 이름(예: prod-web-v1.2.3). 브랜치로 돈 job 은 뺀다.
+    오래된 prod 배포까지 닿도록 여러 쪽(max_pages × per_page)을 읽는다.
+    """
+    pid = quote(str(project), safe="")
+    url = f"{base_url.rstrip('/')}/api/v4/projects/{pid}/jobs"
+    out: list[dict[str, Any]] = []
+    page = "1"
+    try:
+        with httpx.Client(transport=transport, timeout=timeout) as c:
+            for _ in range(max_pages):
+                r = c.get(
+                    url,
+                    params={"scope[]": "success", "per_page": per_page, "page": page},
+                    headers={"PRIVATE-TOKEN": token},
+                )
+                if r.status_code != 200:
+                    return None
+                out += [
+                    {"id": j.get("id"), "name": j.get("name"), "ref": j.get("ref"), "finished_at": j.get("finished_at")}
+                    for j in r.json()
+                    if j.get("tag")
+                ]
+                page = r.headers.get("X-Next-Page", "")
+                if not page:
+                    break
+    except httpx.HTTPError:
+        return None
+    return out
 
 
 def fetch_job_log_head(

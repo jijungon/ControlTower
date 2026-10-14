@@ -54,13 +54,18 @@ test('배포·executor 칸 — 쉬운 말 + 마우스 올리면 뜻', async () =
   render(<CicdCompare />)
   const table = within(await screen.findByRole('table'))
   // 배포 칸: 윗줄 방식 + 아랫줄 누가(repo/center) — 칸 전체에 마우스를 올리면 뜻
-  const repoCell = table.getByText('repo', { selector: '.cell-sub' }).parentElement!
-  expect(repoCell).toHaveTextContent('파일 복사repo')
-  expect(repoCell).toHaveAttribute('title', expect.stringContaining('직배포'))
-  expect(table.getByText('center', { selector: '.cell-sub' }).parentElement).toHaveAttribute('title', expect.stringContaining('center CI'))
+  const repoChip = table.getByText('repo', { selector: '.cell-sub' }).parentElement!
+  expect(repoChip).toHaveTextContent('파일 복사repo')
+  expect(repoChip.closest('[title]')).toHaveAttribute('title', expect.stringContaining('직배포'))
+  expect(table.getByText('center', { selector: '.cell-sub' }).closest('[title]')).toHaveAttribute('title', expect.stringContaining('center CI'))
   expect(table.getAllByText('수동', { selector: '.cell-sub' }).length).toBeGreaterThan(0)
   expect(table.getByText('빌드만')).toBeInTheDocument()
-  expect(table.getByText('compose 기준', { selector: '.cell-sub' }).parentElement).toHaveAttribute('title', expect.stringContaining('짐작'))
+  expect(table.getByText('compose 기준', { selector: '.cell-sub' }).closest('[title]')).toHaveAttribute('title', expect.stringContaining('짐작'))
+  // 색: 이미지 보라(표준) · 파일 복사 노랑(옮길 곳) · 빌드만 회색, compose 로 짐작한 칸은 점선
+  expect(repoChip).toHaveClass('path-chip', 'path-chip--direct')
+  expect(table.getByText('빌드만')).toHaveClass('path-chip--build')
+  expect(table.getAllByText('수동', { selector: '.cell-sub' })[0].parentElement).toHaveClass('path-chip--image')
+  expect(table.getByText('compose 기준', { selector: '.cell-sub' }).parentElement).toHaveClass('path-chip--direct', 'path-chip--guess')
   expect(table.getByText('⚠ compose 다름')).toHaveAttribute('title', expect.stringContaining('파일 복사'))
   // executor: job 별로 한 줄씩 — 적은 쪽은 job 이름, 가장 많은 쪽은 '나머지'
   const shop = table.getByText('mall').closest('tr')!
@@ -159,4 +164,54 @@ test('GitLab/GitHub 배지는 config 탭처럼 그룹 칸에', async () => {
   expect(table.getByText('vault').closest('td')).toHaveTextContent(/^vault서비스 1개GitHub$/)
   expect(table.getByText('shop').closest('td')).toHaveTextContent(/^shop$/) // 서비스 칸엔 배지 없음
   expect(screen.queryByRole('radiogroup', { name: '빌드 필터' })).toBeNull()
+})
+
+test('빌드 버전 · 배포 버전 — 환경마다 한 줄, 배포가 빌드보다 옛날이면 빨간 칸, 배포 job 없으면 —, 못 읽으면 모름', async () => {
+  const rows: ShapeRow[] = [
+    {
+      service: 'shop was', group: 'mall', type: 'was', host: 'gitlab',
+      deploy: { dev: { path: 'image', manual: false }, prod: { path: 'image', manual: true } },
+      versions: {
+        build: {
+          dev: { version: 'v1.0.9', tag: 'dev-was-v1.0.9', at: '2026-10-12T21:00:00Z', job: 31, side: 'center' },
+          prod: { version: 'v1.0.9', tag: 'prod-was-v1.0.9', at: '2026-10-13T10:52:00Z', job: 40, side: 'center' },
+          stg: { version: 'v1.0.8', tag: 'stg-was-v1.0.8', at: '2026-10-10T00:00:00Z', job: 20, side: 'center' },
+        },
+        deploy: {
+          dev: { version: 'v1.0.9', tag: 'dev-was-v1.0.9', at: '2026-10-12T21:26:00Z', job: 32, side: 'center' },
+          prod: { version: 'v1.0.2', tag: 'prod-was-v1.0.2', at: '2026-10-01T14:23:00Z', job: 30, side: 'center' },
+        },
+      },
+    },
+    { service: 'shop web', group: 'mall', type: 'web', host: 'gitlab', deploy: { prod: { path: 'image', manual: false } } }, // 로컬 사본 → 모름
+    { service: 'blog web', group: 'blog', type: 'web', host: 'github', deploy: { dev: { path: 'image', by: 'compose', manual: null } } },
+  ]
+  stub(rows)
+  render(<CicdCompare />)
+  await screen.findByText('was')
+  const table = within(document.querySelector('table.grid--nowrap') as HTMLElement)
+  const heads = screen.getAllByRole('columnheader').map((h) => h.textContent)
+  expect(heads).toEqual(expect.arrayContaining(['빌드 버전', '배포 버전']))
+  const was = table.getByText('was').closest('tr')!
+  const cells = [...was.querySelectorAll(':scope > td')]
+  const col = (name: string) => cells[heads.indexOf(name) - (heads.length - cells.length)]
+  // 빌드: 환경 순서(dev · stg · prod) 로 한 줄씩
+  expect([...col('빌드 버전').querySelectorAll('.ver-line')].map((l) => l.textContent)).toEqual(['devv1.0.9', 'stgv1.0.8', 'prodv1.0.9'])
+  expect(col('빌드 버전').querySelector('.ver-line')).toHaveAttribute('title', '빌드: dev-was-v1.0.9 · 2026-10-12 · job #31 (center CI)')
+  // 배포: prod 는 빌드(v1.0.9)보다 옛날(v1.0.2) → 빨간 칸, stg 는 배포 job 이 없음 → —
+  const prod = within(col('배포 버전') as HTMLElement).getByText('⚠ v1.0.2')
+  expect(prod).toHaveClass('ver--old')
+  expect(prod.closest('.ver-line')).toHaveAttribute('title', expect.stringContaining('빌드는 prod-was-v1.0.9(2026-10-13) — 아직 배포 안 됨'))
+  expect(within(col('배포 버전') as HTMLElement).getByText('v1.0.9')).not.toHaveClass('ver--old')
+  expect([...col('배포 버전').querySelectorAll('.ver-line')].map((l) => l.textContent)).toEqual(['devv1.0.9', 'stg—', 'prod⚠ v1.0.2'])
+  // 버전을 못 읽은 서비스(로컬 사본) = 모름, GitHub = —
+  const web = was.previousElementSibling as HTMLElement // 같은 서비스에서 web 이 was 위
+  expect(within(web).getAllByText('모름').length).toBe(2)
+  const blog = table.getByText('blog', { selector: 'td.svc-cell' }).closest('tr')!
+  expect(within(blog).queryByText('모름')).toBeNull() // GitHub 은 아직 못 읽음 → —
+  // 요약: 빌드해 두고 배포 안 한 곳 수
+  expect(screen.getByText(/배포 안 된 빌드 1곳/)).toBeInTheDocument()
+  // 표 읽는 법에 버전 줄
+  const legend = screen.getByText('표 읽는 법').closest('details')!
+  expect([...legend.querySelectorAll('.legend-grid > dt')].map((d) => d.textContent)).toContain('빌드 버전 · 배포 버전')
 })

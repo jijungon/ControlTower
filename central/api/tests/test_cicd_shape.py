@@ -83,3 +83,16 @@ def test_new_fields_pass_through_unchanged(client):
     client.post("/api/cicd/config", json={"items": [item]}, headers=AUTH)
     got = client.get("/api/cicd/config").json()[0]
     assert {k: got[k] for k in ("folder", "config_repo", "group", "deploy_envs", "compose_miss")} == {k: item["data"][k] for k in ("folder", "config_repo", "group", "deploy_envs", "compose_miss")}
+
+
+def test_versions_and_repo_pass_through(client):
+    """빌드·배포 버전(환경별 tag)과 repo 정보는 data 안에 그대로 저장·반환 — 새 칸이라도 DB 모양은 안 바뀜."""
+    versions = {
+        "build": {"prod": {"version": "v1.0.9", "tag": "prod-was-v1.0.9", "at": "2026-10-13T10:52:00Z", "job": 40, "side": "center"}},
+        "deploy": {"prod": {"version": "v1.0.2", "tag": "prod-was-v1.0.2", "at": "2026-10-01T14:23:00Z", "job": 30, "side": "center"}},
+    }
+    repo = {"project": "g/shop-was", "read": True, "build": [{"runtime": "node", "version": "20", "image": "node:20-slim", "jobs": ["build"]}],
+            "code": {"node": "22", "node_from": ".nvmrc", "node_rule": "exact"}}
+    client.post("/api/cicd/shape", json={"shapes": [_shape("shop was", versions=versions, repo=repo)]}, headers=AUTH)
+    row = client.get("/api/cicd/shape").json()[0]
+    assert row["versions"] == versions and row["repo"] == repo

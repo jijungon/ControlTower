@@ -71,11 +71,23 @@ test.beforeAll(async () => {
   const shape = await api.post('/api/cicd/shape', {
     data: {
       shapes: [
-        { service: 'shop web', group: 'shop', data: { runtime: 'node', runtime_version: '18', deploy: { dev: { path: 'direct', by: 'repo', manual: false } }, startup: true, host: 'gitlab' } },
+        {
+          service: 'shop web', group: 'shop',
+          data: {
+            runtime: 'node', runtime_version: '18', deploy: { dev: { path: 'direct', by: 'repo', manual: false } }, startup: true, host: 'gitlab',
+            // repo 보기: 빌드 node 20(CI 이미지) · 코드 node 22(.nvmrc) · 실행 node 18 → 셋 다 다름
+            repo: { project: 'team/shop-web', read: true, build: [{ runtime: 'node', version: '20', image: 'node:20-slim', jobs: ['build'] }], code: { node: '22', node_from: '.nvmrc', node_rule: 'exact' } },
+          },
+        },
         {
           service: 'shop admin', group: 'shop',
           data: {
             runtime: 'node', runtime_version: '20', deploy: { dev: { path: 'image', manual: false } }, startup: false, host: 'gitlab',
+            // 빌드·배포 버전: prod 는 v2.0.0 을 빌드해 두고 v1.9.0 이 배포돼 있음
+            versions: {
+              build: { dev: { version: 'v2.0.0', tag: 'dev-admin-v2.0.0', at: '2026-10-12T00:00:00Z', job: 21, side: 'center' }, prod: { version: 'v2.0.0', tag: 'prod-admin-v2.0.0', at: '2026-10-13T00:00:00Z', job: 23, side: 'center' } },
+              deploy: { dev: { version: 'v2.0.0', tag: 'dev-admin-v2.0.0', at: '2026-10-12T01:00:00Z', job: 22, side: 'center' }, prod: { version: 'v1.9.0', tag: 'prod-admin-v1.9.0', at: '2026-10-01T00:00:00Z', job: 15, side: 'center' } },
+            },
             // job 로그로 확정한 executor — 펼치면 job | image | 러너, 아래 러너 표에 등록된 이름
             executor_center: {
               value: 'docker', guess: false, tags: ['builder', 'deployer'], counts: { shell: 1, docker: 2 },
@@ -117,15 +129,12 @@ test.beforeAll(async () => {
   await api.dispose()
 })
 
-test('서버 인벤토리에 임포트된 서버가 보인다', async ({ page }) => {
+test('서버 탭 = IdP 연동 후 서버 ↔ 항목 연결 자리 — 서버 목록(IP·접속키)은 안 보임', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: '서버' }).click()
-  await expect(page.getByRole('heading', { name: /서버 · 접속키/ })).toBeVisible()
-  const list = page.locator('table').first() // 같은 탭 아래 /etc 설정 파일 표에도 서버 이름이 나옴
-  await expect(list.getByText('web-01')).toBeVisible()
-  await expect(list.getByText('web-02')).toBeVisible()
-  await expect(page.getByText('prod', { exact: true })).toBeVisible() // 그룹 태그(드롭다운 'prod (1)' 와 구분)
-  await expect(page.getByText('edge', { exact: true })).toBeVisible() // 태그
+  await expect(page.getByRole('heading', { name: '서버 ↔ 항목 연결' })).toBeVisible()
+  await expect(page.locator('.placeholder').first()).toContainText('IdP 연동 후')
+  await expect(page.getByPlaceholder('서버 · IP · user 검색')).toHaveCount(0)
 })
 
 test('서버 탭의 /etc 설정 파일 섹션에서 동기화·드리프트가 보인다', async ({ page }) => {
@@ -143,10 +152,12 @@ test('OS 패치·작업이력 탭에서 서버 행을 열면 패키지가 보인
   await expect(page.getByText('openssl').first()).toBeVisible()
 })
 
-test('대시보드가 실집계를 보여준다', async ({ page }) => {
+test('대시보드가 실집계를 보여준다 — 탭 순서 서버 → config → 빌드·배포', async ({ page }) => {
   await page.goto('/')
-  // 기본 탭=대시보드. 서버 2대 임포트·연결테스트 미실행 → 온라인 0/2
-  await expect(page.getByText('0/2')).toBeVisible()
+  // 기본 탭=대시보드. 서버 탭은 IdP 연동 후 연결 자리 → 서버 카드는 /etc 설정 드리프트만(온라인 서버 없음)
+  await expect(page.locator('nav.sub-nav button')).toHaveText(['대시보드', '서버', 'config', '빌드·배포', 'OS 패치·작업이력'])
+  await expect(page.locator('a.stat .stat-tab')).toHaveText(['서버', 'config', 'config', '빌드·배포', 'OS 패치·작업이력'])
+  await expect(page.getByText('온라인 서버')).toHaveCount(0)
   await expect(page.getByText('수집 현황')).toBeVisible()
 })
 
@@ -157,13 +168,6 @@ test('OS 패치·작업이력 탭 오른쪽에 작업이력이 쌓인다', async
   // 시드가 import·conf 수집·updates 수집을 수행 → 감사 로그로 표시
   await expect(page.getByText('서버 임포트')).toBeVisible()
   await expect(page.getByText('업데이트 수집')).toBeVisible()
-})
-
-test('서버 탭에 서버마다 깔린 도구 버전이 보인다', async ({ page }) => {
-  await page.goto('/')
-  await page.getByRole('button', { name: '서버' }).click()
-  await expect(page.getByText('node 20.11.1')).toBeVisible() // web-01 (러너 versions 가 SSH 로 읽은 값)
-  await expect(page.getByText('docker 24.0.7')).toBeVisible()
 })
 
 test('빌드·배포 탭 서비스 비교표 — 배포 방식·범례', async ({ page }) => {
@@ -188,13 +192,13 @@ test('서버 탭 /etc 설정 적용: 계획 → 승인 (서버 쓰기 없음)', 
 test('config 탭 — 처음 실행할 명령(이미지·서버)·정리할 것 + 새로고침', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'config' }).click()
+  await page.getByRole('tab', { name: 'center' }).click() // 기본은 repo 보기
   await expect(page.locator('table.grid--nowrap').getByText('shop', { exact: true })).toBeVisible()
   await expect(page.getByText('⚠ node 18')).toHaveClass(/ver--old/)
   const table = page.locator('table.grid--nowrap')
   await expect(table.getByText('CMD 로 옮기기')).toBeVisible()
   await expect(page.getByRole('columnheader', { name: 'dev', exact: true })).toBeVisible() // (서버) 환경 열
   await expect(table.getByText('서버 compose')).toBeVisible() // shop/api dev: 서버 compose 의 command:
-  await expect(page.locator('table.grid--nowrap').getByText('⚠ 다름')).toBeVisible() // 코드 node 22 ≠ 이미지 node 18
   await page.getByRole('button', { name: 'config 폴더 새로고침' }).click()
   await expect(page.getByText(/데이터 기준/)).toBeVisible()
 })
@@ -220,12 +224,41 @@ test('빌드·배포 — 그룹 칸 GitLab/GitHub, executor 펼치면 job | imag
   const legend = page.locator('details.legend')
   await expect(legend).not.toHaveAttribute('open', '')
   await legend.locator('summary').click()
-  await expect(legend.locator('.legend-grid > dt').first()).toHaveText('dev · stg · prod')
+  await expect(legend.locator('.legend-grid > dt').first()).toHaveText('빌드 버전 · 배포 버전') // 칸 순서대로
+})
+
+test('빌드·배포 — 빌드 버전 · 배포 버전 칸, 배포가 밀린 환경은 빨간 칸', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: '빌드·배포', exact: true }).click()
+  await expect(page.getByRole('columnheader', { name: '빌드 버전' })).toBeVisible()
+  await expect(page.getByRole('columnheader', { name: '배포 버전' })).toBeVisible()
+  const admin = page.locator('table.grid--nowrap tr', { hasText: 'admin' })
+  await expect(admin.getByText('⚠ v1.9.0')).toHaveClass(/ver--old/) // 빌드 v2.0.0 · 배포 v1.9.0
+  await expect(page.getByText(/배포 안 된 빌드 1곳/)).toBeVisible()
+  await expect(page.locator('table.grid--nowrap tr', { hasText: 'blog' }).getByText('모름')).toHaveCount(0) // GitHub = —
+})
+
+test('config — center / repo 보기: repo 는 빌드 · 코드 · 실행 비교', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'config' }).click()
+  await expect(page.getByRole('tab', { name: 'repo' })).toHaveAttribute('aria-selected', 'true') // 처음엔 repo(흐름 순서 repo → center)
+  const table = page.locator('table.grid--nowrap')
+  const web = table.locator('tr', { hasText: 'team/shop-web' })
+  await expect(web).toContainText('node 20') // 빌드(CI 이미지)
+  await expect(web).toContainText('node 22') // 코드(.nvmrc)
+  await expect(web.locator('.badge--warn')).toHaveText(['⚠ 빌드≠코드', '⚠ 빌드≠실행', '⚠ 코드≠실행'])
+  await expect(page.locator('.note-line', { hasText: 'GitLab repo 가 없어' })).toContainText('blog web')
+  // 고른 보기는 기억 — center 로 바꾸고 다른 탭에 갔다 와도 center
+  await page.getByRole('tab', { name: 'center' }).click()
+  await page.getByRole('button', { name: '빌드·배포', exact: true }).click()
+  await page.getByRole('button', { name: 'config' }).click()
+  await expect(page.getByRole('tab', { name: 'center' })).toHaveAttribute('aria-selected', 'true')
 })
 
 test('config — ▸ 줄 펼치면 환경별 표, 그룹 칸 config repo, GitHub 서비스 안내', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'config' }).click()
+  await page.getByRole('tab', { name: 'center' }).click()
   const table = page.locator('table.grid--nowrap')
   await expect(table.locator('td.grp-cell', { hasText: 'shop' })).toContainText('shop/config')
   await expect(page.locator('.note-line')).toContainText('blog web')

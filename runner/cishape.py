@@ -282,7 +282,7 @@ def confirm_executor(cell: dict | None, confirmed: dict[str, dict]) -> dict | No
 
 
 def analyze_ci(text: str | None, svc_type: str = "web", runners: dict[str, str] | None = None) -> dict | None:
-    """환경별 job 종류(+수동 여부), executor, variables 를 뽑는다. 못 읽으면 None."""
+    """환경별 job 종류(+수동 여부), executor, variables, job 마다 {종류, image} 를 뽑는다. 못 읽으면 None."""
     doc = load_yaml(text)
     if doc is None:
         return None
@@ -292,6 +292,7 @@ def analyze_ci(text: str | None, svc_type: str = "web", runners: dict[str, str] 
     top_image = _image_name(default.get("image")) or _image_name(doc.get("image"))  # 전체 기본 이미지
     envs: dict[str, dict[str, bool]] = {}
     job_runs: list[tuple[str, list[str], str | None]] = []  # executor 판정용 (job 이름, 태그, image:)
+    jobs: dict[str, dict] = {}  # job 이름 → {kind, image} (빌드·배포 버전을 어느 job 으로 볼지, 빌드 런타임)
     variables = {f"global:{k}": v for k, v in top.items()}
     for name in defs:
         if name.startswith("."):
@@ -301,8 +302,10 @@ def analyze_ci(text: str | None, svc_type: str = "web", runners: dict[str, str] 
         variables.update({f"{name}:{k}": v for k, v in jvars.items()})
         scope = {**top, **jvars}
         image = _image_name(job.get("image")) or top_image
-        job_runs.append((name, [_expand(t, scope) for t in _flatten(job.get("tags"))], _expand(image, scope) if image else None))
+        image = _expand(image, scope) if image else None
+        job_runs.append((name, [_expand(t, scope) for t in _flatten(job.get("tags"))], image))
         kind = _job_kind(name, job, scope)
+        jobs[name] = {"kind": kind, "image": image}
         for env, manual in _job_envs(name, job, svc_type).items():
             slot = envs.setdefault(env, {})
             slot[kind] = manual if kind not in slot else (slot[kind] and manual)  # 자동 job 이 하나라도 있으면 자동
@@ -311,7 +314,90 @@ def analyze_ci(text: str | None, svc_type: str = "web", runners: dict[str, str] 
         "executor": _executor(job_runs, runners or {}),
         "tags": sorted({t for _, jt, _ in job_runs for t in jt}),
         "variables": variables,
+        "jobs": jobs,
     }
+
+
+# ── 빌드·배포 버전 (tag 로 돈 job) · repo 빌드 런타임 ─────────────────────
+BUILD_KINDS = {"build_image", "direct"}   # 빌드 = 이미지를 만든 job(파일 복사는 빌드·배포가 한 job)
+DEPLOY_KINDS = {"deploy_image", "direct"}  # 배포 = 서버에 올린 job
+_VERSION_TAG = re.compile(r"^(?P<env>[a-z]+)-(?P<type>[a-z0-9_]+)-(?P<ver>v?\d[0-9A-Za-z._-]*)$")
+
+
+def parse_version_tag(ref: str | None) -> dict | None:
+    """'prod-was-v1.0.9' → {env: prod, type: was, version: v1.0.9}. 이 모양이 아니면 None."""
+    m = _VERSION_TAG.match(str(ref or ""))
+    if not m or m.group("env") not in _ENV_WORDS:
+        return None
+    return {"env": _ENV_WORDS[m.group("env")], "type": m.group("type"), "version": m.group("ver")}
+
+
+def pick_versions(
+    jobs: list[dict],
+    kinds: dict[str, str],
+    skip_types: set[str] | frozenset[str] = frozenset(),
+    other_roles: set[str] | frozenset[str] = frozenset(),
+) -> dict[str, dict]:
+    """tag 로 성공한 job(최신순) → 환경마다 마지막 빌드·배포 버전.
+
+    kinds = job 이름 → 종류(analyze_ci 의 jobs). 환경은 job 이름이 아니라 tag 앞머리로 정한다
+    (예: deploy-prod job 이 preview-…-v1 tag 로 돌면 preview).
+    skip_types = 같은 center 프로젝트를 쓰는 다른 서비스의 타입(예: chat web 이면 was) — 그 tag 는 남의 것.
+    other_roles = 다른 역할 이름(예: manager 면 worker) — 이름에 그 역할이 붙은 배포 job 은 남의 배포.
+    반환: {build: {env: {version, tag, at, job}}, deploy: {…}}
+    """
+    out: dict[str, dict] = {"build": {}, "deploy": {}}
+    for j in jobs:
+        kind = kinds.get(str(j.get("name")))
+        t = parse_version_tag(j.get("ref"))
+        if not kind or not t or t["type"] in skip_types:
+            continue
+        cell = {"version": t["version"], "tag": j["ref"], "at": j.get("finished_at"), "job": j.get("id")}
+        if kind in BUILD_KINDS:
+            out["build"].setdefault(t["env"], cell)
+        words = set(re.split(r"[^a-z0-9]+", str(j.get("name")).lower()))
+        if kind in DEPLOY_KINDS and not (words & set(other_roles)):
+            out["deploy"].setdefault(t["env"], cell)
+    return out
+
+
+# shell 러너는 CI 에 image: 가 없어 버전이 파일에 안 남는다 — 대신 build job 로그에 찍힌 흔적을 읽는다
+_LOG_NODE = (
+    re.compile(r"current: \{ node: 'v(\d+\.\d+\.\d+)'"),        # npm WARN EBADENGINE … current: { node: 'v20.15.1' }
+    re.compile(r"Now using node v(\d+\.\d+\.\d+)"),              # nvm use
+    re.compile(r"\$ node (?:-v|--version)\s*\n(?:.*\n)??v(\d+\.\d+\.\d+)"),  # 스크립트의 node -v 다음 줄
+    re.compile(r"\bNode\.js v(\d+\.\d+\.\d+)"),
+)
+_LOG_JAVA = re.compile(r"(?:openjdk|java) version \"(\d+)(?:\.(\d+))?")  # java -version — '1.8.0' 은 8
+
+
+def parse_build_log_versions(text: str | None) -> dict[str, str]:
+    """build job 로그 → {node: '20.15.1', java: '17'} (찍힌 것만). 색 코드는 지우고 본다."""
+    t = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", text or "")
+    out: dict[str, str] = {}
+    for rx in _LOG_NODE:
+        m = rx.search(t)
+        if m:
+            out["node"] = m.group(1)
+            break
+    m = _LOG_JAVA.search(t)
+    if m:
+        out["java"] = m.group(2) if m.group(1) == "1" and m.group(2) else m.group(1)
+    return out
+
+
+def build_runtimes(ci: dict | None) -> list[dict]:
+    """repo CI 의 job 이미지 중 런타임 이미지(node:20-slim 등) → [{runtime, version, image, jobs}]. 같은 버전끼리 묶음."""
+    found: dict[tuple, dict] = {}
+    for name, j in ((ci or {}).get("jobs") or {}).items():
+        if not j.get("image") or j.get("kind") == "deploy_image":
+            continue
+        runtime, version = detect_runtime(*split_image(j["image"]))
+        if not runtime:
+            continue  # alpine·git 같은 도구 이미지
+        slot = found.setdefault((runtime, version), {"runtime": runtime, "version": version, "image": j["image"], "jobs": []})
+        slot["jobs"].append(name)
+    return list(found.values())
 
 
 # ── Dockerfile ───────────────────────────────────────────────────────
@@ -489,6 +575,8 @@ def build_row(spec: dict, files: dict[str, Any], runners: dict[str, str] | None 
         )
 
     env_keys, env_hash = env_fingerprint(("repo", repo), ("center", center))
+    repo_spec = spec.get("repo")
+    repo_project = repo_spec.get("project") if isinstance(repo_spec, dict) else repo_spec
     return {
         "service": str(spec["name"]),
         "group": spec.get("group"),
@@ -508,6 +596,8 @@ def build_row(spec: dict, files: dict[str, Any], runners: dict[str, str] | None 
             "executor_center": center["executor"] if center else None,
             "startup": startup,
             "env_keys": env_keys,
+            # repo 쪽 — 프로젝트 · CI 가 빌드에 쓰는 런타임 이미지(코드에 적힌 버전은 러너가 repo 파일을 읽어 붙임)
+            "repo": {"project": repo_project, "read": repo is not None, "build": build_runtimes(repo)} if (repo or repo_project) else None,
         },
         "env_hash": env_hash,
     }
@@ -580,9 +670,9 @@ def code_versions(files: dict[str, str | None]) -> dict:
     """repo 코드가 '이 버전으로 빌드해라' 고 적어 둔 값.
 
     node: .nvmrc(정확한 버전) 우선, 없으면 package.json engines.node('>=20' 은 최소 버전 → rule=min).
-    nest: @nestjs/core, java: pom.xml. 값이 하나도 없으면 빈 dict.
+    nest: @nestjs/core, java: pom.xml(Maven) 또는 build.gradle(Gradle) → java_from. 값이 하나도 없으면 빈 dict.
     """
-    from .repoversions import _ver_or_major, parse_nvmrc, parse_pom_java
+    from .repoversions import _ver_or_major, parse_gradle_java, parse_nvmrc, parse_pom_java
 
     out: dict = {}
     nvm = parse_nvmrc(files.get(".nvmrc") or "")
@@ -602,9 +692,11 @@ def code_versions(files: dict[str, str | None]) -> dict:
     nest = _ver_or_major(deps.get("@nestjs/core"))
     if nest:
         out["nest"] = nest
-    java = parse_pom_java(files.get("pom.xml") or "")
-    if java:
-        out["java"] = java
+    for name, parse in (("pom.xml", parse_pom_java), ("build.gradle", parse_gradle_java), ("build.gradle.kts", parse_gradle_java)):
+        java = parse(files.get(name) or "")
+        if java:
+            out.update(java=java, java_from=name)
+            break
     return out
 
 

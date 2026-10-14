@@ -5,8 +5,9 @@ import BuildDeploy from './pages/BuildDeploy'
 import ConfigRepo from './pages/ConfigRepo'
 import Ops from './pages/Ops'
 
-// 서버(+/etc 설정 파일) · 빌드·배포(비교표+버전+파이프라인) · config(center config repo) · OS 패치·작업이력
-const TABS = ['대시보드', '서버', '빌드·배포', 'config', 'OS 패치·작업이력'] as const
+// 서버(IdP 연동 후 서버 ↔ 항목 연결 자리 + /etc 설정 파일) → config(repo / center — 무엇으로 만드나)
+// → 빌드·배포(어떻게 배포하나) → OS 패치·작업이력
+const TABS = ['대시보드', '서버', 'config', '빌드·배포', 'OS 패치·작업이력'] as const
 type Tab = (typeof TABS)[number]
 
 function Page({ tab, go }: { tab: Tab; go: (t: Tab) => void }) {

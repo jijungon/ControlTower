@@ -1,8 +1,9 @@
-import { Fragment, useEffect, useState } from 'react'
-import { fetchShapes, type DeployCell, type ExecutorCell, type ShapeRow } from '../api'
+import { Fragment, useEffect, useState, type ReactNode } from 'react'
+import { fetchShapes, type DeployCell, type ExecutorCell, type ShapeRow, type VersionCell } from '../api'
 import GroupFilter from '../components/GroupFilter'
 import Legend, { type LegendRow } from '../components/Legend'
 import SectionHead, { latestTime, runAll } from '../components/SectionHead'
+import { cmpVer, verParts } from '../vercmp'
 
 // 환경 칸 순서(데이터에 있는 환경만 보인다)
 const ENV_ORDER = ['dev', 'lab', 'stg', 'preview', 'prod']
@@ -27,6 +28,17 @@ function split(r: ShapeRow): { app: string; kind: string } {
   return { app: r.service, kind: t || '—' }
 }
 
+// 배포 방식 칩 — 색 = 표준에서 얼마나 먼가: 이미지(보라, 표준 — shell 연두와 안 겹치게) · 파일 복사(노랑, 이미지로 옮길 대상) · 빌드만(회색).
+// 아랫줄(누가 복사 · 수동 · compose 기준)은 칩 안 작은 글씨, compose 로 짐작한 칸은 점선(executor 추정과 같은 뜻)
+export function PathChip({ path, label, sub, guess }: { path: DeployCell['path']; label: string; sub?: string; guess?: boolean }) {
+  return (
+    <span className={`path-chip path-chip--${path}${guess ? ' path-chip--guess' : ''}`}>
+      {label}
+      {sub && <span className="cell-sub">{sub}</span>}
+    </span>
+  )
+}
+
 function deployCell(c?: DeployCell) {
   if (!c) return <span className="muted">—</span>
   const p = PATH[pathKey(c)] ?? { label: c.path, title: '' }
@@ -34,7 +46,7 @@ function deployCell(c?: DeployCell) {
   const sub = [p.sub, c.manual ? '수동' : null].filter(Boolean).join(' · ')
   return (
     <span title={`${p.title}${c.manual ? ' · 수동: 사람이 GitLab 에서 버튼을 눌러야 배포' : ''}`}>
-      {p.label}
+      <PathChip path={c.path} label={p.label} sub={sub || undefined} guess={c.by === 'compose'} />
       {c.mismatch && (
         <span
           className="badge badge--warn"
@@ -44,7 +56,82 @@ function deployCell(c?: DeployCell) {
           ⚠ compose 다름
         </span>
       )}
-      {sub && <span className="cell-sub">{sub}</span>}
+    </span>
+  )
+}
+
+// ── 빌드 버전 · 배포 버전 — 환경마다 마지막으로 성공한 빌드·배포 job 의 tag ─────────────
+const day = (at?: string | null) => (at ? at.slice(0, 10) : '날짜 모름')
+const verTitle = (what: string, c: VersionCell) =>
+  `${what}: ${c.tag} · ${day(c.at)}${c.job ? ` · job #${c.job}` : ''}${c.side ? ` (${c.side} CI)` : ''}`
+
+// 배포가 빌드보다 옛 버전이면 = 빌드해 두고 아직 배포 안 함
+export function behind(r: ShapeRow, env: string): boolean {
+  const b = r.versions?.build?.[env]
+  const d = r.versions?.deploy?.[env]
+  return !!(b && d && cmpVer(verParts(d.version), verParts(b.version)) < 0)
+}
+
+function versionEnvs(r: ShapeRow): string[] {
+  const v = r.versions
+  return ENV_ORDER.filter((e) => v?.build?.[e] || v?.deploy?.[e])
+}
+
+function unknownVersion(r: ShapeRow) {
+  if (r.host === 'github') return <span className="muted" title="GitHub 에서 빌드 — 아직 못 읽음">—</span>
+  return (
+    <span className="muted" title="GitLab API 로 안 읽음 — 토큰을 넣고 runner shape (로컬 사본으로 읽으면 버전을 모름)">
+      모름
+    </span>
+  )
+}
+
+function BuildVersions({ r }: { r: ShapeRow }) {
+  if (!r.versions) return unknownVersion(r)
+  const envs = ENV_ORDER.filter((e) => r.versions!.build?.[e])
+  if (envs.length === 0) return <span className="muted" title="tag 로 성공한 빌드 job 이 없음">—</span>
+  return (
+    <span className="exec-lines">
+      {envs.map((e) => {
+        const c = r.versions!.build[e]
+        return (
+          <span key={e} className="exec-line ver-line" title={verTitle('빌드', c)}>
+            <span className="ver-env">{e}</span>
+            <span className="ver">{c.version}</span>
+          </span>
+        )
+      })}
+    </span>
+  )
+}
+
+function DeployVersions({ r }: { r: ShapeRow }) {
+  if (!r.versions) return unknownVersion(r)
+  const envs = versionEnvs(r)
+  if (envs.length === 0) return <span className="muted" title="tag 로 성공한 배포 job 이 없음">—</span>
+  return (
+    <span className="exec-lines">
+      {envs.map((e) => {
+        const d = r.versions!.deploy?.[e]
+        const b = r.versions!.build?.[e]
+        if (!d)
+          return (
+            <span key={e} className="exec-line ver-line" title={`이 환경 배포 job 이 CI 에 없음 — 손으로 배포하거나 CI 밖${b ? ` · ${verTitle('빌드', b)}` : ''}`}>
+              <span className="ver-env">{e}</span>
+              <span className="muted">—</span>
+            </span>
+          )
+        const late = behind(r, e)
+        return (
+          <span key={e} className="exec-line ver-line" title={`${verTitle('배포', d)}${late && b ? `\n빌드는 ${b.tag}(${day(b.at)}) — 아직 배포 안 됨` : ''}`}>
+            <span className="ver-env">{e}</span>
+            <span className={late ? 'ver ver--old' : 'ver'}>
+              {late ? '⚠ ' : ''}
+              {d.version}
+            </span>
+          </span>
+        )
+      })}
     </span>
   )
 }
@@ -177,18 +264,55 @@ function ExecCell({ e, side }: { e?: ExecutorCell; side: 'repo' | 'center' }) {
   )
 }
 
+// 표 읽는 법의 값 — 표 칸에 보이는 모양 그대로 테두리 칩에 담아 뜻(옆 글)과 구분. sub = 칸의 아랫줄(작은 글씨)
+function Key({ children, sub }: { children: ReactNode; sub?: string }) {
+  return (
+    <span className="legend-key">
+      {children}
+      {sub && <span className="cell-sub">{sub}</span>}
+    </span>
+  )
+}
+
 // 표 읽는 법 — 칸마다 '무엇을 보여주나' + '값 → 뜻'(짧게)
 const LEGEND: LegendRow[] = [
+  {
+    term: '빌드 버전 · 배포 버전',
+    what: '환경마다 마지막으로 성공한 빌드·배포 job 의 tag (마우스 = tag · 날짜)',
+    items: [
+      [
+        <Key>
+          <span className="ver-env">prod</span>
+          <span className="ver">v1.0.9</span>
+        </Key>,
+        '그 환경 버전',
+      ],
+      [<span className="ver ver--old">⚠ v1.0.2</span>, '빌드보다 옛날 = 배포 안 됨'],
+      [
+        <Key>
+          <span className="ver-env">prod</span>
+          <span className="muted">—</span>
+        </Key>,
+        'CI 에 배포 job 없음',
+      ],
+      [
+        <Key>
+          <span className="muted">모름</span>
+        </Key>,
+        'API 로 안 읽음',
+      ],
+    ],
+  },
   {
     term: 'dev · stg · prod',
     what: '그 환경에 어떻게 배포하나',
     items: [
-      ['이미지', '도커 이미지로 배포'],
-      ['파일 복사', '결과물을 서버에 복사'],
-      ['빌드만', '배포 안 함'],
-      [<span className="muted">아랫줄 repo · center</span>, '누가 복사'],
-      [<span className="muted">아랫줄 수동</span>, '버튼 눌러 배포'],
-      [<span className="muted">아랫줄 compose 기준</span>, '서버 compose 로 짐작'],
+      [<PathChip path="image" label="이미지" />, '도커 이미지로 배포 (표준)'],
+      [<PathChip path="direct" label="파일 복사" />, '결과물을 서버에 복사 (이미지로 옮길 곳)'],
+      [<PathChip path="build" label="빌드만" />, '배포 안 함'],
+      [<PathChip path="direct" label="파일 복사" sub="repo · center" />, '아랫줄 = 누가 복사'],
+      [<PathChip path="image" label="이미지" sub="수동" />, '아랫줄 = GitLab 에서 버튼 눌러 배포'],
+      [<PathChip path="image" label="이미지" sub="compose 기준" guess />, '점선 = 서버 compose 로 짐작'],
     ],
   },
   { term: <span className="badge badge--warn">⚠ compose 다름</span>, what: 'CI 와 서버 compose 의 배포 모양이 다름' },
@@ -204,7 +328,7 @@ const LEGEND: LegendRow[] = [
         </>,
         '점선 = job 로그로 확인 못 함',
       ],
-      ['▸', 'job · image 보기'],
+      [<Key>▸</Key>, 'job · image 보기'],
     ],
   },
 ]
@@ -345,12 +469,13 @@ export default function CicdCompare() {
     }))
   const groupNames = [...new Set(all.map((r) => r.group || '기타'))].sort()
   const appCount = ordered.reduce((n, g) => n + g.apps.length, 0)
+  const lateCount = all.reduce((n, r) => n + versionEnvs(r).filter((e) => behind(r, e)).length, 0) // 빌드해 두고 배포 안 한 환경
 
   return (
     <div>
       <SectionHead
         title="서비스 비교"
-        sub={rows ? `그룹 ${ordered.length} · 서비스 ${appCount}` : undefined}
+        sub={rows ? `그룹 ${ordered.length} · 서비스 ${appCount} · 배포 안 된 빌드 ${lateCount}곳` : undefined}
         asOf={latestTime(all.map((r) => r.collected_at))}
         onRefresh={() => runAll(setBusy, [load])}
         busy={busy}
@@ -358,7 +483,7 @@ export default function CicdCompare() {
       <Legend
         id="build"
         rows={LEGEND}
-        source="repo·center GitLab(.gitlab-ci.yml · job 로그) + 서버 docker-compose — runner shape"
+        source="repo·center GitLab(.gitlab-ci.yml · job 로그 · tag 로 돈 job) + 서버 docker-compose — runner shape"
       />
       <div className="toolbar" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
         <GroupFilter groups={groupNames} value={groupSel} onChange={setGroupSel} />
@@ -371,6 +496,8 @@ export default function CicdCompare() {
               <th>그룹</th>
               <th>서비스</th>
               <th>타입</th>
+              <th>빌드 버전</th>
+              <th>배포 버전</th>
               {envs.map((e) => (
                 <th key={e}>{e}</th>
               ))}
@@ -412,6 +539,12 @@ export default function CicdCompare() {
                           {split(r).kind}
                           {r.note && <span className="cell-sub cell-sub--note">{r.note}</span>}
                         </td>
+                          <td>
+                            <BuildVersions r={r} />
+                          </td>
+                          <td>
+                            <DeployVersions r={r} />
+                          </td>
                           {envs.map((e) => (
                             <td key={e}>{deployCell(r.deploy?.[e])}</td>
                           ))}

@@ -194,6 +194,25 @@ export type ExecutorCell = {
   groups?: ExecutorGroup[]
 } | null
 
+// 환경 하나의 마지막 빌드·배포 — tag 로 성공한 job(GitLab API). side = 어느 GitLab 의 job 인가
+export type VersionCell = { version: string; tag: string; at?: string | null; job?: number | null; side?: 'repo' | 'center' }
+export type Versions = { build: Record<string, VersionCell>; deploy: Record<string, VersionCell> }
+// 코드에 적힌 버전(.nvmrc · package.json · pom.xml)
+export type CodeVersions = { node?: string; node_from?: string; node_rule?: 'exact' | 'min'; nest?: string; java?: string; java_from?: string }
+// repo 쪽 — 프로젝트 · CI 가 빌드에 쓰는 런타임 이미지 · 코드에 적힌 버전. read=false 면 repo CI 를 못 읽음
+// from='log' = shell 러너라 CI 에 이미지가 없어 build job 로그에서 읽음(guess = 같은 러너의 다른 job 로그에서 본 값)
+export type RepoBuild = {
+  runtime: string
+  version?: string | null
+  image?: string | null
+  jobs: string[]
+  from?: 'log'
+  job?: number
+  runner?: string | null
+  guess?: boolean
+}
+export type RepoInfo = { project?: string | null; read?: boolean; build?: RepoBuild[]; code?: CodeVersions | null }
+
 export type ShapeRow = {
   service: string
   group?: string | null
@@ -211,6 +230,8 @@ export type ShapeRow = {
   start_state?: 'legacy' | 'leftover' | 'server' | 'done' | 'base' | 'none' | null // config 폴더 기준(연결된 경우)
   env_keys?: number | null
   env_changed_at?: string | null
+  versions?: Versions | null // 없으면 모름(API 로 안 읽음)
+  repo?: RepoInfo | null
   collected_at?: string | null
 }
 
@@ -227,7 +248,7 @@ export type ConfigRow = {
   start?: 'dockerfile' | 'start.sh' | 'server' | 'base' | null // 처음 실행할 명령(이미지 기준)
   start_files?: string[]
   state: 'legacy' | 'leftover' | 'server' | 'done' | 'base' | 'none' // 정리할 것
-  code?: { node?: string; node_from?: string; node_rule?: 'exact' | 'min'; nest?: string; java?: string } | null // 코드에 적힌 버전
+  code?: CodeVersions | null // 코드에 적힌 버전
   compose_src?: Record<string, ComposeSrc | null> // 환경별 서버 compose 를 어디서 읽었나
   compose_miss?: Record<string, { state: 'fail' | 'planned'; reason: string }> // 못 읽음(이유) / 위치만 찾음
   deploy_envs?: string[] // 이 폴더 서비스가 배포하는 환경(CI 기준) — 여기 없는 환경 칸은 '—'

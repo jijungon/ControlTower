@@ -110,6 +110,9 @@ table.grid { width: 100%; border-collapse: collapse; font-size: 15px; }
 /* KPI stat tiles */
 .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-md); margin-bottom: var(--space-lg); }
 @media (max-width: 900px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+.stats--5 { grid-template-columns: repeat(5, minmax(0, 1fr)); } /* 대시보드: 탭마다 카드(서버 · config 2 · 빌드·배포 · OS 패치) */
+@media (max-width: 1100px) { .stats--5 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 700px) { .stats--5 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .stat { background: var(--canvas); border: 1px solid var(--hairline); border-radius: var(--radius-lg); padding: 18px 20px; }
 .stat .num { font-family: var(--font-display); font-size: 30px; font-weight: 600; letter-spacing: -0.5px; }
 .stat .label { color: var(--ink-muted-48); font-size: 13px; margin-top: 4px; }
@@ -117,9 +120,6 @@ table.grid { width: 100%; border-collapse: collapse; font-size: 15px; }
 .stat--warn .num { color: var(--warn); }
 .stat--danger .num { color: var(--danger); }
 /* 대시보드 카드 6개 — 누르면 그 탭으로 */
-.stats--6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-@media (max-width: 1200px) { .stats--6 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-@media (max-width: 700px) { .stats--6 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .stat--link { display: block; text-align: left; color: inherit; text-decoration: none; cursor: pointer; transition: border-color 0.15s; }
 .stat--link:hover { border-color: var(--primary); }
 .stat-tab { font-size: 11px; color: var(--ink-muted-48); margin-bottom: 2px; }
@@ -159,6 +159,18 @@ table.grid { width: 100%; border-collapse: collapse; font-size: 15px; }
 .legend-items > li { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 .legend-v { color: var(--ink); }
 .legend-m { color: var(--ink-muted-80); }
+/* 값 칩 — 글자만 있는 값(이미지·파일 복사 등)을 뜻과 구분. 칸 모양 그대로(아랫줄은 칩 안 작은 글씨) */
+.legend-key { display: inline-block; padding: 2px 9px; border: 1px solid var(--hairline); border-radius: 6px; background: var(--canvas); color: var(--ink); font-weight: 600; line-height: 1.35; }
+.legend-key .cell-sub { font-weight: 400; }
+.legend-key .ver-env { min-width: 0; margin-right: 4px; }
+/* 배포 방식 칩(빌드·배포 dev·stg·prod 칸 + 표 읽는 법) — 이미지 보라(표준) · 파일 복사 노랑(옮길 곳) · 빌드만 회색, 점선 = compose 로 짐작 */
+.path-chip { display: inline-block; padding: 1px 6px; border: 1px solid transparent; border-radius: 6px; font-weight: 600; line-height: 1.35; white-space: nowrap; }
+.path-chip .cell-sub { font-weight: 400; }
+.path-chip--image { background: var(--deploy-image-bg); color: var(--deploy-image); }
+.path-chip--direct { background: var(--warn-bg); color: var(--warn); }
+.path-chip--build { background: var(--surface-pearl); color: var(--ink-muted-48); border-color: var(--hairline); }
+.path-chip--guess { border-style: dashed; border-color: currentColor; }
+.empty-why { font-size: 11.5px; } /* repo 보기: '—' 대신 쓴 이유(안 적힘 · CI 에 없음) — 버전 글씨와 같은 크기 */
 .legend b { color: var(--ink); font-weight: 600; }
 /* 묶은 표의 경계: 그룹(진한 선) → 서비스(보통 선) → 타입(기본 얇은 선) */
 .grid tbody tr.grp-start td { border-top: 2px solid var(--ink-muted-48); }
@@ -244,6 +256,8 @@ table.subgrid { width: 100%; border-collapse: collapse; font-size: 13px; }
 .run-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--danger); margin-right: 4px; vertical-align: middle; }
 .exec-lines { display: inline-flex; flex-direction: column; gap: 1px; } /* executor: job 별 한 줄씩 */
 .exec-line { white-space: nowrap; }
+.ver-line { display: inline-flex; align-items: baseline; gap: 6px; } /* 빌드·배포 버전: 환경 하나에 한 줄 */
+.ver-env { display: inline-block; min-width: 3.4em; font-size: 11px; color: var(--ink-muted-48); }
 /* executor 알약: docker 하늘 · shell 연두 — node 버전 칸처럼 고정폭 굵은 글자 */
 .exec-pill { display: inline-block; font-family: var(--font-mono); font-weight: 600; font-size: 11px; line-height: 1.5; padding: 0 8px; border-radius: 999px; border: 1px solid transparent; }
 .exec-pill--docker { color: var(--exec-docker); background: var(--exec-docker-bg); }
@@ -284,6 +298,9 @@ table.grid tbody tr.row-detail > td { background: var(--canvas-parchment); paddi
   .grid--nowrap td.extras-cell { white-space: normal; }
   .grid--dense .cell-tag:not(.miss-fail):not(.type-roles) { display: none; } /* 출처(gw·사본)는 마우스로 */
   .grid--dense td.svc-cell, .grid--dense td.grp-cell { font-size: 11.5px; }
+  .ver-line { gap: 3px; }
+  .ver-env { min-width: 0; font-size: 10.5px; } /* 빌드·배포 버전: 환경 이름은 좁게 */
+  .grid--dense .path-chip { padding: 1px 3px; font-size: 11.5px; } /* 배포 방식 칩: 좁은 화면에선 여백만 줄임 */
 }
 .ver--none { color: var(--ink-muted-48); }
 

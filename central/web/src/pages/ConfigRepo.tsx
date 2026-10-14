@@ -1,9 +1,10 @@
 import { Fragment, useEffect, useState } from 'react'
-import { fetchConfig, fetchShapes, type ComposeSrc, type ConfigRow } from '../api'
+import { fetchConfig, fetchShapes, type ComposeSrc, type ConfigRow, type ShapeRow } from '../api'
 import GroupFilter from '../components/GroupFilter'
 import Legend, { type LegendRow } from '../components/Legend'
 import SectionHead, { latestTime, runAll } from '../components/SectionHead'
 import { isOld, newestBy, Ver, verParts } from '../vercmp'
+import RepoTable, { RepoLegend, repoChecks } from './RepoTable'
 
 // 처음 실행할 명령 = 컨테이너가 켜질 때 앱을 띄우는 명령이 어디 있나. 모든 칸이 이 말 하나만 쓴다.
 type Run = 'start.sh' | 'cmd' | 'compose' | 'base' | 'server'
@@ -57,6 +58,21 @@ function runBadge(run: Run | null, prefix = '') {
 
 const ENV_ORDER = ['dev', 'lab', 'stg', 'preview', 'prod']
 
+// repo(서비스 — 빌드·코드) → center(config repo 폴더 — 이미지·실행) 보기, 흐름 순서대로. 고른 보기는 이 브라우저에만 기억
+type Side = 'center' | 'repo'
+const SIDES: [Side, string][] = [
+  ['repo', 'repo'],
+  ['center', 'center'],
+]
+const SIDE_KEY = 'ct.config.side'
+function readSide(): Side {
+  try {
+    return localStorage.getItem(SIDE_KEY) === 'center' ? 'center' : 'repo'
+  } catch {
+    return 'repo'
+  }
+}
+
 const runtimeOf = (r: ConfigRow): [string, string] | null =>
   r.runtime && r.runtime_version ? [r.runtime, r.runtime_version] : null
 const baseOf = (r: ConfigRow): [string, string] | null => (r.base_image && r.base_tag ? [r.base_image, r.base_tag] : null)
@@ -71,25 +87,8 @@ export function codeMismatch(r: ConfigRow): string | null {
     const bad = c.node_rule === 'min' ? img < code : img !== code
     if (bad) return `코드는 node ${c.node_rule === 'min' ? '≥' : ''}${c.node}(${c.node_from}), 이미지는 node ${r.runtime_version}`
   }
-  if (r.runtime === 'java' && c.java && verParts(c.java)[0] !== img) return `코드는 java ${c.java}(pom.xml), 이미지는 java ${r.runtime_version}`
+  if (r.runtime === 'java' && c.java && verParts(c.java)[0] !== img) return `코드는 java ${c.java}(${c.java_from ?? 'pom.xml'}), 이미지는 java ${r.runtime_version}`
   return null
-}
-
-function codeCell(r: ConfigRow) {
-  const c = r.code
-  if (!c || (!c.node && !c.java)) return <span className="muted" title="이 폴더와 연결된 repo 가 없거나, 버전을 적어 둔 파일이 없음">—</span>
-  const main = c.node ? `node ${c.node_rule === 'min' ? '≥' : ''}${c.node}` : `java ${c.java}`
-  const bad = codeMismatch(r)
-  return (
-    <span title={`출처: ${c.node ? c.node_from : 'pom.xml'}${c.nest ? ` · nest ${c.nest}` : ''}`}>
-      <span className="ver">{main}</span>
-      {bad && (
-        <span className="badge badge--warn cell-badge" title={bad}>
-          ⚠ 다름
-        </span>
-      )}
-    </span>
-  )
 }
 
 // 서버 compose 를 어디서 읽었나 — 칸 옆 작은 글씨. 서버 = 실서버에서 직접(SSH), 사본 = 복사해 둔 파일(다를 수 있음)
@@ -307,11 +306,8 @@ function todoCell(r: ConfigRow) {
 const LEGEND: LegendRow[] = [
   {
     term: '버전',
-    what: '코드(.nvmrc · package.json · pom.xml) · 이미지 런타임 · FROM 이미지 비교',
-    items: [
-      [<span className="badge badge--warn">⚠ 다름</span>, '코드 ≠ 이미지'],
-      [<span className="ver ver--old">⚠ 빨간 칸</span>, '최신 아님'],
-    ],
+    what: '이미지 런타임 · FROM 이미지 비교 (코드에 적힌 버전은 repo 보기)',
+    items: [[<span className="ver ver--old">⚠ 빨간 칸</span>, '최신 아님']],
   },
   {
     term: '처음 실행할 명령',
@@ -383,7 +379,16 @@ export default function ConfigRepo() {
       return next
     })
 
-  const [ghServices, setGhServices] = useState<string[]>([]) // GitHub 에서 빌드 → config repo 가 없어 이 표에 없음
+  const [shapes, setShapes] = useState<ShapeRow[] | null>(null) // repo 보기 + GitHub 서비스 안내
+  const [side, setSideState] = useState<Side>(readSide)
+  const setSide = (v: Side) => {
+    setSideState(v)
+    try {
+      localStorage.setItem(SIDE_KEY, v)
+    } catch {
+      /* 저장 못 해도 화면은 그대로 */
+    }
+  }
 
   const load = () =>
     Promise.all([
@@ -394,8 +399,8 @@ export default function ConfigRepo() {
         })
         .catch(() => setErr(true)),
       fetchShapes()
-        .then((d) => setGhServices((Array.isArray(d) ? d : []).filter((r) => r.host === 'github').map((r) => r.service)))
-        .catch(() => setGhServices([])),
+        .then((d) => setShapes(Array.isArray(d) ? d : []))
+        .catch(() => setShapes([])),
     ])
 
   useEffect(() => {
@@ -413,7 +418,14 @@ export default function ConfigRepo() {
     (n, r) => n + (isOld(runtimeOf(r), newestRuntime) ? 1 : 0) + (isOld(baseOf(r), newestBase) ? 1 : 0),
     0,
   )
-  const codeDiff = folders.filter((r) => codeMismatch(r)).length
+  // repo 보기 — GitHub 서비스는 GitLab repo 가 없어 빼고, repo 를 안 적은 서비스는 표 아래 안내
+  const allShapes = shapes ?? []
+  const ghServices = allShapes.filter((r) => r.host === 'github').map((r) => r.service)
+  const repoRows = allShapes.filter((r) => r.host !== 'github' && r.repo)
+  const noRepo = allShapes.filter((r) => r.host !== 'github' && !r.repo).map((r) => r.service)
+  const repoGroups = [...new Set(repoRows.map((r) => r.group || '기타'))].sort()
+  const repoShown = repoRows.filter((r) => !groupSel || (r.group || '기타') === groupSel)
+  const checkCount = (label: string) => repoRows.filter((r) => repoChecks(r).some(([l]) => l === label)).length
   // 그룹(프로젝트 묶음) → 서비스 → 타입 으로 묶기 (빌드·배포 표와 같은 모양): 'admin/web' → admin 의 web
   const groupOf = (r: ConfigRow) => r.group || '기타'
   const groupNames = [...new Set(all.map(groupOf))].sort()
@@ -435,196 +447,254 @@ export default function ConfigRepo() {
     <div>
       <div className="page-head">
         <h1 className="page-title">config</h1>
-        <p className="page-sub">이미지가 무엇으로 만들어지고 어떻게 뜨나 — config repo 폴더마다</p>
-      </div>
-
-      <SectionHead
-        title="config 폴더"
-        sub={
-          rows
-            ? `할 일 — CMD 로 옮기기 ${count('legacy')} · start.sh 지우기 ${count('leftover')} · CMD 넣기 ${count('server')} · 코드≠이미지 ${codeDiff} · 오래된 버전 ${oldCount}칸`
-            : undefined
-        }
-        asOf={latestTime(all.map((r) => r.collected_at))}
-        onRefresh={() => runAll(setBusy, [load])}
-        busy={busy}
-      />
-
-      <Legend
-        id="config"
-        rows={LEGEND}
-        source="center config repo · repo 코드 · 서버 docker-compose — runner shape"
-      />
-
-      <div className="toolbar" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
-        <GroupFilter groups={groupNames} value={groupSel} onChange={setGroupSel} />
-      </div>
-
-      <div className="card" style={{ overflowX: 'auto' }}>
-        <table className="grid grid--nowrap grid--dense">
-          <thead>
-            <tr className="th-band">
-              <th rowSpan={3}>그룹</th>
-              <th rowSpan={3}>서비스</th>
-              <th rowSpan={3}>타입</th>
-              <th colSpan={3} className="th-group">버전</th>
-              <th colSpan={2 + envs.length + (extras.length ? 1 : 0)} className="th-group th-start">
-                start.sh — 앱을 처음 띄우는 명령은 어디에?
-                <span className="th-flow">config 의 Dockerfile → 이미지 → 서버의 docker-compose (덮어쓸 수 있음)</span>
-              </th>
-            </tr>
-            <tr>
-              <th rowSpan={2}>코드에 적힌 버전</th>
-              <th rowSpan={2}>런타임 (이미지)</th>
-              <th rowSpan={2}>베이스 이미지</th>
-              <th rowSpan={2}>
-                처음 실행할 명령 (이미지)
-                <span className="th-flow">config 의 Dockerfile</span>
-              </th>
-              <th colSpan={envs.length + (extras.length ? 1 : 0)} className="th-group">
-                처음 실행할 명령 (서버)
-                <span className="th-flow">서버의 docker-compose</span>
-              </th>
-              <th rowSpan={2}>정리할 것</th>
-            </tr>
-            <tr>
-              {envs.map((e) => (
-                <th key={e} className="th-sub">{e}</th>
-              ))}
-              {extras.length > 0 && (
-                <th className="th-sub" title={`그 밖의 환경: ${extras.join(', ')}`}>
-                  기타
-                </th>
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {ordered.map((g) => {
-              // 펼친 줄은 표 아래 한 줄이 더 생겨서 그룹·서비스 칸이 그만큼 더 길어짐
-              const span = (rs: ConfigRow[]) => rs.length + rs.filter((r) => openRows.has(r.path)).length
-              const total = g.svcs.reduce((n, [, rs]) => n + span(rs), 0)
-              return g.svcs.map(([svc, rs], si) => (
-                <Fragment key={`${g.group}/${svc}`}>
-                  {rs.map((r, i) => {
-                    const rt = runtimeOf(r)
-                    const base = baseOf(r)
-                    const groupFirst = si === 0 && i === 0
-                    // 경계: 그룹이 바뀌면 진한 선, 서비스가 바뀌면 보통 선
-                    const cls = [groupFirst ? 'grp-start' : i === 0 ? 'svc-start' : '', r.merged_into ? 'row-merged' : ''].join(' ').trim()
-                    const isOpen = openRows.has(r.path)
-                    return (
-                      <Fragment key={r.path}>
-                        <tr className={cls || undefined}>
-                          {groupFirst && (
-                            <td className="grp-cell" rowSpan={total}>
-                              {g.group}
-                              <div className="muted" style={{ fontWeight: 400, fontSize: 12 }}>
-                                서비스 {g.svcs.length}개
-                              </div>
-                              {/* 어느 config repo 에서 왔나 — 여기 줄은 전부 GitLab config repo */}
-                              {[...new Set(g.svcs.flatMap(([, rs]) => rs.flatMap((r) => (r.config_repo ? [r.config_repo] : []))))].map((repo) => (
-                                <div key={repo} className="muted grp-repo" title={`config repo: ${repo} (GitLab)`}>
-                                  {/* '/' 에서만 줄바꿈 — 그룹 칸이 넓어지지 않게 */}
-                                  {repo.split('/').map((part, i, arr) => (
-                                    <span key={i} className="grp-repo-part">
-                                      {part}
-                                      {i < arr.length - 1 ? '/' : ''}
-                                    </span>
-                                  ))}
-                                  <div>
-                                    <span className="host-badge host-badge--gitlab">GitLab</span>
-                                  </div>
-                                </div>
-                              ))}
-                            </td>
-                          )}
-                          {i === 0 && (
-                            <td className="svc-cell" rowSpan={span(rs)}>
-                              {svc}
-                            </td>
-                          )}
-                          <td>
-                            <button
-                              type="button"
-                              className="row-toggle"
-                              aria-expanded={isOpen}
-                              aria-label={`${r.path} 환경별 자세히`}
-                              title="환경별 자세히 — 어디서 읽었나 · 위치 · 못 읽은 이유"
-                              onClick={() => toggleRow(r.path)}
-                            >
-                              {isOpen ? '▾' : '▸'}
-                            </button>
-                            {typeCell(r)}
-                          </td>
-                          <td>{codeCell(r)}</td>
-                          <td>
-                            {r.runtime ? (
-                              <Ver
-                                text={`${r.runtime}${r.runtime_version ? ` ${r.runtime_version}` : ''}`}
-                                old={!r.merged_into && isOld(rt, newestRuntime)}
-                                newest={rt ? `${rt[0]} ${newestRuntime.get(rt[0])}` : undefined}
-                              />
-                            ) : (
-                              <span className="muted">—</span>
-                            )}
-                          </td>
-                          <td>
-                            {r.base_image ? (
-                              // 앞의 저장소 경로(infra/ 등)는 줄여서 한 줄에 — 전체 이름은 마우스
-                              <span title={`${r.base_image}${r.base_tag ? `:${r.base_tag}` : ''}`}>
-                                <Ver
-                                  text={`${r.base_image.split('/').pop()}${r.base_tag ? `:${r.base_tag}` : ''}`}
-                                  old={!r.merged_into && isOld(base, newestBase)}
-                                  newest={base ? `${base[0]}:${newestBase.get(base[0])}` : undefined}
-                                />
-                              </span>
-                            ) : (
-                              <span className="muted">—</span>
-                            )}
-                          </td>
-                          <td>{imageCell(r, envs)}</td>
-                          {envs.map((e) => (
-                            <td key={e}>{serverEnvCell(r, e)}</td>
-                          ))}
-                          {extras.length > 0 && <td className="extras-cell">{extraCell(r, extras)}</td>}
-                          <td>{todoCell(r)}</td>
-                        </tr>
-                        {isOpen && (
-                          <tr className="row-detail">
-                            <td colSpan={9 + (extras.length ? 1 : 0)}>
-                              {envDetail(r, [...envs, ...extras.filter((e) => r.compose?.[e] || r.compose_miss?.[e])])}
-                            </td>
-                          </tr>
-                        )}
-                      </Fragment>
-                    )
-                  })}
-                </Fragment>
-              ))
-            })}
-          </tbody>
-        </table>
-
-        {!rows && !err && <div className="placeholder" style={{ padding: '28px 16px' }}>불러오는 중…</div>}
-        {rows && rows.length === 0 && (
-          <div className="placeholder" style={{ padding: '28px 16px' }}>
-            아직 config 를 읽지 않았습니다 — <span className="mono">shape-targets.yml</span> 에{' '}
-            <span className="mono">config:</span> 를 적고 <span className="mono">python -m runner.cli shape</span>
-          </div>
-        )}
-        {err && (
-          <div className="placeholder" style={{ padding: '28px 16px' }}>
-            config 를 불러오지 못했습니다 — 중앙 API 상태를 확인하세요.
-          </div>
-        )}
-      </div>
-      {ghServices.length > 0 && (
-        <p className="note-line">
-          <span className="host-badge host-badge--github" style={{ marginLeft: 0 }}>
-            GitHub
-          </span>{' '}
-          에서 빌드하는 서비스는 GitLab config repo 를 안 써서 이 표에 없어요 — {ghServices.join(', ')} (빌드·배포 탭에서 봐요)
+        <p className="page-sub">
+          {side === 'repo' ? 'repo 가 무엇으로 빌드하나 — 서비스마다' : '이미지가 무엇으로 만들어지고 어떻게 뜨나 — config repo 폴더마다'}
         </p>
+      </div>
+
+      <div className="seg" role="tablist" aria-label="config 보기" style={{ marginBottom: 12 }}>
+        <span className="seg-label">보기</span>
+        {SIDES.map(([v, label]) => (
+          <button
+            key={v}
+            type="button"
+            role="tab"
+            aria-selected={side === v}
+            className={'seg-btn' + (side === v ? ' seg-btn--active' : '')}
+            onClick={() => {
+              setSide(v)
+              setGroupSel('')
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {side === 'repo' ? (
+        <>
+          <SectionHead
+            title="repo 프로젝트"
+            sub={shapes ? `확인할 것 — 빌드≠코드 ${checkCount('빌드≠코드')} · 빌드≠실행 ${checkCount('빌드≠실행')} · 코드≠실행 ${checkCount('코드≠실행')}` : undefined}
+            asOf={latestTime(repoRows.map((r) => r.collected_at))}
+            onRefresh={() => runAll(setBusy, [load])}
+            busy={busy}
+          />
+          <RepoLegend />
+          <div className="toolbar" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
+            <GroupFilter groups={repoGroups} value={groupSel} onChange={setGroupSel} />
+          </div>
+          <div className="card" style={{ overflowX: 'auto' }}>
+            <RepoTable rows={repoShown} />
+            {!shapes && <div className="placeholder" style={{ padding: '28px 16px' }}>불러오는 중…</div>}
+            {shapes && repoRows.length === 0 && (
+              <div className="placeholder" style={{ padding: '28px 16px' }}>
+                아직 repo 를 읽지 않았습니다 — <span className="mono">shape-targets.yml</span> 서비스에{' '}
+                <span className="mono">repo:</span> 프로젝트를 적고 <span className="mono">python -m runner.cli shape</span>
+              </div>
+            )}
+          </div>
+          {noRepo.length > 0 && (
+            <p className="note-line">repo 프로젝트를 안 적은 서비스 — {noRepo.join(', ')} (대상 파일에 repo: 를 적으면 여기 나와요)</p>
+          )}
+          {ghServices.length > 0 && (
+            <p className="note-line">
+              <span className="host-badge host-badge--github" style={{ marginLeft: 0 }}>
+                GitHub
+              </span>{' '}
+              에서 빌드하는 서비스는 GitLab repo 가 없어 이 표에 없어요 — {ghServices.join(', ')} (빌드·배포 탭에서 봐요)
+            </p>
+          )}
+        </>
+      ) : (
+        <>
+          <SectionHead
+            title="config 폴더"
+            sub={
+              rows
+                ? `할 일 — CMD 로 옮기기 ${count('legacy')} · start.sh 지우기 ${count('leftover')} · CMD 넣기 ${count('server')} · 오래된 버전 ${oldCount}칸`
+                : undefined
+            }
+            asOf={latestTime(all.map((r) => r.collected_at))}
+            onRefresh={() => runAll(setBusy, [load])}
+            busy={busy}
+          />
+
+          <Legend
+            id="config"
+            rows={LEGEND}
+            source="center config repo · 서버 docker-compose — runner shape"
+          />
+
+          <div className="toolbar" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
+            <GroupFilter groups={groupNames} value={groupSel} onChange={setGroupSel} />
+          </div>
+
+          <div className="card" style={{ overflowX: 'auto' }}>
+            <table className="grid grid--nowrap grid--dense">
+              <thead>
+                <tr className="th-band">
+                  <th rowSpan={3}>그룹</th>
+                  <th rowSpan={3}>서비스</th>
+                  <th rowSpan={3}>타입</th>
+                  <th colSpan={2} className="th-group">버전</th>
+                  <th colSpan={2 + envs.length + (extras.length ? 1 : 0)} className="th-group th-start">
+                    start.sh — 앱을 처음 띄우는 명령은 어디에?
+                    <span className="th-flow">config 의 Dockerfile → 이미지 → 서버의 docker-compose (덮어쓸 수 있음)</span>
+                  </th>
+                </tr>
+                <tr>
+                  <th rowSpan={2}>런타임 (이미지)</th>
+                  <th rowSpan={2}>베이스 이미지</th>
+                  <th rowSpan={2}>
+                    처음 실행할 명령 (이미지)
+                    <span className="th-flow">config 의 Dockerfile</span>
+                  </th>
+                  <th colSpan={envs.length + (extras.length ? 1 : 0)} className="th-group">
+                    처음 실행할 명령 (서버)
+                    <span className="th-flow">서버의 docker-compose</span>
+                  </th>
+                  <th rowSpan={2}>정리할 것</th>
+                </tr>
+                <tr>
+                  {envs.map((e) => (
+                    <th key={e} className="th-sub">{e}</th>
+                  ))}
+                  {extras.length > 0 && (
+                    <th className="th-sub" title={`그 밖의 환경: ${extras.join(', ')}`}>
+                      기타
+                    </th>
+                  )}
+                </tr>
+              </thead>
+              <tbody>
+                {ordered.map((g) => {
+                  // 펼친 줄은 표 아래 한 줄이 더 생겨서 그룹·서비스 칸이 그만큼 더 길어짐
+                  const span = (rs: ConfigRow[]) => rs.length + rs.filter((r) => openRows.has(r.path)).length
+                  const total = g.svcs.reduce((n, [, rs]) => n + span(rs), 0)
+                  return g.svcs.map(([svc, rs], si) => (
+                    <Fragment key={`${g.group}/${svc}`}>
+                      {rs.map((r, i) => {
+                        const rt = runtimeOf(r)
+                        const base = baseOf(r)
+                        const groupFirst = si === 0 && i === 0
+                        // 경계: 그룹이 바뀌면 진한 선, 서비스가 바뀌면 보통 선
+                        const cls = [groupFirst ? 'grp-start' : i === 0 ? 'svc-start' : '', r.merged_into ? 'row-merged' : ''].join(' ').trim()
+                        const isOpen = openRows.has(r.path)
+                        return (
+                          <Fragment key={r.path}>
+                            <tr className={cls || undefined}>
+                              {groupFirst && (
+                                <td className="grp-cell" rowSpan={total}>
+                                  {g.group}
+                                  <div className="muted" style={{ fontWeight: 400, fontSize: 12 }}>
+                                    서비스 {g.svcs.length}개
+                                  </div>
+                                  {/* 어느 config repo 에서 왔나 — 여기 줄은 전부 GitLab config repo */}
+                                  {[...new Set(g.svcs.flatMap(([, rs]) => rs.flatMap((r) => (r.config_repo ? [r.config_repo] : []))))].map((repo) => (
+                                    <div key={repo} className="muted grp-repo" title={`config repo: ${repo} (GitLab)`}>
+                                      {/* '/' 에서만 줄바꿈 — 그룹 칸이 넓어지지 않게 */}
+                                      {repo.split('/').map((part, i, arr) => (
+                                        <span key={i} className="grp-repo-part">
+                                          {part}
+                                          {i < arr.length - 1 ? '/' : ''}
+                                        </span>
+                                      ))}
+                                      <div>
+                                        <span className="host-badge host-badge--gitlab">GitLab</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </td>
+                              )}
+                              {i === 0 && (
+                                <td className="svc-cell" rowSpan={span(rs)}>
+                                  {svc}
+                                </td>
+                              )}
+                              <td>
+                                <button
+                                  type="button"
+                                  className="row-toggle"
+                                  aria-expanded={isOpen}
+                                  aria-label={`${r.path} 환경별 자세히`}
+                                  title="환경별 자세히 — 어디서 읽었나 · 위치 · 못 읽은 이유"
+                                  onClick={() => toggleRow(r.path)}
+                                >
+                                  {isOpen ? '▾' : '▸'}
+                                </button>
+                                {typeCell(r)}
+                              </td>
+                              <td>
+                                {r.runtime ? (
+                                  <Ver
+                                    text={`${r.runtime}${r.runtime_version ? ` ${r.runtime_version}` : ''}`}
+                                    old={!r.merged_into && isOld(rt, newestRuntime)}
+                                    newest={rt ? `${rt[0]} ${newestRuntime.get(rt[0])}` : undefined}
+                                  />
+                                ) : (
+                                  <span className="muted">—</span>
+                                )}
+                              </td>
+                              <td>
+                                {r.base_image ? (
+                                  // 앞의 저장소 경로(infra/ 등)는 줄여서 한 줄에 — 전체 이름은 마우스
+                                  <span title={`${r.base_image}${r.base_tag ? `:${r.base_tag}` : ''}`}>
+                                    <Ver
+                                      text={`${r.base_image.split('/').pop()}${r.base_tag ? `:${r.base_tag}` : ''}`}
+                                      old={!r.merged_into && isOld(base, newestBase)}
+                                      newest={base ? `${base[0]}:${newestBase.get(base[0])}` : undefined}
+                                    />
+                                  </span>
+                                ) : (
+                                  <span className="muted">—</span>
+                                )}
+                              </td>
+                              <td>{imageCell(r, envs)}</td>
+                              {envs.map((e) => (
+                                <td key={e}>{serverEnvCell(r, e)}</td>
+                              ))}
+                              {extras.length > 0 && <td className="extras-cell">{extraCell(r, extras)}</td>}
+                              <td>{todoCell(r)}</td>
+                            </tr>
+                            {isOpen && (
+                              <tr className="row-detail">
+                                <td colSpan={8 + (extras.length ? 1 : 0)}>
+                                  {envDetail(r, [...envs, ...extras.filter((e) => r.compose?.[e] || r.compose_miss?.[e])])}
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        )
+                      })}
+                    </Fragment>
+                  ))
+                })}
+              </tbody>
+            </table>
+
+            {!rows && !err && <div className="placeholder" style={{ padding: '28px 16px' }}>불러오는 중…</div>}
+            {rows && rows.length === 0 && (
+              <div className="placeholder" style={{ padding: '28px 16px' }}>
+                아직 config 를 읽지 않았습니다 — <span className="mono">shape-targets.yml</span> 에{' '}
+                <span className="mono">config:</span> 를 적고 <span className="mono">python -m runner.cli shape</span>
+              </div>
+            )}
+            {err && (
+              <div className="placeholder" style={{ padding: '28px 16px' }}>
+                config 를 불러오지 못했습니다 — 중앙 API 상태를 확인하세요.
+              </div>
+            )}
+          </div>
+          {ghServices.length > 0 && (
+            <p className="note-line">
+              <span className="host-badge host-badge--github" style={{ marginLeft: 0 }}>
+                GitHub
+              </span>{' '}
+              에서 빌드하는 서비스는 GitLab config repo 를 안 써서 이 표에 없어요 — {ghServices.join(', ')} (빌드·배포 탭에서 봐요)
+            </p>
+          )}
+        </>
       )}
     </div>
   )

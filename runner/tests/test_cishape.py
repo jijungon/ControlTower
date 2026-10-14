@@ -5,13 +5,17 @@ from runner.cishape import (
     analyze_config_dir,
     analyze_dockerfile,
     build_row,
+    build_runtimes,
     code_versions,
     config_dirs,
     confirm_executor,
     deploy_targets,
     detect_runtime,
+    parse_build_log_versions,
     parse_executor_log,
     parse_targets,
+    parse_version_tag,
+    pick_versions,
     split_image,
 )
 
@@ -459,7 +463,14 @@ def test_code_versions_nvmrc_engines_pom():
         "node": "20.0.0", "node_from": "package.json", "node_rule": "min", "nest": "11.0.1",
     }
     assert code_versions({"package.json": '{"engines": {"node": "^20"}}'})["node_rule"] == "exact"
-    assert code_versions({"pom.xml": "<properties><java.version>17</java.version></properties>"}) == {"java": "17"}
+    assert code_versions({"pom.xml": "<properties><java.version>17</java.version></properties>"}) == {"java": "17", "java_from": "pom.xml"}
+    # Gradle — toolchain 우선, 없으면 sourceCompatibility('VERSION_1_8' = 8), kotlin DSL 도
+    gradle = "plugins { id 'org.springframework.boot' version '3.4.5' }\njava {\n  toolchain {\n    languageVersion = JavaLanguageVersion.of(17)\n  }\n}\n"
+    assert code_versions({"build.gradle": gradle}) == {"java": "17", "java_from": "build.gradle"}
+    assert code_versions({"build.gradle": "sourceCompatibility = JavaVersion.VERSION_1_8\n"})["java"] == "8"
+    assert code_versions({"build.gradle": "sourceCompatibility = '21'\n"})["java"] == "21"
+    assert code_versions({"build.gradle.kts": "java { toolchain { languageVersion.set(JavaLanguageVersion.of(21)) } }"}) == {"java": "21", "java_from": "build.gradle.kts"}
+    assert code_versions({"build.gradle": "dependencies { implementation 'x:y:1.0' }"}) == {}  # 버전 줄 없음
     assert code_versions({".nvmrc": None, "package.json": "not json", "pom.xml": None}) == {}
 
 
@@ -951,3 +962,250 @@ def test_ci_source_ref_and_local_fallback():
     assert _ci_source(svc, "repo", cfg, "api") == ({"gitlab": "repo", "project": "g/web", "path": ".gitlab-ci.yml", "ref": "dev"}, ("g/web", "dev"))
     assert _ci_source(svc, "repo", cfg, "local") == ({"file": "a.yml"}, None)
     assert _ci_source({"repo_ci": {"file": "b.yml"}}, "repo", cfg, "api") == ({"file": "b.yml"}, None)  # 프로젝트 이름 없으면 로컬
+
+
+# ── 빌드·배포 버전 (tag 로 돈 job) · repo 빌드 런타임 ─────────────────────
+def test_parse_version_tag():
+    assert parse_version_tag("prod-was-v1.0.9") == {"env": "prod", "type": "was", "version": "v1.0.9"}
+    assert parse_version_tag("stage-web-v0.1.3b") == {"env": "stg", "type": "web", "version": "v0.1.3b"}  # 글자 붙은 버전·환경 별칭
+    assert parse_version_tag("preview-app-v1.2.3.4")["version"] == "v1.2.3.4"  # 네 자리
+    assert parse_version_tag("main") is None and parse_version_tag("release-1") is None and parse_version_tag(None) is None
+
+
+def test_pick_versions_env_from_tag_and_newest_first():
+    kinds = {"build": "build_image", "deploy-dev": "deploy_image", "deploy-prod": "deploy_image", "lint": "other"}
+    jobs = [  # 최신순(GitLab 이 주는 순서)
+        {"id": 30, "name": "build", "ref": "prod-was-v1.0.9", "finished_at": "2026-10-13T10:52:00Z"},
+        {"id": 29, "name": "deploy-prod", "ref": "preview-was-v1.0.8", "finished_at": "2026-10-12T00:00:00Z"},
+        {"id": 28, "name": "lint", "ref": "prod-was-v1.0.9", "finished_at": "2026-10-12T00:00:00Z"},
+        {"id": 20, "name": "deploy-prod", "ref": "prod-was-v1.0.2", "finished_at": "2026-10-01T14:23:00Z"},
+        {"id": 19, "name": "build", "ref": "prod-was-v1.0.2", "finished_at": "2026-10-01T14:00:00Z"},
+        {"id": 10, "name": "deploy-prod", "ref": "prod-was-v0.9.0", "finished_at": "2026-09-01T00:00:00Z"},
+    ]
+    v = pick_versions(jobs, kinds)
+    assert v["build"] == {"prod": {"version": "v1.0.9", "tag": "prod-was-v1.0.9", "at": "2026-10-13T10:52:00Z", "job": 30}}
+    assert v["deploy"]["prod"]["version"] == "v1.0.2"  # 빌드는 v1.0.9 인데 배포는 아직 v1.0.2
+    assert v["deploy"]["preview"]["version"] == "v1.0.8"  # deploy-prod job 이라도 tag 가 preview 면 preview
+    assert "dev" not in v["deploy"]  # lint 같은 다른 job 은 안 셈
+
+
+def test_pick_versions_skips_other_services_tags_and_roles():
+    kinds = {"build": "build_image", "deploy-prod-mgr": "deploy_image", "deploy-prod-worker": "deploy_image", "deploy-dev": "deploy_image"}
+    jobs = [
+        {"id": 9, "name": "build", "ref": "prod-web-v2.0.0"},
+        {"id": 8, "name": "deploy-prod-worker", "ref": "prod-app-v1.2.5"},
+        {"id": 7, "name": "deploy-prod-mgr", "ref": "prod-app-v1.2.4"},
+        {"id": 6, "name": "build", "ref": "prod-app-v1.2.5"},
+        {"id": 5, "name": "deploy-dev", "ref": "dev-app-v1.2.5"},
+    ]
+    # 같은 center 프로젝트를 web 서비스와 같이 씀 → web tag 는 남의 것 · 역할이 mgr 면 worker 배포는 남의 것
+    v = pick_versions(jobs, kinds, skip_types={"web"}, other_roles={"worker"})
+    assert v["build"]["prod"]["version"] == "v1.2.5"
+    assert v["deploy"]["prod"]["version"] == "v1.2.4"  # 역할 이름이 붙은 내 배포 job
+    assert v["deploy"]["dev"]["version"] == "v1.2.5"  # 역할 이름이 없는 배포 job(한 서버에 둘 다)은 내 것
+
+
+def test_pick_versions_direct_copy_is_build_and_deploy():
+    v = pick_versions([{"id": 3, "name": "deploy-dev", "ref": "dev-web-v1.0.0"}], {"deploy-dev": "direct"})
+    assert v["build"]["dev"]["version"] == v["deploy"]["dev"]["version"] == "v1.0.0"  # 파일 복사 = 빌드·배포가 한 job
+
+
+def test_analyze_ci_jobs_and_build_runtimes():
+    ci_text = """
+variables:
+  NODE_VERSION: "20"
+build:
+  image: node:${NODE_VERSION}-slim
+  script: [npm ci, npm run build]
+test:
+  image: node:${NODE_VERSION}-slim
+  script: [npm test]
+push_src:
+  image: alpine:latest
+  script: [git push origin HEAD:main]
+deploy:
+  image: deploy-image:latest
+  script: [ssh x "docker compose pull && docker compose up -d"]
+"""
+    ci = analyze_ci(ci_text)
+    assert ci["jobs"]["build"] == {"kind": "other", "image": "node:20-slim"}  # 변수는 풀어서
+    assert ci["jobs"]["push_src"]["kind"] == "push" and ci["jobs"]["deploy"]["kind"] == "deploy_image"
+    # 런타임 이미지만(alpine 같은 도구 이미지 · 배포 job 은 빼고), 같은 버전끼리 묶음
+    assert build_runtimes(ci) == [{"runtime": "node", "version": "20", "image": "node:20-slim", "jobs": ["build", "test"]}]
+    assert build_runtimes(None) == []
+
+
+def test_build_row_repo_part():
+    ci = "build:\n  image: node:22\n  script: [npm run build]\n"
+    row = build_row({"name": "shop web", "repo": {"project": "g/shop", "ref": "dev"}}, {"repo_ci": ci})
+    assert row["data"]["repo"] == {
+        "project": "g/shop", "read": True, "build": [{"runtime": "node", "version": "22", "image": "node:22", "jobs": ["build"]}],
+    }
+    # 프로젝트는 적었는데 CI 를 못 읽음 → read False(화면에서 '못 읽음')
+    assert build_row({"name": "a", "repo": "g/a"}, {"repo_ci": None})["data"]["repo"] == {"project": "g/a", "read": False, "build": []}
+    assert build_row({"name": "b", "center": "g/b"}, {})["data"]["repo"] is None  # repo 를 안 씀
+
+
+def test_cmd_shape_attaches_versions_and_repo_code(monkeypatch, tmp_path, capsys):
+    """API 로 읽으면 서비스마다 환경별 빌드·배포 버전(tag 로 돈 job) + repo 의 빌드 런타임·코드에 적힌 버전을 붙인다.
+    web·was 가 center 프로젝트 하나를 같이 쓰면 tag 타입으로 나눈다. 같은 프로젝트의 job 목록은 한 번만 읽는다."""
+    import types
+
+    import runner.cli as cli
+
+    center_ci = (
+        "build:\n  tags: [builder]\n  script: [docker build -t r/x:$TAG .,docker push r/x:$TAG]\n"
+        "  rules: [{if: '$CI_COMMIT_TAG =~ /^(dev|prod)-(web|was)-v/'}]\n"
+        "deploy-prod:\n  image: deploy-image:latest\n  tags: [deployer]\n"
+        "  script: [ssh x \"docker compose pull && docker compose up -d\"]\n"
+        "  rules: [{if: '$CI_COMMIT_TAG =~ /^prod-(web|was)-v/', when: manual}]\n"
+    )
+    repo_ci = "variables: {NODE_VERSION: '20'}\nbuild:\n  image: node:${NODE_VERSION}-slim\n  tags: [repo-runner]\n  script: [npm run build]\n"
+    repo_files = {".gitlab-ci.yml": repo_ci, ".nvmrc": "22\n", "package.json": '{"dependencies": {"@nestjs/core": "^10.3.0"}}'}
+    targets = tmp_path / "shape-targets.yml"
+    targets.write_text(
+        "services:\n"
+        "  - {name: shop web, type: web, repo: g/shop-web, center: g/shop}\n"
+        "  - {name: shop was, type: was, repo: g/shop-was, center: g/shop}\n"
+    )
+    sent: dict = {}
+
+    class FakeAPI:
+        def __init__(self, *a):
+            pass
+
+        def upload_shapes(self, shapes, replace=False):
+            sent["shapes"] = {s["service"]: s["data"] for s in shapes}
+            return {"accepted": len(shapes), "removed": 0}
+
+        def close(self):
+            pass
+
+    tag_calls: list[str] = []
+    tag_jobs = [  # 최신순
+        {"id": 40, "name": "build", "ref": "prod-was-v1.0.9", "finished_at": "2026-10-13T10:52:00Z"},
+        {"id": 39, "name": "deploy-prod", "ref": "prod-web-v2.1.0", "finished_at": "2026-10-12T00:00:00Z"},
+        {"id": 38, "name": "build", "ref": "prod-web-v2.1.0", "finished_at": "2026-10-12T00:00:00Z"},
+        {"id": 30, "name": "deploy-prod", "ref": "prod-was-v1.0.2", "finished_at": "2026-10-01T00:00:00Z"},
+        {"id": 29, "name": "build", "ref": "dev-was-v1.0.9", "finished_at": "2026-10-01T00:00:00Z"},
+    ]
+    monkeypatch.setattr(cli, "CentralAPI", FakeAPI)
+    monkeypatch.setattr(cli, "fetch_repo_file", lambda u, t, p, path, ref="", timeout=8: center_ci if p == "g/shop" else repo_files.get(path))
+    monkeypatch.setattr(cli, "fetch_recent_jobs", lambda *a, **k: [])
+    monkeypatch.setattr(cli, "fetch_tag_jobs", lambda u, t, p, timeout=8: tag_calls.append(p) or tag_jobs)
+    cfg = types.SimpleNamespace(
+        shape_targets=str(targets), central_url="x", api_token="t", gitlab_url="http://repo", gitlab_token="tok",
+        gitlab_center_url="http://center", gitlab_center_token="tok", gitlab_ref="", connect_timeout=1,
+    )
+    cli.cmd_shape(cfg)
+    out = capsys.readouterr().out
+    assert tag_calls == ["g/shop"]  # center 한 번만 · repo 는 서버로 바로 복사하는 job 이 없어 안 읽음
+    was, web = sent["shapes"]["shop was"], sent["shapes"]["shop web"]
+    assert {e: c["version"] for e, c in was["versions"]["build"].items()} == {"prod": "v1.0.9", "dev": "v1.0.9"}
+    assert was["versions"]["deploy"] == {"prod": {"version": "v1.0.2", "tag": "prod-was-v1.0.2", "at": "2026-10-01T00:00:00Z", "job": 30, "side": "center"}}
+    assert web["versions"]["build"]["prod"]["version"] == web["versions"]["deploy"]["prod"]["version"] == "v2.1.0"  # web tag 는 web 것만
+    assert was["repo"]["project"] == "g/shop-was" and was["repo"]["build"][0]["version"] == "20"
+    assert was["repo"]["code"] == {"node": "22", "node_from": ".nvmrc", "node_rule": "exact", "nest": "10.3.0"}
+    assert "빌드·배포 버전: 2개 서비스" in out
+    # --source local(API 안 씀) → 버전은 '모름'(키 없음), tag job 도 안 읽음
+    tag_calls.clear()
+    (tmp_path / "c.yml").write_text(center_ci)
+    targets.write_text("services:\n  - {name: shop web, type: web, center_ci: {file: c.yml}}\n")
+    cli.cmd_shape(cfg, source="local")
+    assert tag_calls == [] and "versions" not in sent["shapes"]["shop web"]
+
+
+def test_versions_of_prefers_repo_where_repo_copies_directly(monkeypatch):
+    """repo 가 서버로 바로 복사하는 환경(dev)은 빌드·배포 모두 repo job 의 tag — center 에 옛 dev 이미지가 있어도.
+    나머지 환경(prod)은 center 먼저."""
+    import types
+
+    import runner.cli as cli
+
+    tag_jobs = {
+        "g/site": [{"id": 9, "name": "build", "ref": "prod-web-v1.0.2"}, {"id": 2, "name": "build", "ref": "dev-web-v0.1.6"}],
+        "g/site-src": [{"id": 50, "name": "deploy-dev", "ref": "dev-web-v1.0.2"}],
+    }
+    monkeypatch.setattr(cli, "fetch_tag_jobs", lambda u, t, p, timeout=8: tag_jobs[p])
+    cfg = types.SimpleNamespace(gitlab_url="http://repo", gitlab_token="t", gitlab_center_url="http://center", gitlab_center_token="t", connect_timeout=1)
+    cis = {
+        "repo": {"jobs": {"deploy-dev": {"kind": "direct"}, "push_src": {"kind": "push"}}},
+        "center": {"jobs": {"build": {"kind": "build_image"}}},
+    }
+    row = {"data": {"deploy": {"dev": {"path": "direct", "by": "repo"}, "prod": {"path": "image"}}}}
+    api = {"repo": ("g/site-src", None), "center": ("g/site", None)}
+    v = cli._versions_of({"name": "site web", "type": "web"}, row, cis, api, {}, cfg, {})
+    assert (v["build"]["dev"]["version"], v["build"]["dev"]["side"]) == ("v1.0.2", "repo")
+    assert (v["deploy"]["dev"]["version"], v["deploy"]["dev"]["side"]) == ("v1.0.2", "repo")
+    assert (v["build"]["prod"]["version"], v["build"]["prod"]["side"]) == ("v1.0.2", "center") and "prod" not in v["deploy"]
+
+
+def test_parse_build_log_versions():
+    """shell 러너 빌드 — CI 에 image: 가 없어 버전이 파일에 없을 때 build job 로그에 찍힌 흔적."""
+    assert parse_build_log_versions("npm WARN EBADENGINE   current: { node: 'v20.15.1', npm: '10.2.5' }") == {"node": "20.15.1"}
+    assert parse_build_log_versions('$ java -version\nopenjdk version "17.0.14" 2025-01-21\n') == {"java": "17"}
+    assert parse_build_log_versions('java version "1.8.0_381"') == {"java": "8"}  # 1.8 = 8
+    assert parse_build_log_versions("\x1b[32;1m$ node -v\x1b[0;m\nv22.11.0\n") == {"node": "22.11.0"}  # 색 코드 지움
+    assert parse_build_log_versions("Now using node v18.20.4 (npm v10.8.2)") == {"node": "18.20.4"}
+    assert parse_build_log_versions("Done in 14.6s using pnpm v10.17.0") == {} and parse_build_log_versions(None) == {}
+
+
+def test_cmd_shape_reads_shell_build_versions_from_job_logs(monkeypatch, tmp_path, capsys):
+    """repo CI 에 런타임 이미지가 없으면(shell 러너) 최근 성공한 build job 로그에서 node·java 를 읽는다.
+    로그에 버전 줄이 없는 서비스는 같은 러너(같은 서버)에서 본 값을 '추정' 으로 쓴다."""
+    import types
+
+    import runner.cli as cli
+
+    repo_ci = "variables: {RUNNER_TAG: shell-runner}\nbuild:\n  tags: [$RUNNER_TAG]\n  script: [npm install, npm run build]\npush_src:\n  script: [git push origin HEAD:main]\n"
+    targets = tmp_path / "shape-targets.yml"
+    targets.write_text(
+        "services:\n"
+        "  - {name: site web, type: web, repo: g/site}\n"
+        "  - {name: shop web, type: web, repo: g/shop}\n"
+    )
+    sent: dict = {}
+
+    class FakeAPI:
+        def __init__(self, *a):
+            pass
+
+        def upload_shapes(self, shapes, replace=False):
+            sent["shapes"] = {s["service"]: s["data"] for s in shapes}
+            return {"accepted": len(shapes), "removed": 0}
+
+        def close(self):
+            pass
+
+    jobs = {
+        "g/site": [{"id": 31, "name": "build", "status": "success", "runner_id": 7, "runner_name": "shell-01", "web_url": ""}],
+        "g/shop": [
+            {"id": 42, "name": "push_src", "status": "success", "runner_id": 7, "runner_name": "shell-01", "web_url": ""},
+            {"id": 41, "name": "build", "status": "success", "runner_id": 7, "runner_name": "shell-01", "web_url": ""},
+        ],
+    }
+    logs = {31: "npm WARN EBADENGINE   current: { node: 'v20.15.1', npm: '10.2.5' }\n", 41: "Done in 14.6s using pnpm v10.17.0\n"}
+    read: list[int] = []
+    monkeypatch.setattr(cli, "CentralAPI", FakeAPI)
+    monkeypatch.setattr(cli, "fetch_repo_file", lambda u, t, p, path, ref="", timeout=8: repo_ci if path == ".gitlab-ci.yml" else None)
+    monkeypatch.setattr(cli, "fetch_recent_jobs", lambda u, t, p, timeout=8: jobs[p])
+    monkeypatch.setattr(cli, "fetch_job_log_head", lambda u, t, p, jid, timeout=8, max_bytes=20000: read.append(jid) or logs.get(jid, ""))
+    monkeypatch.setattr(cli, "build_row", lambda spec, files, runners=None: _row_with_runtime(spec, files, runners))
+    cfg = types.SimpleNamespace(
+        shape_targets=str(targets), central_url="x", api_token="t", gitlab_url="http://repo", gitlab_token="tok",
+        gitlab_center_url="", gitlab_center_token="", gitlab_ref="", connect_timeout=1,
+    )
+    cli.cmd_shape(cfg)
+    out = capsys.readouterr().out
+    site, shop = sent["shapes"]["site web"]["repo"], sent["shapes"]["shop web"]["repo"]
+    assert site["build"] == [{"runtime": "node", "version": "20.15.1", "image": None, "jobs": ["build"], "from": "log", "job": 31, "runner": "shell-01"}]
+    assert shop["build"] == [{**site["build"][0], "guess": True}]  # 로그엔 pnpm 버전뿐 → 같은 러너에서 본 node
+    assert 41 in read and 42 not in read  # build job 로그만(푸시 job 은 안 읽음)
+    assert "repo 빌드 버전(job 로그): 2개 (같은 러너로 추정 1)" in out
+
+
+def _row_with_runtime(spec, files, runners):
+    """실행 이미지가 node 인 행(로그 추정은 실행 런타임과 같은 것만 채움)."""
+    row = build_row(spec, files, runners)
+    row["data"].update(runtime="node", runtime_version="18")
+    return row
