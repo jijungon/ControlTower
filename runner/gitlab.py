@@ -1,4 +1,4 @@
-"""GitLab CI 조회 (읽기 전용) — 프로젝트의 최근 파이프라인 상태.
+"""GitLab CI 조회 (읽기 전용) — 최근 파이프라인 상태 · repo 파일 · 최근 job · job 로그 앞부분.
 
 토큰은 러너 로컬에만 둔다(PRIVATE-TOKEN 헤더). 중앙엔 결과 상태만 올리고 토큰은 저장하지 않는다.
 transport 인자는 테스트에서 httpx.MockTransport 주입용.
@@ -105,3 +105,65 @@ def fetch_repo_tree(
     except httpx.HTTPError:
         return None
     return paths
+
+
+def fetch_recent_jobs(
+    base_url: str,
+    token: str,
+    project: str,
+    timeout: int = 8,
+    *,
+    transport: httpx.BaseTransport | None = None,
+    per_page: int = 100,
+) -> list[dict[str, Any]] | None:
+    """프로젝트의 최근 job 들(최신순). 오류면 None. executor 를 job 로그로 확정할 때 어떤 job 을 볼지 고르는 용도.
+
+    반환: [{id, name, status, runner_id, web_url}] — 러너가 안 붙은 job(대기·취소)은 runner_id None.
+    """
+    pid = quote(str(project), safe="")
+    url = f"{base_url.rstrip('/')}/api/v4/projects/{pid}/jobs"
+    try:
+        with httpx.Client(transport=transport, timeout=timeout) as c:
+            r = c.get(url, params={"per_page": per_page}, headers={"PRIVATE-TOKEN": token})
+    except httpx.HTTPError:
+        return None
+    if r.status_code != 200:
+        return None
+    return [
+        {
+            "id": j.get("id"),
+            "name": j.get("name"),
+            "status": j.get("status"),
+            "runner_id": (j.get("runner") or {}).get("id"),
+            "web_url": j.get("web_url"),
+        }
+        for j in r.json()
+    ]
+
+
+def fetch_job_log_head(
+    base_url: str,
+    token: str,
+    project: str,
+    job_id: int,
+    timeout: int = 8,
+    *,
+    transport: httpx.BaseTransport | None = None,
+    max_bytes: int = 20000,
+) -> str | None:
+    """job 로그의 앞부분만(max_bytes) 읽는다. 오류면 None. 맨 윗줄 'Preparing the "shell" executor' 확인용."""
+    pid = quote(str(project), safe="")
+    url = f"{base_url.rstrip('/')}/api/v4/projects/{pid}/jobs/{job_id}/trace"
+    try:
+        with httpx.Client(transport=transport, timeout=timeout) as c:
+            with c.stream("GET", url, headers={"PRIVATE-TOKEN": token}) as r:
+                if r.status_code != 200:
+                    return None
+                buf = b""
+                for chunk in r.iter_bytes():
+                    buf += chunk
+                    if len(buf) >= max_bytes:
+                        break
+    except httpx.HTTPError:
+        return None
+    return buf[:max_bytes].decode("utf-8", errors="replace")

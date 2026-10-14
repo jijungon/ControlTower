@@ -7,8 +7,10 @@ from runner.cishape import (
     build_row,
     code_versions,
     config_dirs,
+    confirm_executor,
     deploy_targets,
     detect_runtime,
+    parse_executor_log,
     parse_targets,
     split_image,
 )
@@ -732,3 +734,113 @@ def test_read_file_via_builds_nested_ssh(monkeypatch):
     # sudo: gw 의 root 설정·키로 — 비밀번호를 묻지 않게 -n
     conn.read_file_via("gw-prod", "app-mgr", "/app/x/docker-compose.yml", 5, sudo=True)
     assert seen["argv"][-1].startswith("sudo -n ssh -o BatchMode=yes -o ConnectTimeout=5 app-mgr cat -- ")
+
+
+def test_parse_executor_log():
+    log = (
+        "\x1b[0KRunning with gitlab-runner 17.2.0 (abc)\x1b[0;m\n"
+        "\x1b[0K  on builder xYz, system ID: s_1\x1b[0;m\n"
+        "section_start:1:prepare_executor\r\x1b[0K\x1b[0K\x1b[36;1mPreparing the \"docker+machine\" executor\x1b[0;m\n"
+        "\x1b[0KUsing Docker executor with image ruby:3.1 ...\x1b[0;m\n"
+    )
+    assert parse_executor_log(log) == {"executor": "docker", "raw": "docker+machine", "image": "ruby:3.1"}
+    assert parse_executor_log('Preparing the "shell" executor\nUsing Shell (bash) executor...') == {"executor": "shell", "raw": "shell"}
+    assert parse_executor_log("no header") is None and parse_executor_log(None) is None
+
+
+def test_confirm_executor_overrides_guess_and_resummarizes():
+    cell = {
+        "value": "docker", "guess": True, "tags": ["builder", "deploy"], "counts": {"shell": 2, "docker": 3},
+        "groups": [
+            {"tag": "builder", "value": "shell", "guess": True, "why": "image: 없음", "jobs": ["build", "build-manual"], "images": {}},
+            {"tag": "deploy", "value": "docker", "guess": True, "why": "image: 있음", "jobs": ["d1", "d2", "d3"], "images": {"d1": "x"}},
+        ],
+    }
+    out = confirm_executor(cell, {"builder": {"executor": "docker", "job_id": 41, "default_image": "docker:27"}})
+    b = out["groups"][0]
+    assert (b["value"], b["guess"], b["why"], b["default_image"]) == ("docker", False, "job 로그 #41", "docker:27")
+    assert out["groups"][1]["guess"] is True  # 확인 못 한 그룹은 추정 그대로
+    assert (out["value"], out["guess"]) == ("docker", False) and "counts" not in out  # 이제 전부 docker
+    assert confirm_executor(cell, {}) is cell and confirm_executor(None, {"x": {}}) is None
+
+
+def test_cmd_shape_switches_to_gitlab_api_when_token_set(monkeypatch, tmp_path, capsys):
+    """대상 파일에 repo:/center:/project: 를 적어 두면 토큰이 없을 땐 로컬 파일, 토큰이 생기면 GitLab API 로 읽고
+    API 로 읽은 쪽은 job 로그 맨 윗줄로 executor 를 확정한다."""
+    import types
+
+    import runner.cli as cli
+
+    center_ci = (
+        "build:\n  tags: [builder]\n  script: [docker build -t r/x .]\n"
+        "  rules: [{if: '$CI_COMMIT_TAG =~ /^(dev|prod)-web-v/'}]\n"
+        "deploy:\n  image: deploy-image:latest\n  tags: [deployer]\n  script: [ssh x]\n"
+    )
+    (tmp_path / "center.yml").write_text(center_ci.replace("builder", "local-builder"))
+    (tmp_path / "config" / "shop" / "web").mkdir(parents=True)
+    (tmp_path / "config" / "shop" / "web" / "Dockerfile").write_text(DOCKER_NEW)
+    targets = tmp_path / "shape-targets.yml"
+    targets.write_text(
+        "config: {file: config, project: shop/config}\n"
+        "services:\n"
+        "  - name: shop web\n"
+        "    type: web\n"
+        "    center: shop/shop\n"                      # 토큰이 생기면 이 프로젝트를 API 로
+        "    center_ci: {file: center.yml}\n"         # 그 전엔 로컬 사본
+        "    config_dir: shop/web\n"
+    )
+    sent: dict = {}
+
+    class FakeAPI:
+        def __init__(self, *a):
+            pass
+
+        def upload_shapes(self, shapes, replace=False):
+            sent["shapes"] = {s["service"]: s["data"] for s in shapes}
+            return {"accepted": len(shapes), "removed": 0}
+
+        def upload_config(self, items, replace=False):
+            sent["config"] = {i["path"]: i["data"] for i in items}
+            return {"accepted": len(items), "removed": 0}
+
+        def close(self):
+            pass
+
+    calls: list[str] = []
+    monkeypatch.setattr(cli, "CentralAPI", FakeAPI)
+    monkeypatch.setattr(cli, "fetch_repo_file", lambda u, t, p, path, ref="main", timeout=8: calls.append(f"file {p}:{path}") or (center_ci if path == ".gitlab-ci.yml" else DOCKER_NEW))
+    monkeypatch.setattr(cli, "fetch_repo_tree", lambda u, t, p, ref="main", timeout=8: calls.append(f"tree {p}") or ["shop/web/Dockerfile"])
+    monkeypatch.setattr(cli, "fetch_recent_jobs", lambda u, t, p, timeout=8: calls.append(f"jobs {p}") or [
+        {"id": 7, "name": "deploy", "status": "success", "runner_id": 2, "web_url": ""},
+        {"id": 5, "name": "build", "status": "success", "runner_id": 1, "web_url": ""},
+    ])
+    logs = {5: 'Preparing the "shell" executor\n', 7: 'Preparing the "docker" executor\nUsing Docker executor with image deploy-image:latest ...\n'}
+    monkeypatch.setattr(cli, "fetch_job_log_head", lambda u, t, p, jid, timeout=8: calls.append(f"log {jid}") or logs[jid])
+
+    def cfg(token: str):
+        return types.SimpleNamespace(
+            shape_targets=str(targets), central_url="x", api_token="t", gitlab_url="", gitlab_token="",
+            gitlab_center_url="http://center" if token else "", gitlab_center_token=token, gitlab_ref="main", connect_timeout=1,
+        )
+
+    # 1) 토큰 없음 → 로컬 파일, API 는 안 부름, executor 는 추정
+    cli.cmd_shape(cfg(""))
+    assert calls == [] and "center 로컬 파일 · config 로컬 파일" in capsys.readouterr().out
+    ex = sent["shapes"]["shop web"]["executor_center"]
+    assert {g["tag"]: g["guess"] for g in ex["groups"]} == {"local-builder": True, "deployer": True}
+    # 2) 토큰 있음 → 같은 대상 파일인데 API 로, job 로그로 확정(같은 러너는 한 번만)
+    cli.cmd_shape(cfg("tok"))
+    out = capsys.readouterr().out
+    assert "center GitLab API · config GitLab API" in out
+    assert "file shop/shop:.gitlab-ci.yml" in calls and "tree shop/config" in calls
+    assert calls.count("jobs shop/shop") == 1 and sorted(c for c in calls if c.startswith("log")) == ["log 5", "log 7"]
+    ex = sent["shapes"]["shop web"]["executor_center"]
+    groups = {g["tag"]: g for g in ex["groups"]}
+    assert (groups["builder"]["value"], groups["builder"]["guess"], groups["builder"]["why"]) == ("shell", False, "job 로그 #5")
+    assert (groups["deployer"]["value"], groups["deployer"]["why"]) == ("docker", "job 로그 #7")
+    assert "default_image" not in groups["deployer"]  # deploy 는 image: 를 적어 둠 → 러너 기본 이미지 아님
+    assert "shop/web" in sent["config"]
+    # 3) --source local 이면 토큰이 있어도 로컬
+    calls.clear()
+    cli.cmd_shape(cfg("tok"), source="local")
+    assert calls == []

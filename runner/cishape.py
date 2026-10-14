@@ -225,13 +225,58 @@ def _executor(jobs: list[tuple[str, list[str], str | None]], runners: dict[str, 
             g["images"][name] = image
     if not votes:
         return None
-    counts = Counter(v for v, _ in votes)
+    return _summarize_executor(list(groups.values()), sorted(tags))
+
+
+def _summarize_executor(groups: list[dict], tags: list[str]) -> dict:
+    """러너 태그 그룹들 → 대표값(job 수가 가장 많은 방식), 짐작 여부, 섞였으면 방식별 job 수."""
+    counts: Counter[str] = Counter()
+    for g in groups:
+        counts[g["value"]] += len(g["jobs"])
     value = counts.most_common(1)[0][0]
-    guess = all(g for v, g in votes if v == value)
-    out = {"value": value, "guess": guess, "tags": sorted(tags), "groups": list(groups.values())}
+    guess = all(g["guess"] for g in groups if g["value"] == value)
+    out = {"value": value, "guess": guess, "tags": tags, "groups": groups}
     if len(counts) > 1:
         out["counts"] = dict(counts)
     return out
+
+
+_LOG_EXECUTOR = re.compile(r'Preparing the "([^"]+)" executor')
+_LOG_IMAGE = re.compile(r"Using \S*[Dd]ocker\S* executor with image (\S+)")
+
+
+def parse_executor_log(text: str | None) -> dict | None:
+    """job 로그 앞부분 → {executor, raw, image?}. 'Preparing the "docker+machine" executor' 도 docker 로.
+
+    image = docker 일 때 실제로 쓴 이미지(job 에 image: 가 없으면 러너 기본 이미지가 찍힘).
+    """
+    m = _LOG_EXECUTOR.search(text or "")
+    if not m:
+        return None
+    raw = m.group(1)
+    out = {"executor": "docker" if raw.startswith("docker") else raw, "raw": raw}
+    im = _LOG_IMAGE.search(text or "")
+    if im:
+        out["image"] = im.group(1).rstrip(" .")
+    return out
+
+
+def confirm_executor(cell: dict | None, confirmed: dict[str, dict]) -> dict | None:
+    """job 로그로 확인한 결과를 러너 태그 그룹에 덮어씀 → 대표값 다시 계산.
+
+    confirmed: {러너 태그: {executor, job_id, default_image?}} — 확인 못 한 그룹은 그대로(추정 유지).
+    """
+    if not cell or not confirmed:
+        return cell
+    groups = []
+    for g in cell.get("groups") or []:
+        c = confirmed.get(g["tag"])
+        if c:
+            g = {**g, "value": c["executor"], "guess": False, "why": f"job 로그 #{c['job_id']}"}
+            if c.get("default_image"):
+                g["default_image"] = c["default_image"]  # image: 없이 도는 job 이 실제로 쓰는 러너 기본 이미지(로그에서)
+        groups.append(g)
+    return _summarize_executor(groups, list(cell.get("tags") or [])) if groups else cell
 
 
 def analyze_ci(text: str | None, svc_type: str = "web", runners: dict[str, str] | None = None) -> dict | None:

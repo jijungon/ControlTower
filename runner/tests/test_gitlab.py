@@ -1,7 +1,7 @@
 """GitLab 파이프라인 조회 단위 테스트(httpx MockTransport)."""
 import httpx
 
-from runner.gitlab import fetch_latest_pipeline, fetch_repo_file, fetch_repo_tree
+from runner.gitlab import fetch_job_log_head, fetch_latest_pipeline, fetch_recent_jobs, fetch_repo_file, fetch_repo_tree
 
 
 def _t(handler):
@@ -69,3 +69,31 @@ def test_repo_tree_paginates_and_keeps_blobs():
 
 def test_repo_tree_error_is_none():
     assert fetch_repo_tree("http://gl", "tok", "x", transport=_t(lambda r: httpx.Response(404))) is None
+
+
+def test_recent_jobs_and_runner_id():
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert "/projects/g%2Fr/jobs?" in str(req.url) and req.headers["PRIVATE-TOKEN"] == "tok"
+        return httpx.Response(200, json=[
+            {"id": 9, "name": "build", "status": "success", "runner": {"id": 3}, "web_url": "http://gl/j/9"},
+            {"id": 8, "name": "deploy", "status": "pending", "runner": None, "web_url": "http://gl/j/8"},
+        ])
+
+    jobs = fetch_recent_jobs("http://gl", "tok", "g/r", transport=_t(handler))
+    assert jobs == [
+        {"id": 9, "name": "build", "status": "success", "runner_id": 3, "web_url": "http://gl/j/9"},
+        {"id": 8, "name": "deploy", "status": "pending", "runner_id": None, "web_url": "http://gl/j/8"},
+    ]
+    assert fetch_recent_jobs("http://gl", "tok", "g/r", transport=_t(lambda r: httpx.Response(403))) is None
+
+
+def test_job_log_head_reads_only_the_start():
+    log = "Running with gitlab-runner 17.0\nPreparing the \"shell\" executor\n" + "x" * 50000
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        assert str(req.url).endswith("/projects/g%2Fr/jobs/9/trace")
+        return httpx.Response(200, content=log.encode())
+
+    head = fetch_job_log_head("http://gl", "tok", "g/r", 9, transport=_t(handler), max_bytes=100)
+    assert head is not None and len(head) == 100 and 'Preparing the "shell" executor' in head
+    assert fetch_job_log_head("http://gl", "tok", "g/r", 9, transport=_t(lambda r: httpx.Response(404))) is None

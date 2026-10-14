@@ -172,7 +172,16 @@ export async function fetchVersions(): Promise<VersionRow[]> {
 // 서비스 비교표 — 러너가 .gitlab-ci.yml·compose 를 읽어 만든 한 행
 export type DeployCell = { path: 'direct' | 'image' | 'build'; by?: 'repo' | 'center' | 'compose'; manual: boolean | null; mismatch?: boolean }
 // 러너 태그 하나와 그걸 쓰는 job 들(why = 어떻게 정했나, images = job → image:)
-export type ExecutorGroup = { tag: string; value: string; guess: boolean; why?: string; jobs: string[]; images?: Record<string, string> }
+// default_image = job 로그로 본 러너 기본 이미지(image: 없이 도는 job 이 실제로 쓰는 것)
+export type ExecutorGroup = {
+  tag: string
+  value: string
+  guess: boolean
+  why?: string
+  jobs: string[]
+  images?: Record<string, string>
+  default_image?: string
+}
 export type ExecutorCell = {
   value: string
   guess: boolean

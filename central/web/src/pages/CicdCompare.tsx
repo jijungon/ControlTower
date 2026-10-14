@@ -63,12 +63,22 @@ function ExecCell({ e, side }: { e?: ExecutorCell; side: 'repo' | 'center' }) {
   // images 가 아예 없는 그룹 = image 를 모으기 전의 옛 수집 → '없음' 이 아니라 '모름'
   const merged = new Map<
     string,
-    { value: string; guess: boolean; jobs: string[]; tags: string[]; why: Set<string>; images: Record<string, string>; unknown: Set<string> }
+    {
+      value: string
+      guess: boolean
+      jobs: string[]
+      tags: string[]
+      why: Set<string>
+      images: Record<string, string>
+      defaults: Record<string, string> // job → 러너 기본 이미지(로그에서, image: 없는 job)
+      unknown: Set<string>
+    }
   >()
   for (const g of e.groups?.length ? e.groups : [{ tag: (e.tags ?? []).join(', '), value: e.value, guess: e.guess, jobs: [] }]) {
     const k = `${g.value}|${g.guess}`
-    const m = merged.get(k) ?? { value: g.value, guess: g.guess, jobs: [], tags: [], why: new Set<string>(), images: {}, unknown: new Set<string>() }
+    const m = merged.get(k) ?? { value: g.value, guess: g.guess, jobs: [], tags: [], why: new Set<string>(), images: {}, defaults: {}, unknown: new Set<string>() }
     m.jobs.push(...g.jobs)
+    if (g.default_image) g.jobs.forEach((j) => (m.defaults[j] = g.default_image!))
     if (!g.images) g.jobs.forEach((j) => m.unknown.add(j))
     Object.assign(m.images, g.images ?? {})
     m.tags.push(g.tag)
@@ -78,7 +88,7 @@ function ExecCell({ e, side }: { e?: ExecutorCell; side: 'repo' | 'center' }) {
   const lines = [...merged.values()].sort((a, b) => a.jobs.length - b.jobs.length) // 적은 쪽 먼저, 가장 많은 쪽이 '나머지'
   const how = (m: { guess: boolean; why: Set<string> }) =>
     m.guess
-      ? `추정(${[...m.why].join(', ')}) — 확정하려면 이 job 로그 맨 윗줄 'Preparing the "shell|docker" executor' 를 보고 shape-targets.yml runners: 에 적기`
+      ? `추정(${[...m.why].join(', ')}) — GitLab 토큰을 넣으면 job 로그 맨 윗줄로 자동 확정(지금 직접 보려면 'Preparing the "shell|docker" executor' 를 보고 shape-targets.yml runners: 에 적기)`
       : `확정(${[...m.why].join(', ') || 'runners 표'})`
   return (
     <span className="exec-lines">
@@ -109,6 +119,8 @@ function ExecCell({ e, side }: { e?: ExecutorCell; side: 'repo' | 'center' }) {
                   <span className="mono">{j}</span>
                   {m.images[j] ? (
                     <span className="muted"> · image </span>
+                  ) : m.defaults[j] ? (
+                    <span className="muted"> · image 없음 → 러너 기본 이미지 </span>
                   ) : m.unknown.has(j) ? (
                     <span className="muted" title="image 를 모으기 전의 데이터 — runner shape 로 다시 모으고 새로고침">
                       {' '}
@@ -117,7 +129,7 @@ function ExecCell({ e, side }: { e?: ExecutorCell; side: 'repo' | 'center' }) {
                   ) : (
                     <span className="muted"> · image 없음{m.value === 'shell' ? '(러너 서버에서 바로)' : '(러너 기본 이미지)'}</span>
                   )}
-                  {m.images[j] && <span className="mono">{m.images[j]}</span>}
+                  {(m.images[j] || m.defaults[j]) && <span className="mono">{m.images[j] || m.defaults[j]}</span>}
                 </li>
               ))}
             </ul>

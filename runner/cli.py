@@ -32,15 +32,17 @@ from .cishape import (
     build_row,
     code_versions,
     config_dirs,
+    confirm_executor,
     deploy_targets,
     is_dockerfile,
+    parse_executor_log,
     parse_gateway_sudo,
     parse_gateways,
     parse_targets,
 )
 from .config import RunnerConfig
 from .conn import gateway_aliases, list_upgrades, list_upgrades_yum, read_file, read_file_via, run_remote, test_ssh
-from .gitlab import fetch_latest_pipeline, fetch_repo_file, fetch_repo_tree
+from .gitlab import fetch_job_log_head, fetch_latest_pipeline, fetch_recent_jobs, fetch_repo_file, fetch_repo_tree
 from .probe import probe_ssh
 from .repoversions import extract_versions
 from .sshconf import parse_ssh_config
@@ -305,6 +307,66 @@ def _src_info(src: object, note: str | None = None, auto: bool = False) -> dict:
     return {"kind": "gitlab", "note": note or None, "where": f"{src.get('project')}:{src.get('path')}"}
 
 
+def _project_of(v: object) -> tuple[str | None, str | None]:
+    """대상 파일의 repo:/center:/project: 값 → (GitLab 프로젝트 경로, ref). 'group/repo' 또는 {project, ref}."""
+    if isinstance(v, dict):
+        return (str(v["project"]) if v.get("project") else None), (str(v["ref"]) if v.get("ref") else None)
+    return (str(v) if v else None), None
+
+
+def _api_ready(side: str, cfg: RunnerConfig) -> bool:
+    url, token = _gitlab_of({"gitlab": side}, cfg)
+    return bool(url and token)
+
+
+def _use_api(project: str | None, side: str, cfg: RunnerConfig, source: str) -> bool:
+    """이 GitLab 을 API 로 읽나 — source: auto(토큰 있으면 API, 없으면 로컬) / api(항상) / local(항상 로컬)."""
+    return bool(project) and source != "local" and (source == "api" or _api_ready(side, cfg))
+
+
+def _ci_source(svc: dict, side: str, cfg: RunnerConfig, source: str) -> tuple[object, tuple[str, str | None] | None]:
+    """repo/center CI 를 어디서 읽나 → (소스, API 면 (프로젝트, ref)). 대상 파일의 repo:/center: 에 프로젝트를 적어 두면
+    토큰이 생기는 순간 API 로 바뀌고, 그 전엔 {side}_ci(로컬 파일 등)를 읽는다."""
+    project, ref = _project_of(svc.get(side))
+    if _use_api(project, side, cfg, source):
+        src: dict = {"gitlab": side, "project": project, "path": ".gitlab-ci.yml"}
+        if ref:
+            src["ref"] = ref
+        return src, (str(project), ref)
+    return svc.get(f"{side}_ci"), None
+
+
+def _executor_from_logs(side: str, project: str, cell: dict | None, cfg: RunnerConfig, cache: dict) -> dict[str, dict]:
+    """러너 태그 그룹마다 최근 job 하나의 로그 맨 윗줄('Preparing the "shell" executor')로 executor 를 확정.
+
+    같은 러너(runner id)는 한 번만 읽는다(cache). 반환: {러너 태그: {executor, job_id, default_image?}} — 못 본 그룹은 빠짐.
+    """
+    if not cell or not cell.get("groups"):
+        return {}
+    url, token = _gitlab_of({"gitlab": side}, cfg)
+    if not url or not token:
+        return {}
+    jobs = fetch_recent_jobs(url, token, project, cfg.connect_timeout) or []
+    out: dict[str, dict] = {}
+    for g in cell["groups"]:
+        names = set(g["jobs"])
+        job = next((j for j in jobs if j["name"] in names and j["runner_id"] and j["status"] not in ("pending", "created", "manual", "skipped")), None)
+        if not job:
+            continue
+        key = (side, job["runner_id"])
+        if key not in cache:
+            parsed = parse_executor_log(fetch_job_log_head(url, token, project, job["id"], cfg.connect_timeout))
+            if parsed:
+                parsed = {"executor": parsed["executor"], "job_id": job["id"], "image": parsed.get("image"), "job": job["name"]}
+            cache[key] = parsed
+        hit = cache[key]
+        if hit:
+            # image: 없이 돈 job 의 로그에 찍힌 이미지 = 그 러너의 기본 이미지
+            default = hit["image"] if hit.get("image") and hit["job"] not in (g.get("images") or {}) else None
+            out[g["tag"]] = {"executor": hit["executor"], "job_id": hit["job_id"], **({"default_image": default} if default else {})}
+    return out
+
+
 def _config_listing(config: dict, cfg: RunnerConfig, base_dir: str):
     """config 섹션 → ({'<서비스>/<타입>': [파일 이름…]}, read('<서비스>/<타입>/<파일>')) 또는 None."""
     if config.get("file"):
@@ -336,9 +398,10 @@ def _config_listing(config: dict, cfg: RunnerConfig, base_dir: str):
     return config_dirs(tree), lambda rel: fetch_repo_file(url, token, str(config["project"]), rel, ref, cfg.connect_timeout)
 
 
-def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str | None = None) -> None:
+def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str | None = None, source: str = "auto") -> None:
     """ssh_mode: None = 대상 파일에 적힌 것만 / 'plan' = center CI 로 서버 compose 위치를 찾아 목록만 출력(접속 안 함)
-    / 'read' = 그 목록대로 SSH 로 실제 읽음(대상 파일에 이미 적힌 환경은 건드리지 않음)."""
+    / 'read' = 그 목록대로 SSH 로 실제 읽음(대상 파일에 이미 적힌 환경은 건드리지 않음).
+    source: GitLab 파일을 어디서 읽나 — auto(토큰 있으면 API, 없으면 로컬) / api / local."""
     path = targets_path or cfg.shape_targets
     if not os.path.exists(path):
         print(f"비교표 대상 파일 없음({path}) — runner/shape-targets.example.yml 을 복사해 채우세요.")
@@ -352,6 +415,19 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
         print(f"비교표 대상이 비어 있음 — {path} 의 services: / config: 를 채우세요.")
         return
     base_dir = os.path.dirname(os.path.abspath(path))
+    # config 도 project: 가 있고 토큰이 있으면 API 로(없으면 file:)
+    cproj, cref = _project_of((config or {}).get("project"))
+    cside = str((config or {}).get("gitlab") or "center")
+    config_api = bool(config) and _use_api(cproj, cside, cfg, source)
+    if config_api:
+        config = {k: v for k, v in config.items() if k != "file"} | {"gitlab": cside, "project": cproj, **({"ref": cref} if cref else {})}
+    api_sides = {side for side in ("repo", "center") if any(_use_api(_project_of(s.get(side))[0], side, cfg, source) for s in services)}
+    print(
+        "읽는 곳: "
+        + " · ".join(f"{side} {'GitLab API' if side in api_sides else '로컬 파일'}" for side in ("repo", "center"))
+        + f" · config {'GitLab API' if config_api else '로컬 파일'}"
+        + ("" if api_sides or config_api else " (토큰을 넣으면 repo:/center:/project: 가 적힌 곳은 API 로 바뀜)")
+    )
     listing = _config_listing(config, cfg, base_dir) if config else None
     if config and listing is None:
         print("  config 를 읽지 못함 — config: 의 file 경로 또는 GitLab 설정을 확인하세요.")
@@ -407,10 +483,16 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
             compose_by_dir.setdefault(str(cdir), {})[str(env)] = text
             if text:
                 src_by_dir.setdefault(str(cdir), {})[str(env)] = _src_info(src)
+    log_cache: dict = {}  # (repo|center, runner id) → job 로그로 본 executor (같은 러너는 한 번만)
     for svc in services:
         files: dict = {}
+        api: dict[str, tuple[str, str | None]] = {}  # API 로 읽은 쪽 → (프로젝트, ref)
+        repo_src, api_repo = _ci_source(svc, "repo", cfg, source)
+        center_src, api_center = _ci_source(svc, "center", cfg, source)
+        api.update({k: v for k, v in (("repo", api_repo), ("center", api_center)) if v})
+        srcs = {"repo_ci": repo_src, "center_ci": center_src, "dockerfile": svc.get("dockerfile"), "startup": svc.get("startup")}
         for key in ("repo_ci", "center_ci", "dockerfile", "startup"):
-            tried, text = _read_source(svc.get(key), cfg, base_dir)
+            tried, text = _read_source(srcs[key], cfg, base_dir)
             if tried:
                 files[key] = text
                 if text is None and key != "startup":  # start.sh 는 '없음'이 정상 결과
@@ -474,12 +556,15 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
                     src_by_dir.setdefault(ckey, {}).setdefault(env, _src_info(src, auto=True))
         files["compose"] = compose
         row = build_row(svc, files, runners)
+        for side, (project, _ref) in api.items():  # API 로 읽은 쪽은 job 로그로 executor 확정
+            k = f"executor_{side}"
+            row["data"][k] = confirm_executor(row["data"].get(k), _executor_from_logs(side, project, row["data"].get(k), cfg, log_cache))
         if ckey:
             envs_by_dir.setdefault(ckey, set()).update(row["data"]["deploy"])
             if svc.get("group"):
                 group_by_key.setdefault(ckey, str(svc["group"]))
-        if ckey and svc.get("repo_ci"):
-            code_files = {n: _read_source(_sibling(svc["repo_ci"], n), cfg, base_dir)[1] for n in CODE_VERSION_FILES}
+        if ckey and repo_src:
+            code_files = {n: _read_source(_sibling(repo_src, n), cfg, base_dir)[1] for n in CODE_VERSION_FILES}
             cv = code_versions(code_files)
             if cv:
                 code_by_dir.setdefault(ckey, cv)
@@ -660,6 +745,10 @@ def main() -> None:
     g = shp.add_mutually_exclusive_group()
     g.add_argument("--ssh-plan", action="store_true", help="center CI 로 서버 compose 위치를 찾아 목록만 출력(접속 안 함)")
     g.add_argument("--ssh", action="store_true", help="그 목록대로 서버에 SSH 로 접속해 compose 를 읽음(읽기만)")
+    shp.add_argument(
+        "--source", choices=["auto", "api", "local"], default="auto",
+        help="GitLab 파일을 어디서 — auto: 토큰 있으면 API(repo:/center:/project:), 없으면 로컬 / api / local",
+    )
     allp = sub.add_parser("all", help="모든 수집기 1회 실행(--loop 로 주기 반복)")
     allp.add_argument("--loop", action="store_true", help="간격을 두고 반복 실행")
     allp.add_argument("--interval", type=int, default=300, help="반복 간격(초, 기본 300)")
@@ -686,7 +775,7 @@ def main() -> None:
     elif args.cmd == "cicd":
         cmd_cicd(cfg)
     elif args.cmd == "shape":
-        cmd_shape(cfg, args.targets, "read" if args.ssh else ("plan" if args.ssh_plan else None))
+        cmd_shape(cfg, args.targets, "read" if args.ssh else ("plan" if args.ssh_plan else None), args.source)
     elif args.cmd == "all":
         cmd_all(cfg, loop=args.loop, interval=args.interval)
     elif args.cmd == "apply":

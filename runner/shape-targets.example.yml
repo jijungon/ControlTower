@@ -7,6 +7,12 @@
 #   {file: 경로}                                                              ← 로컬 파일(이 파일 기준 상대경로 가능)
 #   {ssh: 호스트별칭, path: /app/web-shop/docker-compose.yml}                 ← 서버의 실제 파일(~/.ssh/config 별칭)
 # 읽은 파일 내용은 판독에만 쓰고 중앙엔 올리지 않는다(결과 칸만 올라감).
+#
+# GitLab API 로 바꾸기(토큰은 나중에): 서비스에 repo:/center:, config 에 project: 로 프로젝트 이름만 적어 두면
+#   토큰(.env 의 CT_GITLAB_TOKEN · CT_GITLAB_CENTER_TOKEN, read_api)이 없을 땐 repo_ci/center_ci/file 의 로컬 사본을,
+#   토큰이 생기는 순간 GitLab API 를 읽는다(.gitlab-ci.yml · .nvmrc · package.json · config 폴더).
+#   API 로 읽은 쪽은 러너마다 최근 job 로그 맨 윗줄('Preparing the "shell" executor')로 executor 를 확정.
+#   강제로 고르려면: python -m runner.cli shape --source local | api
 # 빈 칸은 그냥 빼면 됩니다(표에 '—').
 
 # GitLab 은 러너의 executor 를 알려주지 않음 → 사람이 한 번 확인해 적어 두는 표.
@@ -34,6 +40,8 @@ config:
 
 services:
   - name: shop web          # 표에 보이는 이름
+    repo:   shop/shop-web     # (선택) repo GitLab 프로젝트 — 토큰이 있으면 repo_ci 대신 API 로
+    center: shop/shop         # (선택) center GitLab 프로젝트 — 토큰이 있으면 center_ci 대신 API 로
     group: shop             # 서비스보다 큰 묶음(프로젝트 그룹) — 표에서 그룹별로 나뉨
     note: 옛 사본            # (선택) 표에 작게 붙는 서비스 메모(예: repo: other-repo)
     source_note: 옛 사본     # (선택) 이 서비스 파일들의 출처 메모 — config 탭 (서버) 칸 아래에 표시

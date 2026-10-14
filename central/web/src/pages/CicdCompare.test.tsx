@@ -22,7 +22,11 @@ const ROWS: ShapeRow[] = [
   {
     service: 'shop admin', group: 'mall', type: 'admin', runtime: 'node', runtime_version: '20', base_image: 'node', base_tag: '20-slim',
     deploy: { dev: { path: 'image', manual: false }, prod: { path: 'image', manual: true } },
-    executor_repo: { value: 'docker', guess: false }, executor_center: null,
+    executor_repo: {
+      value: 'docker', guess: false,
+      groups: [{ tag: 'r1', value: 'docker', guess: false, why: 'job 로그 #41', jobs: ['build'], images: {}, default_image: 'docker:27' }],
+    },
+    executor_center: null,
     startup: false, env_keys: 2,
   },
   {
@@ -84,6 +88,10 @@ test('배포·executor 칸 — 쉬운 말 + 마우스 올리면 뜻', async () =
   expect(adminCells[adminCells.length - 1]).toHaveTextContent('—')
   expect(adminCells[adminCells.length - 1].querySelector('span')).toHaveAttribute('title', expect.stringContaining('center CI 를 안 읽음'))
   expect(screen.getByRole('columnheader', { name: 'executor · repo' })).toBeInTheDocument()
+  // job 로그로 확정된 줄: 마우스에 근거(job 번호), 펼치면 image: 없는 job 의 러너 기본 이미지
+  const adminRepo = adminCells[adminCells.length - 2]
+  expect(adminRepo.querySelector('summary')).toHaveAttribute('title', expect.stringContaining('확정(job 로그 #41)'))
+  expect(adminRepo.querySelector('li')!.textContent).toBe('build · image 없음 → 러너 기본 이미지 docker:27')
   // 런타임·베이스 이미지·start.sh 는 config 탭 몫 — 이 표엔 없음
   const heads = screen.getAllByRole('columnheader').map((h) => h.textContent)
   expect(heads).not.toContain('런타임')
