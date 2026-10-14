@@ -1,5 +1,4 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { expect, test, vi } from 'vitest'
 import CicdCompare from './CicdCompare'
 import { cmpVer, newestBy, verParts } from '../vercmp'
@@ -58,18 +57,22 @@ test('배포·executor 칸 — 쉬운 말 + 마우스 올리면 뜻', async () =
   expect(table.getByText('빌드만')).toBeInTheDocument()
   expect(table.getByText('compose 기준', { selector: '.cell-sub' }).parentElement).toHaveAttribute('title', expect.stringContaining('짐작'))
   expect(table.getByText('⚠ compose 다름')).toHaveAttribute('title', expect.stringContaining('파일 복사'))
-  // (섞임): ▸ 를 누르면 러너별 job 목록 + 확인 안 된 러너의 확인 방법
-  const mixed = screen.getByLabelText('repo executor 메모')
-  expect(mixed).toHaveTextContent('shell (섞임)')
-  await userEvent.click(mixed)
-  const memo = mixed.closest('details')!
-  expect(memo).toHaveAttribute('open')
-  expect(memo).toHaveTextContent('old-shell → shell · 2개: build, push_src')
-  expect(memo).toHaveTextContent('new-runner → docker (추정) · 1개: notify')
-  expect(memo).toHaveTextContent('Using Docker executor')
-  // (추정)만: 확인하는 법이 들어 있음
-  await userEvent.click(screen.getByLabelText('center executor 메모'))
-  expect(screen.getByLabelText('center executor 메모').closest('details')).toHaveTextContent('builder: docker')
+  // executor: job 별로 한 줄씩 — 적은 쪽은 job 이름, 가장 많은 쪽은 '나머지'
+  const shop = table.getByText('mall').closest('tr')!
+  const [, , , ...rest] = [...shop.querySelectorAll('td')]
+  const repoExec = rest[rest.length - 2]
+  const lines = [...repoExec.querySelectorAll('.exec-line')]
+  expect(lines.map((l) => l.textContent)).toEqual(['notify: docker (추정)', '나머지 2개: shell'])
+  expect(lines[0]).toHaveAttribute('title', expect.stringContaining('Preparing the'))
+  expect(lines[1]).toHaveAttribute('title', expect.stringContaining('build, push_src'))
+  // job 이 한 종류면 방식만(이름 없이)
+  expect(rest[rest.length - 1].textContent).toBe('docker (추정)')
+  // 안 읽은 쪽은 '—' + 이유
+  const admin = table.getByText('admin').closest('tr')!
+  const adminCells = [...admin.querySelectorAll('td')]
+  expect(adminCells[adminCells.length - 1]).toHaveTextContent('—')
+  expect(adminCells[adminCells.length - 1].querySelector('span')).toHaveAttribute('title', expect.stringContaining('center CI 를 안 읽음'))
+  expect(screen.getByRole('columnheader', { name: 'executor · repo' })).toBeInTheDocument()
   // 런타임·베이스 이미지·start.sh 는 config 탭 몫 — 이 표엔 없음
   const heads = screen.getAllByRole('columnheader').map((h) => h.textContent)
   expect(heads).not.toContain('런타임')

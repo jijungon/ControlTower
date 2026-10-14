@@ -47,7 +47,10 @@ function deployCell(c?: DeployCell) {
   )
 }
 
-// executor 한 칸: 값 + (추정)/(섞임) 이면 ▸ 를 눌러 메모를 펼친다
+// job 이름 몇 개만(길면 '외 N개')
+const jobNames = (jobs: string[]) => (jobs.length <= 2 ? jobs.join('·') : `${jobs.slice(0, 2).join('·')} 외 ${jobs.length - 2}개`)
+
+// executor 한 칸 — job 별로 'build·build-manual: shell' 한 줄씩. 가장 많은 쪽은 '나머지 N개' 로 맨 아래
 function ExecCell({ e, side }: { e?: ExecutorCell; side: 'repo' | 'center' }) {
   if (!e)
     return (
@@ -55,46 +58,38 @@ function ExecCell({ e, side }: { e?: ExecutorCell; side: 'repo' | 'center' }) {
         —
       </span>
     )
-  const mixed = !!e.counts
-  const guessTags = (e.groups ?? []).filter((g) => g.guess).map((g) => g.tag)
-  const flags = [e.guess ? '추정' : null, mixed ? '섞임' : null].filter(Boolean).join(' · ')
-  if (!flags) return <span title={`러너 태그: ${(e.tags ?? []).join(', ') || '없음'}`}>{e.value}</span>
+  // 같은 방식(+확정/추정)끼리 합침 — 러너 태그가 달라도 결과가 같으면 한 줄
+  const merged = new Map<string, { value: string; guess: boolean; jobs: string[]; tags: string[]; why: Set<string> }>()
+  for (const g of e.groups?.length ? e.groups : [{ tag: (e.tags ?? []).join(', '), value: e.value, guess: e.guess, jobs: [] }]) {
+    const k = `${g.value}|${g.guess}`
+    const m = merged.get(k) ?? { value: g.value, guess: g.guess, jobs: [], tags: [], why: new Set<string>() }
+    m.jobs.push(...g.jobs)
+    m.tags.push(g.tag)
+    if (g.why) m.why.add(g.why)
+    merged.set(k, m)
+  }
+  const lines = [...merged.values()].sort((a, b) => a.jobs.length - b.jobs.length) // 적은 쪽 먼저, 가장 많은 쪽이 '나머지'
+  const how = (m: { guess: boolean; why: Set<string> }) =>
+    m.guess
+      ? `추정(${[...m.why].join(', ')}) — 확정하려면 이 job 로그 맨 윗줄 'Preparing the "shell|docker" executor' 를 보고 shape-targets.yml runners: 에 적기`
+      : `확정(${[...m.why].join(', ') || 'runners 표'})`
   return (
-    <details className="memo">
-      <summary className={e.guess ? 'muted' : undefined} aria-label={`${side} executor 메모`}>
-        {e.value} <small>({flags})</small>
-      </summary>
-      <div className="memo-body">
-        {mixed && (
-          <>
-            <b>job 마다 쓰는 러너가 달라요</b>
-            <ul>
-              {(e.groups ?? []).map((g) => (
-                <li key={g.tag}>
-                  <span className="mono">{g.tag}</span> → {g.value}
-                  {g.guess ? ' (추정)' : ''} · {g.jobs.length}개: {g.jobs.join(', ')}
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
-        {guessTags.length > 0 && (
-          <>
-            <b>
-              확인 안 된 러너: <span className="mono">{guessTags.join(', ')}</span>
-            </b>
-            <ol>
-              <li>GitLab 에서 이 repo 의 최근 job 로그 맨 위 줄을 봐요 — "Using Docker executor…" 면 docker, "Using Shell executor…" 면 shell</li>
-              <li>또는 러너 서버의 /etc/gitlab-runner/config.toml 에서 executor = 값을 봐요</li>
-              <li>
-                확인되면 <span className="mono">shape-targets.yml</span> 의 runners: 에 <span className="mono">{guessTags[0]}: docker</span> 처럼 적고{' '}
-                <span className="mono">python -m runner.cli shape</span> → (추정) 이 사라져요
-              </li>
-            </ol>
-          </>
-        )}
-      </div>
-    </details>
+    <span className="exec-lines">
+      {lines.map((m, i) => {
+        const label = lines.length === 1 ? null : i === lines.length - 1 ? `나머지 ${m.jobs.length}개` : jobNames(m.jobs)
+        return (
+          <span
+            key={`${m.value}|${m.guess}`}
+            className="exec-line"
+            title={`${side} · job ${m.jobs.length}개: ${m.jobs.join(', ') || '—'}\n러너 태그: ${m.tags.join(' / ')}\n${how(m)}`}
+          >
+            {label && <span className="muted">{label}: </span>}
+            <span className={m.guess ? 'muted' : undefined}>{m.value}</span>
+            {m.guess && <small className="muted"> (추정)</small>}
+          </span>
+        )
+      })}
+    </span>
   )
 }
 
@@ -112,7 +107,9 @@ function Legend() {
           <b>⚠ compose 다름</b> = CI 파일에 적힌 배포 방식과 서버의 docker-compose 모양이 서로 달라요 (예: CI 는 이미지인데 서버는 아직 파일 복사 방식)
         </li>
         <li>
-          <b>executor</b> = CI 를 돌리는 방식 — <b>shell</b>(러너 서버에서 바로) · <b>docker</b>(깨끗한 컨테이너 안에서). <b>(추정)</b> = 확인 안 된 짐작값 · <b>(섞임)</b> = job 마다 러너가 다름 — <b>▸</b> 를 누르면 메모(어떤 job 이 어떤 러너인지, 확인하는 법)
+          <b>executor</b> = CI 를 돌리는 방식 — <b>shell</b>(러너 서버에서 바로) · <b>docker</b>(깨끗한 컨테이너 안에서). job 마다 다를 수 있어서{' '}
+          <b>job 이름: 방식</b> 으로 한 줄씩(가장 많은 쪽은 <b>나머지 N개</b>). <b>(추정)</b> = 러너가 확인 안 됨 — job 에 <span className="mono">image:</span> 가 있으면 docker, 없으면
+          shell 로 짐작. 확정은 job 로그 맨 윗줄 <span className="mono">Preparing the "…" executor</span> → 대상 파일 <span className="mono">runners:</span> 에 적기
         </li>
         <li className="muted">런타임·베이스 이미지·start.sh 는 <b>config</b> 탭에서 봐요 (이 표는 CI 가 어떻게 빌드·배포하나만)</li>
       </ul>
@@ -193,7 +190,8 @@ export default function CicdCompare() {
               {envs.map((e) => (
                 <th key={e}>{e}</th>
               ))}
-              <th>executor (repo / center)</th>
+              <th>executor · repo</th>
+              <th>executor · center</th>
             </tr>
           </thead>
           <tbody>
@@ -228,11 +226,10 @@ export default function CicdCompare() {
                             <td key={e}>{deployCell(r.deploy?.[e])}</td>
                           ))}
                           <td>
-                            <span className="exec-pair">
                             <ExecCell e={r.executor_repo} side="repo" />
-                            <span className="muted"> / </span>
+                          </td>
+                          <td>
                             <ExecCell e={r.executor_center} side="center" />
-                          </span>
                           </td>
                         </tr>
                       )

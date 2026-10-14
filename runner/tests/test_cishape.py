@@ -477,10 +477,10 @@ notify:
     # 확인된 건 알림 job 하나(shell)뿐이지만 job 수로는 docker(짐작) 2 개가 많다
     ex = r["executor"]
     assert (ex["value"], ex["guess"], ex["counts"]) == ("docker", True, {"docker": 2, "shell": 1})
-    # 화면 '섞임' 메모: 러너 태그별로 어떤 job 이 쓰나
+    # 화면 'job 별' 칸: 러너 태그별로 어떤 job 이 쓰나 + 어떻게 정했나(why)
     assert ex["groups"] == [
-        {"tag": "new-runner", "value": "docker", "guess": True, "jobs": ["build", "test"]},
-        {"tag": "old-shell", "value": "shell", "guess": False, "jobs": ["notify"]},
+        {"tag": "new-runner", "value": "docker", "guess": True, "why": "image: 있음", "jobs": ["build", "test"]},
+        {"tag": "old-shell", "value": "shell", "guess": False, "why": "runners 표", "jobs": ["notify"]},
     ]
     r = analyze_ci(ci, "web", {"old-shell": "shell", "new-runner": "docker"})
     assert r["executor"]["value"] == "docker" and r["executor"]["guess"] is False

@@ -203,14 +203,15 @@ def _executor(jobs: list[tuple[str, list[str], bool]], runners: dict[str, str]) 
         tags.update(jtags)
         known = [runners[t] for t in jtags if t in runners]
         if known:
-            vote = (known[0], False)
+            vote, why = (known[0], False), "runners 표"
         elif jtags or has_image:
-            vote = ("docker" if has_image else "shell", True)
+            # image: 가 있으면 docker. 없으면 shell 로 짐작(docker 기본 이미지+소켓일 수도 있음 — job 로그로 확정)
+            vote, why = ("docker" if has_image else "shell", True), ("image: 있음" if has_image else "image: 없음")
         else:
             continue
         votes.append(vote)
         key = ", ".join(jtags) or "(태그 없음)"
-        g = groups.setdefault(key, {"tag": key, "value": vote[0], "guess": vote[1], "jobs": []})
+        g = groups.setdefault(key, {"tag": key, "value": vote[0], "guess": vote[1], "why": why, "jobs": []})
         g["jobs"].append(name)
     if not votes:
         return None
