@@ -4,6 +4,7 @@
   - .nvmrc            → node
   - package.json      → node(engines.node), nest(@nestjs/core)
   - pom.xml           → java(java.version / maven.compiler.source|release)
+  - build.gradle(.kts)→ java(toolchain languageVersion / sourceCompatibility) — code_versions 에서
 extract_versions(files) 는 파일 내용 dict 를 받아 {tool: version} 를 만든다(순수 → 테스트 용이).
 """
 from __future__ import annotations
@@ -52,6 +53,23 @@ def parse_pom_java(text: str) -> str | None:
         m = re.search(rf"<{re.escape(tag)}>\s*([^<]+?)\s*</{re.escape(tag)}>", text)
         if m:
             return _ver_or_major(m.group(1))
+    return None
+
+
+_GRADLE_JAVA = (
+    re.compile(r"JavaLanguageVersion\.of\(\s*['\"]?(\d+)"),                          # toolchain { languageVersion = … }
+    re.compile(r"(?:source|target)Compatibility\s*=\s*(?:JavaVersion\.VERSION_)?['\"]?([\d_.]+)"),
+    re.compile(r"jvmTarget\s*(?:=|\.set\()\s*['\"]?(\d+)"),                           # kotlin
+)
+
+
+def parse_gradle_java(text: str) -> str | None:
+    """build.gradle(.kts) 의 java 버전 — toolchain 우선, 없으면 sourceCompatibility. 'VERSION_1_8'·'1.8' → '8'."""
+    for rx in _GRADLE_JAVA:
+        m = rx.search(text or "")
+        if m:
+            v = m.group(1).replace("_", ".")
+            return v[2:] if v.startswith("1.") else v.split(".")[0]
     return None
 
 

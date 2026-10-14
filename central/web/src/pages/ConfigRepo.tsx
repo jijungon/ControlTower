@@ -58,18 +58,18 @@ function runBadge(run: Run | null, prefix = '') {
 
 const ENV_ORDER = ['dev', 'lab', 'stg', 'preview', 'prod']
 
-// center(config repo 폴더 — 이미지·실행) / repo(서비스 — 빌드·코드) 보기. 고른 보기는 이 브라우저에만 기억
+// repo(서비스 — 빌드·코드) → center(config repo 폴더 — 이미지·실행) 보기, 흐름 순서대로. 고른 보기는 이 브라우저에만 기억
 type Side = 'center' | 'repo'
 const SIDES: [Side, string][] = [
-  ['center', 'center'],
   ['repo', 'repo'],
+  ['center', 'center'],
 ]
 const SIDE_KEY = 'ct.config.side'
 function readSide(): Side {
   try {
-    return localStorage.getItem(SIDE_KEY) === 'repo' ? 'repo' : 'center'
+    return localStorage.getItem(SIDE_KEY) === 'center' ? 'center' : 'repo'
   } catch {
-    return 'center'
+    return 'repo'
   }
 }
 
@@ -87,7 +87,7 @@ export function codeMismatch(r: ConfigRow): string | null {
     const bad = c.node_rule === 'min' ? img < code : img !== code
     if (bad) return `코드는 node ${c.node_rule === 'min' ? '≥' : ''}${c.node}(${c.node_from}), 이미지는 node ${r.runtime_version}`
   }
-  if (r.runtime === 'java' && c.java && verParts(c.java)[0] !== img) return `코드는 java ${c.java}(pom.xml), 이미지는 java ${r.runtime_version}`
+  if (r.runtime === 'java' && c.java && verParts(c.java)[0] !== img) return `코드는 java ${c.java}(${c.java_from ?? 'pom.xml'}), 이미지는 java ${r.runtime_version}`
   return null
 }
 

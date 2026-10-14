@@ -11,6 +11,7 @@ from runner.cishape import (
     confirm_executor,
     deploy_targets,
     detect_runtime,
+    parse_build_log_versions,
     parse_executor_log,
     parse_targets,
     parse_version_tag,
@@ -462,7 +463,14 @@ def test_code_versions_nvmrc_engines_pom():
         "node": "20.0.0", "node_from": "package.json", "node_rule": "min", "nest": "11.0.1",
     }
     assert code_versions({"package.json": '{"engines": {"node": "^20"}}'})["node_rule"] == "exact"
-    assert code_versions({"pom.xml": "<properties><java.version>17</java.version></properties>"}) == {"java": "17"}
+    assert code_versions({"pom.xml": "<properties><java.version>17</java.version></properties>"}) == {"java": "17", "java_from": "pom.xml"}
+    # Gradle — toolchain 우선, 없으면 sourceCompatibility('VERSION_1_8' = 8), kotlin DSL 도
+    gradle = "plugins { id 'org.springframework.boot' version '3.4.5' }\njava {\n  toolchain {\n    languageVersion = JavaLanguageVersion.of(17)\n  }\n}\n"
+    assert code_versions({"build.gradle": gradle}) == {"java": "17", "java_from": "build.gradle"}
+    assert code_versions({"build.gradle": "sourceCompatibility = JavaVersion.VERSION_1_8\n"})["java"] == "8"
+    assert code_versions({"build.gradle": "sourceCompatibility = '21'\n"})["java"] == "21"
+    assert code_versions({"build.gradle.kts": "java { toolchain { languageVersion.set(JavaLanguageVersion.of(21)) } }"}) == {"java": "21", "java_from": "build.gradle.kts"}
+    assert code_versions({"build.gradle": "dependencies { implementation 'x:y:1.0' }"}) == {}  # 버전 줄 없음
     assert code_versions({".nvmrc": None, "package.json": "not json", "pom.xml": None}) == {}
 
 
@@ -1130,3 +1138,74 @@ def test_versions_of_prefers_repo_where_repo_copies_directly(monkeypatch):
     assert (v["build"]["dev"]["version"], v["build"]["dev"]["side"]) == ("v1.0.2", "repo")
     assert (v["deploy"]["dev"]["version"], v["deploy"]["dev"]["side"]) == ("v1.0.2", "repo")
     assert (v["build"]["prod"]["version"], v["build"]["prod"]["side"]) == ("v1.0.2", "center") and "prod" not in v["deploy"]
+
+
+def test_parse_build_log_versions():
+    """shell 러너 빌드 — CI 에 image: 가 없어 버전이 파일에 없을 때 build job 로그에 찍힌 흔적."""
+    assert parse_build_log_versions("npm WARN EBADENGINE   current: { node: 'v20.15.1', npm: '10.2.5' }") == {"node": "20.15.1"}
+    assert parse_build_log_versions('$ java -version\nopenjdk version "17.0.14" 2025-01-21\n') == {"java": "17"}
+    assert parse_build_log_versions('java version "1.8.0_381"') == {"java": "8"}  # 1.8 = 8
+    assert parse_build_log_versions("\x1b[32;1m$ node -v\x1b[0;m\nv22.11.0\n") == {"node": "22.11.0"}  # 색 코드 지움
+    assert parse_build_log_versions("Now using node v18.20.4 (npm v10.8.2)") == {"node": "18.20.4"}
+    assert parse_build_log_versions("Done in 14.6s using pnpm v10.17.0") == {} and parse_build_log_versions(None) == {}
+
+
+def test_cmd_shape_reads_shell_build_versions_from_job_logs(monkeypatch, tmp_path, capsys):
+    """repo CI 에 런타임 이미지가 없으면(shell 러너) 최근 성공한 build job 로그에서 node·java 를 읽는다.
+    로그에 버전 줄이 없는 서비스는 같은 러너(같은 서버)에서 본 값을 '추정' 으로 쓴다."""
+    import types
+
+    import runner.cli as cli
+
+    repo_ci = "variables: {RUNNER_TAG: shell-runner}\nbuild:\n  tags: [$RUNNER_TAG]\n  script: [npm install, npm run build]\npush_src:\n  script: [git push origin HEAD:main]\n"
+    targets = tmp_path / "shape-targets.yml"
+    targets.write_text(
+        "services:\n"
+        "  - {name: site web, type: web, repo: g/site}\n"
+        "  - {name: shop web, type: web, repo: g/shop}\n"
+    )
+    sent: dict = {}
+
+    class FakeAPI:
+        def __init__(self, *a):
+            pass
+
+        def upload_shapes(self, shapes, replace=False):
+            sent["shapes"] = {s["service"]: s["data"] for s in shapes}
+            return {"accepted": len(shapes), "removed": 0}
+
+        def close(self):
+            pass
+
+    jobs = {
+        "g/site": [{"id": 31, "name": "build", "status": "success", "runner_id": 7, "runner_name": "shell-01", "web_url": ""}],
+        "g/shop": [
+            {"id": 42, "name": "push_src", "status": "success", "runner_id": 7, "runner_name": "shell-01", "web_url": ""},
+            {"id": 41, "name": "build", "status": "success", "runner_id": 7, "runner_name": "shell-01", "web_url": ""},
+        ],
+    }
+    logs = {31: "npm WARN EBADENGINE   current: { node: 'v20.15.1', npm: '10.2.5' }\n", 41: "Done in 14.6s using pnpm v10.17.0\n"}
+    read: list[int] = []
+    monkeypatch.setattr(cli, "CentralAPI", FakeAPI)
+    monkeypatch.setattr(cli, "fetch_repo_file", lambda u, t, p, path, ref="", timeout=8: repo_ci if path == ".gitlab-ci.yml" else None)
+    monkeypatch.setattr(cli, "fetch_recent_jobs", lambda u, t, p, timeout=8: jobs[p])
+    monkeypatch.setattr(cli, "fetch_job_log_head", lambda u, t, p, jid, timeout=8, max_bytes=20000: read.append(jid) or logs.get(jid, ""))
+    monkeypatch.setattr(cli, "build_row", lambda spec, files, runners=None: _row_with_runtime(spec, files, runners))
+    cfg = types.SimpleNamespace(
+        shape_targets=str(targets), central_url="x", api_token="t", gitlab_url="http://repo", gitlab_token="tok",
+        gitlab_center_url="", gitlab_center_token="", gitlab_ref="", connect_timeout=1,
+    )
+    cli.cmd_shape(cfg)
+    out = capsys.readouterr().out
+    site, shop = sent["shapes"]["site web"]["repo"], sent["shapes"]["shop web"]["repo"]
+    assert site["build"] == [{"runtime": "node", "version": "20.15.1", "image": None, "jobs": ["build"], "from": "log", "job": 31, "runner": "shell-01"}]
+    assert shop["build"] == [{**site["build"][0], "guess": True}]  # 로그엔 pnpm 버전뿐 → 같은 러너에서 본 node
+    assert 41 in read and 42 not in read  # build job 로그만(푸시 job 은 안 읽음)
+    assert "repo 빌드 버전(job 로그): 2개 (같은 러너로 추정 1)" in out
+
+
+def _row_with_runtime(spec, files, runners):
+    """실행 이미지가 node 인 행(로그 추정은 실행 런타임과 같은 것만 채움)."""
+    row = build_row(spec, files, runners)
+    row["data"].update(runtime="node", runtime_version="18")
+    return row

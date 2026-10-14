@@ -39,6 +39,7 @@ from .cishape import (
     confirm_executor,
     deploy_targets,
     is_dockerfile,
+    parse_build_log_versions,
     parse_executor_log,
     parse_gateway_sudo,
     parse_gateways,
@@ -301,7 +302,7 @@ def _sibling(src: object, name: str) -> dict | None:
     return None
 
 
-CODE_VERSION_FILES = (".nvmrc", "package.json", "pom.xml")
+CODE_VERSION_FILES = (".nvmrc", "package.json", "pom.xml", "build.gradle", "build.gradle.kts")
 
 
 def _src_info(src: object, note: str | None = None, auto: bool = False) -> dict:
@@ -441,6 +442,32 @@ def _versions_of(
                     out[what][env] = {**found[side][what][env], "side": side}
                     break
     return out
+
+
+def _build_from_log(row: dict, ci: dict | None, project: str, cfg: RunnerConfig, cache: dict) -> str | None:
+    """repo CI 에 런타임 이미지가 없을 때(shell 러너 — 서버에 깔린 node 로 빌드) 최근 성공한 build job 로그에서
+    node·java 버전을 읽어 repo.build 에 붙인다. 반환: 그 job 이 돈 러너 이름(로그에 버전이 없는 다른 서비스가 나눠 쓰게)."""
+    repo = row["data"].get("repo")
+    if repo is None or repo.get("build") or not ci:
+        return None
+    url, token = _gitlab_of({"gitlab": "repo"}, cfg)
+    if not url or not token:
+        return None
+    kinds = {n: j["kind"] for n, j in (ci.get("jobs") or {}).items()}
+    if project not in cache:
+        cache[project] = fetch_recent_jobs(url, token, project, cfg.connect_timeout) or []
+    job = next(
+        (j for j in cache[project] if j["status"] == "success" and kinds.get(j["name"]) == "other" and "build" in str(j["name"]).lower()),
+        None,
+    )
+    if not job:
+        return None
+    found = parse_build_log_versions(fetch_job_log_head(url, token, project, job["id"], cfg.connect_timeout, max_bytes=200_000))
+    repo["build"] = [
+        {"runtime": rt, "version": v, "image": None, "jobs": [job["name"]], "from": "log", "job": job["id"], "runner": job.get("runner_name")}
+        for rt, v in found.items()
+    ]
+    return job.get("runner_name")
 
 
 def _config_listing(config: dict, cfg: RunnerConfig, base_dir: str):
@@ -611,6 +638,9 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
                 src_by_dir.setdefault(str(cdir), {})[str(env)] = _src_info(src)
     log_cache: dict = {}  # (repo|center, runner id) → job 로그로 본 executor (같은 러너는 한 번만)
     tag_cache: dict = {}  # (repo|center, 프로젝트) → tag 로 돈 성공 job (같은 프로젝트는 한 번만)
+    build_jobs: dict = {}  # repo 프로젝트 → 최근 job (shell 빌드의 로그 읽기용)
+    runner_seen: dict[str, dict[str, dict]] = {}  # 러너 이름 → {런타임: 로그에서 본 빌드 버전}
+    log_pending: list[tuple[dict, str]] = []  # 로그에 버전 줄이 없던 서비스 → 같은 러너 값으로 채움(추정)
     claims: dict[tuple[str, str], dict[str, set[str]]] = {}  # 같은 프로젝트를 쓰는 서비스들의 tag 타입·배포 역할
     for s in services:
         for side in ("repo", "center"):
@@ -696,6 +726,13 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
             k = f"executor_{side}"
             row["data"][k] = confirm_executor(row["data"].get(k), _executor_from_logs(side, project, row["data"].get(k), cfg, log_cache))
         cis = {"repo": analyze_ci(files.get("repo_ci")), "center": analyze_ci(files.get("center_ci"))}
+        if "repo" in api:  # shell 빌드(이미지 없음) → build job 로그에서 버전
+            runner = _build_from_log(row, cis["repo"], api["repo"][0], cfg, build_jobs)
+            if runner:
+                for b in row["data"]["repo"]["build"]:
+                    runner_seen.setdefault(runner, {}).setdefault(b["runtime"], b)
+                if not row["data"]["repo"]["build"]:
+                    log_pending.append((row, runner))
         versions = _versions_of(svc, row, cis, api, claims, cfg, tag_cache)
         if versions is not None:  # 없으면 화면에서 '모름'(API 로 안 읽음)
             row["data"]["versions"] = versions
@@ -714,6 +751,10 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
             row["data"]["start_state"] = analyze_config_dir(dirs[cdir], config_files(cdir)[0])["state"]
         rows.append(row)
 
+    for row, runner in log_pending:  # 같은 러너(같은 서버)에서 빌드 → 그 서버의 node 를 쓴다고 보고 추정으로
+        seen = runner_seen.get(runner, {}).get(str(row["data"].get("runtime")))
+        if seen:
+            row["data"]["repo"]["build"] = [{**seen, "guess": True}]
     items = []
     # 서비스와 연결 안 된 폴더의 그룹: 그 config repo 의 group, 없으면 연결된 서비스들의 가장 많은 그룹
     default_group = (Counter(group_by_key.values()).most_common(1) or [(None, 0)])[0][0]
@@ -746,6 +787,9 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
             res = api.upload_shapes(rows, replace=True)  # 대상 파일이 기준 — 빠진 서비스는 표에서 내림
             print(f"비교표 수집: {res['accepted']}개 서비스")
             with_ver = sum(1 for r in rows if r["data"].get("versions"))
+            from_log = [b for r in rows for b in ((r["data"].get("repo") or {}).get("build") or []) if b.get("from") == "log"]
+            if from_log:
+                print(f"  repo 빌드 버전(job 로그): {len(from_log)}개 (같은 러너로 추정 {sum(1 for b in from_log if b.get('guess'))})")
             print(f"  빌드·배포 버전: {with_ver}개 서비스 (tag 로 돈 job · 프로젝트 {sum(1 for v in tag_cache.values() if v is not None)}개)")
         if configs:
             res = api.upload_config(items, replace=True)

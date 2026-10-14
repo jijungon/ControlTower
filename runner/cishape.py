@@ -361,6 +361,31 @@ def pick_versions(
     return out
 
 
+# shell 러너는 CI 에 image: 가 없어 버전이 파일에 안 남는다 — 대신 build job 로그에 찍힌 흔적을 읽는다
+_LOG_NODE = (
+    re.compile(r"current: \{ node: 'v(\d+\.\d+\.\d+)'"),        # npm WARN EBADENGINE … current: { node: 'v20.15.1' }
+    re.compile(r"Now using node v(\d+\.\d+\.\d+)"),              # nvm use
+    re.compile(r"\$ node (?:-v|--version)\s*\n(?:.*\n)??v(\d+\.\d+\.\d+)"),  # 스크립트의 node -v 다음 줄
+    re.compile(r"\bNode\.js v(\d+\.\d+\.\d+)"),
+)
+_LOG_JAVA = re.compile(r"(?:openjdk|java) version \"(\d+)(?:\.(\d+))?")  # java -version — '1.8.0' 은 8
+
+
+def parse_build_log_versions(text: str | None) -> dict[str, str]:
+    """build job 로그 → {node: '20.15.1', java: '17'} (찍힌 것만). 색 코드는 지우고 본다."""
+    t = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", text or "")
+    out: dict[str, str] = {}
+    for rx in _LOG_NODE:
+        m = rx.search(t)
+        if m:
+            out["node"] = m.group(1)
+            break
+    m = _LOG_JAVA.search(t)
+    if m:
+        out["java"] = m.group(2) if m.group(1) == "1" and m.group(2) else m.group(1)
+    return out
+
+
 def build_runtimes(ci: dict | None) -> list[dict]:
     """repo CI 의 job 이미지 중 런타임 이미지(node:20-slim 등) → [{runtime, version, image, jobs}]. 같은 버전끼리 묶음."""
     found: dict[tuple, dict] = {}
@@ -645,9 +670,9 @@ def code_versions(files: dict[str, str | None]) -> dict:
     """repo 코드가 '이 버전으로 빌드해라' 고 적어 둔 값.
 
     node: .nvmrc(정확한 버전) 우선, 없으면 package.json engines.node('>=20' 은 최소 버전 → rule=min).
-    nest: @nestjs/core, java: pom.xml. 값이 하나도 없으면 빈 dict.
+    nest: @nestjs/core, java: pom.xml(Maven) 또는 build.gradle(Gradle) → java_from. 값이 하나도 없으면 빈 dict.
     """
-    from .repoversions import _ver_or_major, parse_nvmrc, parse_pom_java
+    from .repoversions import _ver_or_major, parse_gradle_java, parse_nvmrc, parse_pom_java
 
     out: dict = {}
     nvm = parse_nvmrc(files.get(".nvmrc") or "")
@@ -667,9 +692,11 @@ def code_versions(files: dict[str, str | None]) -> dict:
     nest = _ver_or_major(deps.get("@nestjs/core"))
     if nest:
         out["nest"] = nest
-    java = parse_pom_java(files.get("pom.xml") or "")
-    if java:
-        out["java"] = java
+    for name, parse in (("pom.xml", parse_pom_java), ("build.gradle", parse_gradle_java), ("build.gradle.kts", parse_gradle_java)):
+        java = parse(files.get(name) or "")
+        if java:
+            out.update(java=java, java_from=name)
+            break
     return out
 
 

@@ -198,9 +198,19 @@ export type ExecutorCell = {
 export type VersionCell = { version: string; tag: string; at?: string | null; job?: number | null; side?: 'repo' | 'center' }
 export type Versions = { build: Record<string, VersionCell>; deploy: Record<string, VersionCell> }
 // 코드에 적힌 버전(.nvmrc · package.json · pom.xml)
-export type CodeVersions = { node?: string; node_from?: string; node_rule?: 'exact' | 'min'; nest?: string; java?: string }
+export type CodeVersions = { node?: string; node_from?: string; node_rule?: 'exact' | 'min'; nest?: string; java?: string; java_from?: string }
 // repo 쪽 — 프로젝트 · CI 가 빌드에 쓰는 런타임 이미지 · 코드에 적힌 버전. read=false 면 repo CI 를 못 읽음
-export type RepoBuild = { runtime: string; version?: string | null; image: string; jobs: string[] }
+// from='log' = shell 러너라 CI 에 이미지가 없어 build job 로그에서 읽음(guess = 같은 러너의 다른 job 로그에서 본 값)
+export type RepoBuild = {
+  runtime: string
+  version?: string | null
+  image?: string | null
+  jobs: string[]
+  from?: 'log'
+  job?: number
+  runner?: string | null
+  guess?: boolean
+}
 export type RepoInfo = { project?: string | null; read?: boolean; build?: RepoBuild[]; code?: CodeVersions | null }
 
 export type ShapeRow = {
