@@ -64,7 +64,7 @@ test('배포·executor 칸 — 쉬운 말 + 마우스 올리면 뜻', async () =
   expect(table.getByText('⚠ compose 다름')).toHaveAttribute('title', expect.stringContaining('파일 복사'))
   // executor: job 별로 한 줄씩 — 적은 쪽은 job 이름, 가장 많은 쪽은 '나머지'
   const shop = table.getByText('mall').closest('tr')!
-  const [, , , ...rest] = [...shop.querySelectorAll('td')]
+  const [, , , ...rest] = [...shop.querySelectorAll(':scope > td')]
   const repoExec = rest[rest.length - 2]
   const lines = [...repoExec.querySelectorAll('.exec-line')]
   expect(lines.map((l) => l.querySelector('summary')!.textContent)).toEqual(['notify: docker (추정)', '나머지 2개: shell'])
@@ -72,27 +72,27 @@ test('배포·executor 칸 — 쉬운 말 + 마우스 올리면 뜻', async () =
   // ▸ 를 누르면 아래로 펼쳐서 job 하나하나 + docker 면 쓰는 image
   await userEvent.click(screen.getByLabelText('repo 나머지 2개 펼치기'))
   expect(lines[1]).toHaveAttribute('open')
-  expect([...lines[1].querySelectorAll('li')].map((li) => li.textContent)).toEqual([
-    'build · image 없음(러너 서버에서 바로) · 러너 old-shell',
-    'push_src · image 없음(러너 서버에서 바로) · 러너 old-shell',
-  ])
-  expect([...lines[0].querySelectorAll('li')].map((li) => li.textContent)).toEqual(['notify · image node:22 · 러너 new-runner'])
+  // 펼친 job 표: job | image | 러너 (열 맞춤)
+  const jobRows = (el: Element) => [...el.querySelectorAll('table.exec-jobs tbody tr')].map((tr) => [...tr.querySelectorAll('td')].map((td) => td.textContent).join(' | '))
+  expect([...lines[1].querySelectorAll('table.exec-jobs th')].map((th) => th.textContent)).toEqual(['job', 'image', '러너'])
+  expect(jobRows(lines[1])).toEqual(['build | 없음 — 러너 서버에서 바로 | old-shell', 'push_src | 없음 — 러너 서버에서 바로 | old-shell'])
+  expect(jobRows(lines[0])).toEqual(['notify | node:22 | new-runner'])
   // image 를 모으기 전의 옛 데이터(images 없음)는 '없음' 이 아니라 '모름'
   const centerCell = rest[rest.length - 1]
-  expect([...centerCell.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['build-image · image 모름(다시 수집 필요) · 러너 builder'])
+  expect(jobRows(centerCell)).toEqual(['build-image | 모름(다시 수집 필요) | builder'])
   // job 이 한 종류면 방식만(이름 없이)
   expect(rest[rest.length - 1].querySelector('summary')!.textContent).toBe('docker (추정)')
   // 안 읽은 쪽은 '—' + 이유
   const admin = table.getByText('admin').closest('tr')!
-  const adminCells = [...admin.querySelectorAll('td')]
+  const adminCells = [...admin.querySelectorAll(':scope > td')]
   expect(adminCells[adminCells.length - 1]).toHaveTextContent('—')
   expect(adminCells[adminCells.length - 1].querySelector('span')).toHaveAttribute('title', expect.stringContaining('center CI 를 안 읽음'))
   expect(screen.getByRole('columnheader', { name: 'executor · repo' })).toBeInTheDocument()
   // job 로그로 확정된 줄: 마우스에 근거(job 번호), 펼치면 image: 없는 job 의 러너 기본 이미지
   const adminRepo = adminCells[adminCells.length - 2]
   expect(adminRepo.querySelector('summary')).toHaveAttribute('title', expect.stringContaining('확정(job 로그 #41)'))
-  expect(adminRepo.querySelector('li')!.textContent).toBe('build · image 없음 → 러너 기본 이미지 docker:27 · 러너 r1')
-  expect(adminRepo.querySelector('li [title^="등록된 러너"]')).toHaveAttribute('title', '등록된 러너: build-01')
+  expect(jobRows(adminRepo)).toEqual(['build | docker:27 (러너 기본) | r1'])
+  expect(adminRepo.querySelector('td[title^="등록된 러너"]')).toHaveAttribute('title', '등록된 러너: build-01')
   // 런타임·베이스 이미지·start.sh 는 config 탭 몫 — 이 표엔 없음
   const heads = screen.getAllByRole('columnheader').map((h) => h.textContent)
   expect(heads).not.toContain('런타임')

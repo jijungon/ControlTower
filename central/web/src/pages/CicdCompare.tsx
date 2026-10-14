@@ -117,32 +117,42 @@ function ExecCell({ e, side }: { e?: ExecutorCell; side: 'repo' | 'center' }) {
             <summary title={title} aria-label={`${side} ${label ?? m.value} 펼치기`}>
               {head}
             </summary>
-            <ul className="exec-jobs">
-              {m.jobs.map((j) => (
-                <li key={j}>
-                  <span className="mono">{j}</span>
-                  {m.images[j] ? (
-                    <span className="muted"> · image </span>
-                  ) : m.defaults[j] ? (
-                    <span className="muted"> · image 없음 → 러너 기본 이미지 </span>
-                  ) : m.unknown.has(j) ? (
-                    <span className="muted" title="image 를 모으기 전의 데이터 — runner shape 로 다시 모으고 새로고침">
-                      {' '}
-                      · image 모름(다시 수집 필요)
-                    </span>
-                  ) : (
-                    <span className="muted"> · image 없음{m.value === 'shell' ? '(러너 서버에서 바로)' : '(러너 기본 이미지)'}</span>
-                  )}
-                  {(m.images[j] || m.defaults[j]) && <span className="mono">{m.images[j] || m.defaults[j]}</span>}
-                  {m.runner[j] && (
-                    <span className="muted" title={m.runner[j].name ? `등록된 러너: ${m.runner[j].name}` : '러너 이름은 job 로그로 확인했을 때만'}>
-                      {' '}
-                      · 러너 <span className="mono">{m.runner[j].tag}</span>
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ul>
+            {/* 펼치면 job | image | 러너 표(열 맞춤) */}
+            <table className="exec-jobs">
+              <thead>
+                <tr>
+                  <th>job</th>
+                  <th>image</th>
+                  <th>러너</th>
+                </tr>
+              </thead>
+              <tbody>
+                {m.jobs.map((j) => (
+                  <tr key={j}>
+                    <td className="mono">{j}</td>
+                    <td>
+                      {m.images[j] ? (
+                        <span className="mono">{m.images[j]}</span>
+                      ) : m.defaults[j] ? (
+                        <span title="image: 를 안 적어서 러너 기본 이미지로 돎(job 로그에서)">
+                          <span className="mono">{m.defaults[j]}</span>
+                          <span className="muted"> (러너 기본)</span>
+                        </span>
+                      ) : m.unknown.has(j) ? (
+                        <span className="muted" title="image 를 모으기 전의 데이터 — runner shape 로 다시 모으고 새로고침">
+                          모름(다시 수집 필요)
+                        </span>
+                      ) : (
+                        <span className="muted">없음{m.value === 'shell' ? ' — 러너 서버에서 바로' : ' — 러너 기본 이미지'}</span>
+                      )}
+                    </td>
+                    <td className="mono" title={m.runner[j]?.name ? `등록된 러너: ${m.runner[j].name}` : '러너 이름은 job 로그로 확인했을 때만'}>
+                      {m.runner[j]?.tag ?? <span className="muted">—</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </details>
         )
       })}
