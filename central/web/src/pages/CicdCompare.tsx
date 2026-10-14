@@ -73,14 +73,16 @@ function ExecCell({ e, side }: { e?: ExecutorCell; side: 'repo' | 'center' }) {
       why: Set<string>
       images: Record<string, string>
       defaults: Record<string, string> // job → 러너 기본 이미지(로그에서, image: 없는 job)
+      runner: Record<string, { tag: string; name?: string }> // job → 도는 러너(태그 · 등록된 이름)
       unknown: Set<string>
     }
   >()
   for (const g of e.groups?.length ? e.groups : [{ tag: (e.tags ?? []).join(', '), value: e.value, guess: e.guess, jobs: [] }]) {
     const k = `${g.value}|${g.guess}`
-    const m = merged.get(k) ?? { value: g.value, guess: g.guess, jobs: [], tags: [], why: new Set<string>(), images: {}, defaults: {}, unknown: new Set<string>() }
+    const m = merged.get(k) ?? { value: g.value, guess: g.guess, jobs: [], tags: [], why: new Set<string>(), images: {}, defaults: {}, runner: {}, unknown: new Set<string>() }
     m.jobs.push(...g.jobs)
     if (g.default_image) g.jobs.forEach((j) => (m.defaults[j] = g.default_image!))
+    g.jobs.forEach((j) => (m.runner[j] = { tag: g.tag, name: g.runner_name }))
     if (!g.images) g.jobs.forEach((j) => m.unknown.add(j))
     Object.assign(m.images, g.images ?? {})
     m.tags.push(g.tag)
@@ -132,6 +134,12 @@ function ExecCell({ e, side }: { e?: ExecutorCell; side: 'repo' | 'center' }) {
                     <span className="muted"> · image 없음{m.value === 'shell' ? '(러너 서버에서 바로)' : '(러너 기본 이미지)'}</span>
                   )}
                   {(m.images[j] || m.defaults[j]) && <span className="mono">{m.images[j] || m.defaults[j]}</span>}
+                  {m.runner[j] && (
+                    <span className="muted" title={m.runner[j].name ? `등록된 러너: ${m.runner[j].name}` : '러너 이름은 job 로그로 확인했을 때만'}>
+                      {' '}
+                      · 러너 <span className="mono">{m.runner[j].tag}</span>
+                    </span>
+                  )}
                 </li>
               ))}
             </ul>
@@ -188,8 +196,9 @@ export function collectRunners(rows: ShapeRow[]): RunnerInfo[] {
       for (const g of (side === 'repo' ? r.executor_repo : r.executor_center)?.groups ?? []) {
         const k = `${side}|${g.tag}`
         const cur = map.get(k)
-        // 확정(로그·runners 표)이 하나라도 있으면 그걸로 — 추정보다 우선
-        const better = !cur || (cur.guess && !g.guess)
+        // 근거가 더 센 쪽으로 — job 로그 > runners 표 > 추정
+        const rank = (guess: boolean, why?: string) => (guess ? 0 : why?.startsWith('job 로그') ? 2 : 1)
+        const better = !cur || rank(g.guess, g.why) > rank(cur.guess, cur.why)
         const info: RunnerInfo = better
           ? {
               side, tag: g.tag, value: g.value, guess: g.guess,

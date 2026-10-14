@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expect, test, vi } from 'vitest'
-import CicdCompare from './CicdCompare'
+import CicdCompare, { collectRunners } from './CicdCompare'
 import { cmpVer, newestBy, verParts } from '../vercmp'
 import type { ShapeRow } from '../api'
 
@@ -73,13 +73,13 @@ test('배포·executor 칸 — 쉬운 말 + 마우스 올리면 뜻', async () =
   await userEvent.click(screen.getByLabelText('repo 나머지 2개 펼치기'))
   expect(lines[1]).toHaveAttribute('open')
   expect([...lines[1].querySelectorAll('li')].map((li) => li.textContent)).toEqual([
-    'build · image 없음(러너 서버에서 바로)',
-    'push_src · image 없음(러너 서버에서 바로)',
+    'build · image 없음(러너 서버에서 바로) · 러너 old-shell',
+    'push_src · image 없음(러너 서버에서 바로) · 러너 old-shell',
   ])
-  expect([...lines[0].querySelectorAll('li')].map((li) => li.textContent)).toEqual(['notify · image node:22'])
+  expect([...lines[0].querySelectorAll('li')].map((li) => li.textContent)).toEqual(['notify · image node:22 · 러너 new-runner'])
   // image 를 모으기 전의 옛 데이터(images 없음)는 '없음' 이 아니라 '모름'
   const centerCell = rest[rest.length - 1]
-  expect([...centerCell.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['build-image · image 모름(다시 수집 필요)'])
+  expect([...centerCell.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['build-image · image 모름(다시 수집 필요) · 러너 builder'])
   // job 이 한 종류면 방식만(이름 없이)
   expect(rest[rest.length - 1].querySelector('summary')!.textContent).toBe('docker (추정)')
   // 안 읽은 쪽은 '—' + 이유
@@ -91,7 +91,8 @@ test('배포·executor 칸 — 쉬운 말 + 마우스 올리면 뜻', async () =
   // job 로그로 확정된 줄: 마우스에 근거(job 번호), 펼치면 image: 없는 job 의 러너 기본 이미지
   const adminRepo = adminCells[adminCells.length - 2]
   expect(adminRepo.querySelector('summary')).toHaveAttribute('title', expect.stringContaining('확정(job 로그 #41)'))
-  expect(adminRepo.querySelector('li')!.textContent).toBe('build · image 없음 → 러너 기본 이미지 docker:27')
+  expect(adminRepo.querySelector('li')!.textContent).toBe('build · image 없음 → 러너 기본 이미지 docker:27 · 러너 r1')
+  expect(adminRepo.querySelector('li [title^="등록된 러너"]')).toHaveAttribute('title', '등록된 러너: build-01')
   // 런타임·베이스 이미지·start.sh 는 config 탭 몫 — 이 표엔 없음
   const heads = screen.getAllByRole('columnheader').map((h) => h.textContent)
   expect(heads).not.toContain('런타임')
@@ -139,4 +140,10 @@ test('러너 표 — 태그마다 방식 · 확인 근거 · 등록된 러너 �
   expect(row('old-shell')).toHaveTextContent('확정 · runners 표')
   expect(row('new-runner')).toHaveTextContent('추정')
   expect(row('builder')).toHaveTextContent(/^centerbuilder/)
+  // 같은 태그를 runners 표와 job 로그가 둘 다 확정하면 로그 근거를 보여줌
+  const rows2 = [
+    { ...ROWS[0], service: 'a', executor_repo: { value: 'shell', guess: false, groups: [{ tag: 'brand', value: 'shell', guess: false, why: 'runners 표', jobs: ['x'] }] } },
+    { ...ROWS[0], service: 'b', executor_repo: { value: 'shell', guess: false, groups: [{ tag: 'brand', value: 'shell', guess: false, why: 'job 로그 #9', jobs: ['y'], runner_name: 'gw-01' }] } },
+  ]
+  expect(collectRunners(rows2 as ShapeRow[]).filter((x) => x.tag === 'brand')).toMatchObject([{ why: 'job 로그 #9', name: 'gw-01', jobs: 2 }])
 })
