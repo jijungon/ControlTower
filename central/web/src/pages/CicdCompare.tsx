@@ -307,7 +307,6 @@ export default function CicdCompare() {
   const [rows, setRows] = useState<ShapeRow[] | null>(null)
   const [err, setErr] = useState(false)
   const [groupSel, setGroupSel] = useState('')
-  const [hostSel, setHostSel] = useState('') // 빌드: 전체 · GitLab · GitHub
   const [busy, setBusy] = useState(false)
 
   const load = () =>
@@ -330,7 +329,7 @@ export default function CicdCompare() {
     return i < 0 ? 99 : i
   }
   const byGroup = new Map<string, Map<string, ShapeRow[]>>()
-  for (const r of all.filter((x) => (!groupSel || (x.group || '기타') === groupSel) && (!hostSel || x.host === hostSel))) {
+  for (const r of all.filter((x) => !groupSel || (x.group || '기타') === groupSel)) {
     const g = r.group || '기타'
     const apps = byGroup.get(g) ?? new Map<string, ShapeRow[]>()
     apps.set(split(r).app, [...(apps.get(split(r).app) ?? []), r])
@@ -345,7 +344,6 @@ export default function CicdCompare() {
         .sort((a, b) => a.app.localeCompare(b.app)),
     }))
   const groupNames = [...new Set(all.map((r) => r.group || '기타'))].sort()
-  const hosts = ['gitlab', 'github'].filter((h) => all.some((r) => r.host === h))
   const appCount = ordered.reduce((n, g) => n + g.apps.length, 0)
 
   return (
@@ -364,7 +362,6 @@ export default function CicdCompare() {
       />
       <div className="toolbar" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
         <GroupFilter groups={groupNames} value={groupSel} onChange={setGroupSel} />
-        {hosts.length > 1 && <GroupFilter label="빌드" groups={hosts} names={HOST_NAME} value={hostSel} onChange={setHostSel} />}
       </div>
 
       <div className="card" style={{ overflowX: 'auto' }}>
@@ -398,17 +395,17 @@ export default function CicdCompare() {
                               <div className="muted" style={{ fontWeight: 400, fontSize: 12 }}>
                                 서비스 {g.apps.length}개
                               </div>
+                              {/* 어디서 빌드하나 — config 탭 그룹 칸처럼 그룹 단위로 */}
+                              <div className="grp-host">
+                                {[...new Set(g.apps.flatMap((x) => x.rows.map((r) => r.host)))].map((h) => (
+                                  <HostBadge key={h ?? '-'} host={h} />
+                                ))}
+                              </div>
                             </td>
                           )}
                           {i === 0 && (
                             <td className="svc-cell" rowSpan={a.rows.length}>
                               {a.app}
-                              {/* 어디서 빌드하나 — 이름 아래 줄(칸 폭을 늘리지 않게) */}
-                              <div className="host-line">
-                                {[...new Set(a.rows.map((x) => x.host))].map((h) => (
-                                  <HostBadge key={h ?? '-'} host={h} />
-                                ))}
-                              </div>
                             </td>
                           )}
                           <td>

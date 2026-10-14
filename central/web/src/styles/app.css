@@ -54,10 +54,10 @@ button { font-family: inherit; cursor: pointer; }
 .grp-repo { font-weight: 400; font-size: 10.5px; margin-top: 4px; white-space: normal; }
 .grp-repo-part { display: inline-block; white-space: nowrap; } /* 'group/' 'config' 단위로만 줄바꿈 */
 .grp-repo .host-badge { margin-left: 0; margin-top: 2px; }
-.host-line { line-height: 1; }
+.grp-host { margin-top: 4px; line-height: 1; }
 /* 서비스 메모(타입 칸 아래)는 길면 칸 안에서 줄바꿈 — 표 폭을 메모가 잡아먹지 않게 */
 .grid--nowrap td .cell-sub--note { white-space: normal; max-width: 230px; }
-.host-line .host-badge { margin-left: 0; margin-right: 4px; }
+.grp-host .host-badge { margin-left: 0; margin-right: 4px; }
 .note-line { font-size: 13px; color: var(--ink-muted-80); margin: 10px 2px 0; }
 /* 표 아래 페이지 넘김 */
 .pager { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 10px 16px; border-top: 1px solid var(--divider-soft); font-size: 13px; }

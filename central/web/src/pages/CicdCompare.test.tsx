@@ -148,17 +148,15 @@ test('러너 표 — 태그마다 방식 · 확인 근거 · 등록된 러너 �
   expect(collectRunners(rows2 as ShapeRow[]).filter((x) => x.tag === 'brand')).toMatchObject([{ why: 'job 로그 #9', name: 'gw-01', jobs: 2 }])
 })
 
-test('서비스 이름 옆 GitLab/GitHub 배지 + 빌드 필터', async () => {
+test('GitLab/GitHub 배지는 config 탭처럼 그룹 칸에', async () => {
   stub([
     { ...ROWS[0], service: 'shop web', group: 'mall', type: 'web', host: 'gitlab' },
-    { ...ROWS[0], service: 'tv2 web', group: 'mall', type: 'web', host: 'github', executor_repo: null, executor_center: null },
+    { ...ROWS[0], service: 'tv2 web', group: 'vault', type: 'web', host: 'github', executor_repo: null, executor_center: null },
   ])
   render(<CicdCompare />)
   const table = within(await screen.findByRole('table'))
-  expect(table.getByText('shop').closest('td')).toHaveTextContent('shopGitLab')
-  expect(table.getByText('tv2').closest('td')).toHaveTextContent('tv2GitHub')
-  const seg = screen.getByRole('radiogroup', { name: '빌드 필터' })
-  fireEvent.click(within(seg).getByRole('radio', { name: 'GitHub' }))
-  expect(table.queryByText('shop')).toBeNull()
-  expect(table.getByText('tv2')).toBeInTheDocument()
+  expect(table.getByText('mall').closest('td')).toHaveTextContent(/^mall서비스 1개GitLab$/)
+  expect(table.getByText('vault').closest('td')).toHaveTextContent(/^vault서비스 1개GitHub$/)
+  expect(table.getByText('shop').closest('td')).toHaveTextContent(/^shop$/) // 서비스 칸엔 배지 없음
+  expect(screen.queryByRole('radiogroup', { name: '빌드 필터' })).toBeNull()
 })
