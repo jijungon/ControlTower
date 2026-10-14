@@ -479,11 +479,33 @@ notify:
     assert (ex["value"], ex["guess"], ex["counts"]) == ("docker", True, {"docker": 2, "shell": 1})
     # 화면 'job 별' 칸: 러너 태그별로 어떤 job 이 쓰나 + 어떻게 정했나(why)
     assert ex["groups"] == [
-        {"tag": "new-runner", "value": "docker", "guess": True, "why": "image: 있음", "jobs": ["build", "test"]},
-        {"tag": "old-shell", "value": "shell", "guess": False, "why": "runners 표", "jobs": ["notify"]},
+        {"tag": "new-runner", "value": "docker", "guess": True, "why": "image: 있음", "jobs": ["build", "test"],
+         "images": {"build": "node:22", "test": "node:22"}},  # 펼치면 job 마다 쓰는 이미지
+        {"tag": "old-shell", "value": "shell", "guess": False, "why": "runners 표", "jobs": ["notify"], "images": {}},
     ]
     r = analyze_ci(ci, "web", {"old-shell": "shell", "new-runner": "docker"})
     assert r["executor"]["value"] == "docker" and r["executor"]["guess"] is False
+
+
+def test_executor_job_images_default_dict_and_vars():
+    ci = r"""
+default:
+  image: alpine:3.20
+variables:
+  DEPLOY_IMAGE: deploy-image:latest
+.ssh:
+  image: {name: "${DEPLOY_IMAGE}", entrypoint: [""]}
+deploy:
+  extends: .ssh
+  tags: [d]
+  script: [ssh x]
+lint:
+  tags: [d]
+  script: [make lint]
+"""
+    g = analyze_ci(ci, "web")["executor"]["groups"][0]
+    # extends 의 {name: …} 모양 + 변수 펼침, 이미지 안 적은 job 은 default 이미지
+    assert g["images"] == {"deploy": "deploy-image:latest", "lint": "alpine:3.20"}
 
 
 CENTER_DEPLOY = r"""

@@ -189,17 +189,25 @@ def _job_kind(name: str, job: dict, env: dict[str, str]) -> str:
     return "other"                 # 빌드·테스트·알림 등
 
 
-def _executor(jobs: list[tuple[str, list[str], bool]], runners: dict[str, str]) -> dict | None:
+def _image_name(v: Any) -> str | None:
+    """job 의 image: 값 → 이미지 이름. {name: …, entrypoint: …} 모양도."""
+    if isinstance(v, dict):
+        v = v.get("name")
+    return str(v) if v else None
+
+
+def _executor(jobs: list[tuple[str, list[str], str | None]], runners: dict[str, str]) -> dict | None:
     """job 마다 executor 를 정하고 가장 많은 쪽을 대표로.
 
-    jobs = [(job 이름, 그 job 의 러너 태그들, image: 가 있나)]. 태그가 runners 표에 있으면 확정, 없으면
+    jobs = [(job 이름, 그 job 의 러너 태그들, image:(없으면 None))]. 태그가 runners 표에 있으면 확정, 없으면
     image: 유무로 짐작(docker/shell). 대표값이 짐작으로만 나왔으면 guess=True.
     여러 방식이 섞이면 counts(방식별 job 수)와 groups(러너 태그별 job 목록)를 남긴다 — 화면의 '섞임' 메모용.
     """
     votes: list[tuple[str, bool]] = []  # (값, 짐작?)
     tags: set[str] = set()
     groups: dict[str, dict] = {}  # 러너 태그 → {value, guess, jobs}
-    for name, jtags, has_image in jobs:
+    for name, jtags, image in jobs:
+        has_image = bool(image)
         tags.update(jtags)
         known = [runners[t] for t in jtags if t in runners]
         if known:
@@ -211,8 +219,10 @@ def _executor(jobs: list[tuple[str, list[str], bool]], runners: dict[str, str]) 
             continue
         votes.append(vote)
         key = ", ".join(jtags) or "(태그 없음)"
-        g = groups.setdefault(key, {"tag": key, "value": vote[0], "guess": vote[1], "why": why, "jobs": []})
+        g = groups.setdefault(key, {"tag": key, "value": vote[0], "guess": vote[1], "why": why, "jobs": [], "images": {}})
         g["jobs"].append(name)
+        if image:  # 화면에서 펼치면 job 마다 어떤 이미지로 도는지
+            g["images"][name] = image
     if not votes:
         return None
     counts = Counter(v for v, _ in votes)
@@ -232,9 +242,9 @@ def analyze_ci(text: str | None, svc_type: str = "web", runners: dict[str, str] 
     top = _vars(doc.get("variables"))
     defs = {k: v for k, v in doc.items() if k not in _RESERVED and isinstance(v, dict)}
     default = doc.get("default") if isinstance(doc.get("default"), dict) else {}
-    uses_image = bool(doc.get("image") or default.get("image"))
+    top_image = _image_name(default.get("image")) or _image_name(doc.get("image"))  # 전체 기본 이미지
     envs: dict[str, dict[str, bool]] = {}
-    job_runs: list[tuple[str, list[str], bool]] = []  # executor 판정용 (job 이름, 태그, image: 있나)
+    job_runs: list[tuple[str, list[str], str | None]] = []  # executor 판정용 (job 이름, 태그, image:)
     variables = {f"global:{k}": v for k, v in top.items()}
     for name in defs:
         if name.startswith("."):
@@ -243,7 +253,8 @@ def analyze_ci(text: str | None, svc_type: str = "web", runners: dict[str, str] 
         jvars = _vars(job.get("variables"))
         variables.update({f"{name}:{k}": v for k, v in jvars.items()})
         scope = {**top, **jvars}
-        job_runs.append((name, [_expand(t, scope) for t in _flatten(job.get("tags"))], uses_image or bool(job.get("image"))))
+        image = _image_name(job.get("image")) or top_image
+        job_runs.append((name, [_expand(t, scope) for t in _flatten(job.get("tags"))], _expand(image, scope) if image else None))
         kind = _job_kind(name, job, scope)
         for env, manual in _job_envs(name, job, svc_type).items():
             slot = envs.setdefault(env, {})

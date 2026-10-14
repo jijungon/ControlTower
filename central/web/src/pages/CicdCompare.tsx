@@ -50,7 +50,8 @@ function deployCell(c?: DeployCell) {
 // job 이름 몇 개만(길면 '외 N개')
 const jobNames = (jobs: string[]) => (jobs.length <= 2 ? jobs.join('·') : `${jobs.slice(0, 2).join('·')} 외 ${jobs.length - 2}개`)
 
-// executor 한 칸 — job 별로 'build·build-manual: shell' 한 줄씩. 가장 많은 쪽은 '나머지 N개' 로 맨 아래
+// executor 한 칸 — job 별로 'build·build-manual: shell' 한 줄씩. 가장 많은 쪽은 '나머지 N개' 로 맨 아래.
+// 줄마다 ▸ 를 누르면 아래로 펼쳐서 job 하나하나 + docker 면 쓰는 image
 function ExecCell({ e, side }: { e?: ExecutorCell; side: 'repo' | 'center' }) {
   if (!e)
     return (
@@ -59,11 +60,12 @@ function ExecCell({ e, side }: { e?: ExecutorCell; side: 'repo' | 'center' }) {
       </span>
     )
   // 같은 방식(+확정/추정)끼리 합침 — 러너 태그가 달라도 결과가 같으면 한 줄
-  const merged = new Map<string, { value: string; guess: boolean; jobs: string[]; tags: string[]; why: Set<string> }>()
+  const merged = new Map<string, { value: string; guess: boolean; jobs: string[]; tags: string[]; why: Set<string>; images: Record<string, string> }>()
   for (const g of e.groups?.length ? e.groups : [{ tag: (e.tags ?? []).join(', '), value: e.value, guess: e.guess, jobs: [] }]) {
     const k = `${g.value}|${g.guess}`
-    const m = merged.get(k) ?? { value: g.value, guess: g.guess, jobs: [], tags: [], why: new Set<string>() }
+    const m = merged.get(k) ?? { value: g.value, guess: g.guess, jobs: [], tags: [], why: new Set<string>(), images: {} }
     m.jobs.push(...g.jobs)
+    Object.assign(m.images, g.images ?? {})
     m.tags.push(g.tag)
     if (g.why) m.why.add(g.why)
     merged.set(k, m)
@@ -77,16 +79,39 @@ function ExecCell({ e, side }: { e?: ExecutorCell; side: 'repo' | 'center' }) {
     <span className="exec-lines">
       {lines.map((m, i) => {
         const label = lines.length === 1 ? null : i === lines.length - 1 ? `나머지 ${m.jobs.length}개` : jobNames(m.jobs)
-        return (
-          <span
-            key={`${m.value}|${m.guess}`}
-            className="exec-line"
-            title={`${side} · job ${m.jobs.length}개: ${m.jobs.join(', ') || '—'}\n러너 태그: ${m.tags.join(' / ')}\n${how(m)}`}
-          >
+        const head = (
+          <>
             {label && <span className="muted">{label}: </span>}
             <span className={m.guess ? 'muted' : undefined}>{m.value}</span>
             {m.guess && <small className="muted"> (추정)</small>}
-          </span>
+          </>
+        )
+        const title = `${side} · job ${m.jobs.length}개 · 러너 태그: ${m.tags.join(' / ')}\n${how(m)}`
+        if (m.jobs.length === 0)
+          return (
+            <span key={`${m.value}|${m.guess}`} className="exec-line" title={title}>
+              {head}
+            </span>
+          )
+        return (
+          <details key={`${m.value}|${m.guess}`} className="exec-line exec-more">
+            <summary title={title} aria-label={`${side} ${label ?? m.value} 펼치기`}>
+              {head}
+            </summary>
+            <ul className="exec-jobs">
+              {m.jobs.map((j) => (
+                <li key={j}>
+                  <span className="mono">{j}</span>
+                  {m.images[j] ? (
+                    <span className="muted"> · image </span>
+                  ) : (
+                    <span className="muted"> · image 없음{m.value === 'shell' ? '(러너 서버에서 바로)' : '(러너 기본 이미지)'}</span>
+                  )}
+                  {m.images[j] && <span className="mono">{m.images[j]}</span>}
+                </li>
+              ))}
+            </ul>
+          </details>
         )
       })}
     </span>

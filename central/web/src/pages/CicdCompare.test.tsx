@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { expect, test, vi } from 'vitest'
 import CicdCompare from './CicdCompare'
 import { cmpVer, newestBy, verParts } from '../vercmp'
@@ -12,7 +13,7 @@ const ROWS: ShapeRow[] = [
       value: 'shell', guess: false, counts: { shell: 7, docker: 1 },
       groups: [
         { tag: 'old-shell', value: 'shell', guess: false, jobs: ['build', 'push_src'] },
-        { tag: 'new-runner', value: 'docker', guess: true, jobs: ['notify'] },
+        { tag: 'new-runner', value: 'docker', guess: true, jobs: ['notify'], images: { notify: 'node:22' } },
       ],
     },
     executor_center: { value: 'docker', guess: true, tags: ['builder'], groups: [{ tag: 'builder', value: 'docker', guess: true, jobs: ['build-image'] }] },
@@ -62,11 +63,18 @@ test('배포·executor 칸 — 쉬운 말 + 마우스 올리면 뜻', async () =
   const [, , , ...rest] = [...shop.querySelectorAll('td')]
   const repoExec = rest[rest.length - 2]
   const lines = [...repoExec.querySelectorAll('.exec-line')]
-  expect(lines.map((l) => l.textContent)).toEqual(['notify: docker (추정)', '나머지 2개: shell'])
-  expect(lines[0]).toHaveAttribute('title', expect.stringContaining('Preparing the'))
-  expect(lines[1]).toHaveAttribute('title', expect.stringContaining('build, push_src'))
+  expect(lines.map((l) => l.querySelector('summary')!.textContent)).toEqual(['notify: docker (추정)', '나머지 2개: shell'])
+  expect(lines[0].querySelector('summary')).toHaveAttribute('title', expect.stringContaining('Preparing the'))
+  // ▸ 를 누르면 아래로 펼쳐서 job 하나하나 + docker 면 쓰는 image
+  await userEvent.click(screen.getByLabelText('repo 나머지 2개 펼치기'))
+  expect(lines[1]).toHaveAttribute('open')
+  expect([...lines[1].querySelectorAll('li')].map((li) => li.textContent)).toEqual([
+    'build · image 없음(러너 서버에서 바로)',
+    'push_src · image 없음(러너 서버에서 바로)',
+  ])
+  expect([...lines[0].querySelectorAll('li')].map((li) => li.textContent)).toEqual(['notify · image node:22'])
   // job 이 한 종류면 방식만(이름 없이)
-  expect(rest[rest.length - 1].textContent).toBe('docker (추정)')
+  expect(rest[rest.length - 1].querySelector('summary')!.textContent).toBe('docker (추정)')
   // 안 읽은 쪽은 '—' + 이유
   const admin = table.getByText('admin').closest('tr')!
   const adminCells = [...admin.querySelectorAll('td')]
