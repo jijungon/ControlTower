@@ -4,6 +4,7 @@ import { expect, test, vi } from 'vitest'
 import CicdCompare, { collectRunners } from './CicdCompare'
 import { cmpVer, newestBy, verParts } from '../vercmp'
 import type { ShapeRow } from '../api'
+import { findDataTable } from '../test/dataTable'
 
 const ROWS: ShapeRow[] = [
   {
@@ -52,7 +53,7 @@ test('버전 비교 헬퍼 — 3.10 > 3.9, v18 < 20', () => {
 test('배포·executor 칸 — 쉬운 말 + 마우스 올리면 뜻', async () => {
   stub(ROWS)
   render(<CicdCompare />)
-  const table = within(await screen.findByRole('table'))
+  const table = within(await findDataTable())
   // 배포 칸: 윗줄 방식 + 아랫줄 누가(repo/center) — 칸 전체에 마우스를 올리면 뜻
   const repoChip = table.getByText('repo', { selector: '.cell-sub' }).parentElement!
   expect(repoChip).toHaveTextContent('파일 복사repo')
@@ -114,7 +115,7 @@ test('배포·executor 칸 — 쉬운 말 + 마우스 올리면 뜻', async () =
 test('그룹 → 서비스 → 타입: 맨 앞 그룹 칸이 그룹의 모든 줄을 덮음', async () => {
   stub([...ROWS, { service: 'shop web', group: 'outlet', type: 'web', note: '옛 사본' }])
   render(<CicdCompare />)
-  const table = within(await screen.findByRole('table'))
+  const table = within(await findDataTable())
   expect(screen.getAllByRole('columnheader').slice(0, 3).map((h) => h.textContent)).toEqual(['그룹', '서비스', '타입'])
   // 그룹 칸: 이름순, 그룹 없는 건 맨 끝 '기타'. rowspan = 그 그룹의 줄 수
   const groups = [...document.querySelectorAll('td.grp-cell')].map((td) => [td.firstChild?.textContent, td.getAttribute('rowspan')])
@@ -159,7 +160,7 @@ test('GitLab/GitHub 배지는 config 탭처럼 그룹 칸에', async () => {
     { ...ROWS[0], service: 'tv2 web', group: 'vault', type: 'web', host: 'github', executor_repo: null, executor_center: null },
   ])
   render(<CicdCompare />)
-  const table = within(await screen.findByRole('table'))
+  const table = within(await findDataTable())
   expect(table.getByText('mall').closest('td')).toHaveTextContent(/^mall서비스 1개GitLab$/)
   expect(table.getByText('vault').closest('td')).toHaveTextContent(/^vault서비스 1개GitHub$/)
   expect(table.getByText('shop').closest('td')).toHaveTextContent(/^shop$/) // 서비스 칸엔 배지 없음

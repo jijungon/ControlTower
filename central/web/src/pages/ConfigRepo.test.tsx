@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import ConfigRepo, { missShort } from './ConfigRepo'
 import type { ConfigRow } from '../api'
+import { findDataTable } from '../test/dataTable'
 
 const ROWS: ConfigRow[] = [
   { path: 'shop/web', runtime: 'node', runtime_version: '18', base_image: 'infra/nodejs', base_tag: 'v18', start: 'start.sh', start_files: ['node-startup.sh'], state: 'legacy', compose: { prod: 'mount', dev: 'command' }, collected_at: '2026-10-13T03:00:00+00:00',
@@ -23,7 +24,7 @@ test('처음 실행할 명령(이미지·서버)·정리할 것 — 한 가지 �
   const fetchMock = vi.fn(async (_url: string) => new Response(JSON.stringify(ROWS), { status: 200 }))
   vi.stubGlobal('fetch', fetchMock)
   render(<ConfigRepo />)
-  const table = within(await screen.findByRole('table'))
+  const table = within(await findDataTable())
   expect(table.getByText('⚠ node 18')).toHaveClass('ver--old') // 최신 22
   expect(table.getAllByText('node 22')[0]).not.toHaveClass('ver--old')
   // 머리줄: 칸 이름이 모두 '처음 실행할 명령' 하나의 말
@@ -111,7 +112,7 @@ test("lab·preview 는 '기타' 한 열에 모음", async () => {
   ]
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(rows), { status: 200 })))
   render(<ConfigRepo />)
-  const table = within(await screen.findByRole('table'))
+  const table = within(await findDataTable())
   expect(screen.getByRole('columnheader', { name: '기타' })).toBeInTheDocument()
   // 한 줄에 이어서: 'lab ● 서버 compose · preview 못 읽음'
   const lines = [...document.querySelectorAll('.extra-line')]
@@ -124,7 +125,7 @@ test("lab·preview 는 '기타' 한 열에 모음", async () => {
   const same: ConfigRow[] = [{ ...rows[0], compose: { lab: 'mount', preview: 'mount' }, compose_miss: {} }]
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(same), { status: 200 })))
   render(<ConfigRepo />)
-  await screen.findByRole('table')
+  await findDataTable()
   expect([...document.querySelectorAll('.extra-line')].map((l) => l.textContent)).toEqual(['lab·preview ● start.sh'])
 })
 
@@ -143,7 +144,7 @@ test('합쳐진 폴더는 흐리게 + 합쳐짐 → 합쳐진 곳, 요약에서 
   ]
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(rows), { status: 200 })))
   render(<ConfigRepo />)
-  const table = within(await screen.findByRole('table'))
+  const table = within(await findDataTable())
   const badge = table.getByText('합쳐짐 → chat/was')
   expect(badge.closest('tr')).toHaveClass('row-merged')
   expect(table.queryByText('CMD 로 옮기기')).toBeNull() // 할 일 대신 '합쳐짐'
@@ -159,7 +160,7 @@ test("배포 안 하는 환경은 '안 읽음' 대신 '—', CI 를 못 읽어 �
   ]
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(rows), { status: 200 })))
   render(<ConfigRepo />)
-  const table = within(await screen.findByRole('table'))
+  const table = within(await findDataTable())
   const adm = table.getByText('adm').closest('tr')!
   expect(within(adm).getAllByText('—', { selector: 'span' }).map((e) => e.getAttribute('title'))).toEqual(
     expect.arrayContaining([expect.stringContaining('dev 에 배포 안 함'), expect.stringContaining('stg 에 배포 안 함')]),
@@ -177,7 +178,7 @@ test('역할로 나뉜 폴더는 역할마다 한 줄 + 옆에 실제 폴더, �
   ]
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(rows), { status: 200 })))
   render(<ConfigRepo />)
-  const table = within(await screen.findByRole('table'))
+  const table = within(await findDataTable())
   const tags = table.getAllByText('(web)', { selector: '.type-roles' })
   expect(tags.length).toBe(2)
   const mgr = tags[0].parentElement!
@@ -192,7 +193,7 @@ test('그룹 칸·그룹 필터 — 빌드·배포 표처럼 그룹 → 서비�
   const rows = [mk('a/web', 'g1'), mk('a/was', 'g1'), mk('b/web', 'g1'), mk('c/web', 'g2')]
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(rows), { status: 200 })))
   render(<ConfigRepo />)
-  const table = within(await screen.findByRole('table'))
+  const table = within(await findDataTable())
   const g1 = table.getByText('g1').closest('td')!
   expect(g1).toHaveClass('grp-cell')
   expect(g1).toHaveAttribute('rowspan', '3')
@@ -210,7 +211,7 @@ test('그룹 칸·그룹 필터 — 빌드·배포 표처럼 그룹 → 서비�
 test('줄마다 ▸ 펼치면 환경 | 처음 실행할 명령 | 어디서 읽었나 | 위치·이유 표', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(ROWS), { status: 200 })))
   render(<ConfigRepo />)
-  const table = within(await screen.findByRole('table'))
+  const table = within(await findDataTable())
   const toggle = screen.getByRole('button', { name: 'shop/web 환경별 자세히' })
   expect(toggle).toHaveAttribute('aria-expanded', 'false')
   fireEvent.click(toggle)
@@ -235,7 +236,7 @@ test('그룹 칸에 config repo(GitLab), GitHub 서비스는 표 아래 안내',
   const shapes = [{ service: 'tv2 web', host: 'github' }, { service: 'shop web', host: 'gitlab' }]
   vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(url.includes('/api/cicd/shape') ? shapes : cfg), { status: 200 })))
   render(<ConfigRepo />)
-  const table = within(await screen.findByRole('table'))
+  const table = within(await findDataTable())
   expect(table.getByText('g1').closest('td')).toHaveTextContent('shop/configGitLab')
   expect(await screen.findByText(/에서 빌드하는 서비스는 GitLab config repo 를 안 써서 이 표에 없어요 — tv2 web/)).toBeInTheDocument()
 })
@@ -273,7 +274,7 @@ test('repo 보기 — 서비스마다 repo 프로젝트 · 빌드(CI 이미지) 
   vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(url.includes('/api/cicd/shape') ? shapes : cfg), { status: 200 })))
   localStorage.clear() // 처음 여는 사람 = 기본 보기
   const { unmount } = render(<ConfigRepo />)
-  await screen.findByRole('table')
+  await findDataTable()
   // 보기 순서는 흐름대로 repo → center, 처음엔 repo
   expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['repo', 'center'])
   expect(screen.getByRole('tab', { name: 'repo' })).toHaveAttribute('aria-selected', 'true')
