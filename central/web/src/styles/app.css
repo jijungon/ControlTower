@@ -244,6 +244,8 @@ table.subgrid { width: 100%; border-collapse: collapse; font-size: 13px; }
 .run-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--danger); margin-right: 4px; vertical-align: middle; }
 .exec-lines { display: inline-flex; flex-direction: column; gap: 1px; } /* executor: job 별 한 줄씩 */
 .exec-line { white-space: nowrap; }
+.ver-line { display: inline-flex; align-items: baseline; gap: 6px; } /* 빌드·배포 버전: 환경 하나에 한 줄 */
+.ver-env { display: inline-block; min-width: 3.4em; font-size: 11px; color: var(--ink-muted-48); }
 /* executor 알약: docker 하늘 · shell 연두 — node 버전 칸처럼 고정폭 굵은 글자 */
 .exec-pill { display: inline-block; font-family: var(--font-mono); font-weight: 600; font-size: 11px; line-height: 1.5; padding: 0 8px; border-radius: 999px; border: 1px solid transparent; }
 .exec-pill--docker { color: var(--exec-docker); background: var(--exec-docker-bg); }
@@ -284,6 +286,8 @@ table.grid tbody tr.row-detail > td { background: var(--canvas-parchment); paddi
   .grid--nowrap td.extras-cell { white-space: normal; }
   .grid--dense .cell-tag:not(.miss-fail):not(.type-roles) { display: none; } /* 출처(gw·사본)는 마우스로 */
   .grid--dense td.svc-cell, .grid--dense td.grp-cell { font-size: 11.5px; }
+  .ver-line { gap: 3px; }
+  .ver-env { min-width: 0; font-size: 10.5px; } /* 빌드·배포 버전: 환경 이름은 좁게 */
 }
 .ver--none { color: var(--ink-muted-48); }
 

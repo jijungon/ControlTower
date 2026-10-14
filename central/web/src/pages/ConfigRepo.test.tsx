@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { expect, test, vi } from 'vitest'
+import { afterEach, expect, test, vi } from 'vitest'
 import ConfigRepo, { missShort } from './ConfigRepo'
 import type { ConfigRow } from '../api'
 
@@ -77,18 +77,14 @@ test('처음 실행할 명령(이미지·서버)·정리할 것 — 한 가지 �
   expect(apiRow.querySelectorAll('.run-dot').length).toBe(1)
   expect(table.getByText('CMD 넣기')).toBeInTheDocument()
   expect(table.getByText('Dockerfile 없음')).toBeInTheDocument()
-  expect(screen.getByText(/할 일 — CMD 로 옮기기 1 · start\.sh 지우기 1 · CMD 넣기 1 · 코드≠이미지 1 · 오래된 버전 \d+칸/)).toBeInTheDocument()
-  // 코드에 적힌 버전: 이미지와 다르면 ⚠, '≥' 는 최소 버전이라 이미지가 더 높으면 괜찮음
-  const diff = table.getByText('⚠ 다름')
-  expect(diff).toHaveAttribute('title', '코드는 node 22(.nvmrc), 이미지는 node 18')
-  expect(diff.parentElement).toHaveTextContent(/^node 22⚠ 다름$/) // 한 줄
-  expect(diff.parentElement).toHaveAttribute('title', expect.stringContaining('nest 11.0.1')) // nest 는 마우스
-  expect(table.getByText('node ≥20')).toBeInTheDocument()
-  expect(table.getAllByText('⚠ 다름').length).toBe(1)
+  expect(screen.getByText(/할 일 — CMD 로 옮기기 1 · start\.sh 지우기 1 · CMD 넣기 1 · 오래된 버전 \d+칸/)).toBeInTheDocument()
+  // 코드에 적힌 버전은 repo 에서 읽는 값 → repo 보기로 옮김(center 표엔 없음)
+  expect(heads.some((h) => h?.startsWith('코드에 적힌 버전'))).toBe(false)
+  expect(table.queryByText('⚠ 다름')).toBeNull()
   // 표 읽는 법: 기본은 접힘, '칸 | 뜻' 표 + 맨 아래 출처
   const legend = screen.getByText('표 읽는 법').closest('details')!
   expect(legend).not.toHaveAttribute('open')
-  expect(within(legend).getByText('출처').nextElementSibling).toHaveTextContent(/^center config repo · repo 코드/)
+  expect(within(legend).getByText('출처').nextElementSibling).toHaveTextContent(/^center config repo · 서버 docker-compose/)
   expect([...legend.querySelectorAll('.legend-grid > dt')].map((d) => d.textContent)).toEqual(['버전', '처음 실행할 명령', '(이미지) 칸', '(서버) 칸', '정리할 것', '출처'])
   // 칸마다 '무엇을 보여주나' 한 줄 + '값 → 뜻' 목록(값마다 한 줄)
   const todo = [...legend.querySelectorAll('.legend-grid > dt')].find((d) => d.textContent === '정리할 것')!.nextElementSibling!
@@ -153,7 +149,7 @@ test('합쳐진 폴더는 흐리게 + 합쳐짐 → 합쳐진 곳, 요약에서 
   expect(table.queryByText('CMD 로 옮기기')).toBeNull() // 할 일 대신 '합쳐짐'
   expect(within(badge.closest('tr')!).queryByText('안 읽음')).toBeNull() // 안 쓰는 폴더라 서버 칸은 '—'
   expect(table.getByText('node 18')).not.toHaveClass('ver--old') // 비교에서 빠져서 빨간 칸 아님
-  expect(screen.getByText(/CMD 로 옮기기 0 · start\.sh 지우기 0 · CMD 넣기 0 · 코드≠이미지 0 · 오래된 버전 0칸/)).toBeInTheDocument()
+  expect(screen.getByText(/CMD 로 옮기기 0 · start\.sh 지우기 0 · CMD 넣기 0 · 오래된 버전 0칸/)).toBeInTheDocument()
 })
 
 test("배포 안 하는 환경은 '안 읽음' 대신 '—', CI 를 못 읽어 모르면 그대로 '안 읽음'", async () => {
@@ -242,4 +238,51 @@ test('그룹 칸에 config repo(GitLab), GitHub 서비스는 표 아래 안내',
   const table = within(await screen.findByRole('table'))
   expect(table.getByText('g1').closest('td')).toHaveTextContent('shop/configGitLab')
   expect(await screen.findByText(/에서 빌드하는 서비스는 GitLab config repo 를 안 써서 이 표에 없어요 — tv2 web/)).toBeInTheDocument()
+})
+
+afterEach(() => localStorage.clear()) // 고른 보기(center/repo)는 브라우저에 기억 → 테스트마다 비움
+
+test('repo 보기 — 서비스마다 repo 프로젝트 · 빌드(CI 이미지) · 코드 · 실행(center 이미지) + 다른 것 표시, 고른 보기 기억', async () => {
+  const cfg: ConfigRow[] = [{ path: 'shop/web', group: 'g1', runtime: 'node', runtime_version: '22', start: 'dockerfile', start_files: [], state: 'done' }]
+  const shapes = [
+    { service: 'shop web', group: 'g1', type: 'web', host: 'gitlab', runtime: 'node', runtime_version: '22',
+      repo: { project: 'team/apps/shop-web', read: true, build: [{ runtime: 'node', version: '20', image: 'node:20-slim', jobs: ['build', 'test'] }],
+        code: { node: '22', node_from: '.nvmrc', node_rule: 'exact', nest: '10.3.0' } } },
+    { service: 'shop was', group: 'g1', type: 'was', host: 'gitlab', runtime: 'node', runtime_version: '22',
+      repo: { project: 'team/apps/shop-was', read: true, build: [{ runtime: 'node', version: '22', image: 'node:22', jobs: ['build'] }], code: { node: '20', node_from: 'package.json', node_rule: 'min' } } },
+    { service: 'pay', group: 'g1', type: 'was', host: 'gitlab', repo: { project: 'team/pay', read: false, build: [] } },
+    { service: 'sync', group: 'g1', type: 'was', host: 'gitlab', repo: null }, // repo 를 안 적음
+    { service: 'tv2 web', group: 'g2', type: 'web', host: 'github' },
+  ]
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(url.includes('/api/cicd/shape') ? shapes : cfg), { status: 200 })))
+  const { unmount } = render(<ConfigRepo />)
+  await screen.findByRole('table')
+  expect(screen.getByRole('tab', { name: 'center' })).toHaveAttribute('aria-selected', 'true') // 처음엔 center
+  await userEvent.click(screen.getByRole('tab', { name: 'repo' }))
+  expect(screen.getByRole('tab', { name: 'repo' })).toHaveAttribute('aria-selected', 'true')
+  expect(screen.getByText('repo 가 무엇으로 빌드하나 — 서비스마다')).toBeInTheDocument()
+  const table = within(screen.getByRole('table'))
+  const heads = screen.getAllByRole('columnheader').map((h) => h.textContent)
+  for (const h of ['repo 프로젝트', '빌드 (repo CI 이미지)', '코드에 적힌 버전', '실행 (center 이미지)', '확인할 것']) expect(heads).toContain(h)
+  // shop web: 빌드 node 20 · 코드 node 22 · 실행 node 22 → 빌드≠코드, 빌드≠실행
+  const web = table.getByTitle('repo 프로젝트: team/apps/shop-web (GitLab)').closest('tr')!
+  expect(table.getByTitle('repo 프로젝트: team/apps/shop-web (GitLab)').querySelectorAll('.grp-repo-part').length).toBe(3) // '/' 에서만 줄바꿈
+  expect(within(web).getByText('node 20').closest('[title]')).toHaveAttribute('title', 'CI 이미지 node:20-slim · job build, test')
+  expect(within(web).getByText('node 22', { selector: '[title^="출처"]' })).toHaveAttribute('title', '출처: .nvmrc · nest 10.3.0')
+  expect([...web.querySelectorAll('.badge--warn')].map((b) => b.textContent)).toEqual(['⚠ 빌드≠코드', '⚠ 빌드≠실행'])
+  expect(within(web).getByText('⚠ 빌드≠코드')).toHaveAttribute('title', '빌드는 node 20(CI 이미지 node:20-slim), 코드는 node 22(.nvmrc)')
+  // shop was: 코드는 '≥20'(최소) 이고 빌드·실행 22 → 괜찮음
+  const was = table.getByTitle('repo 프로젝트: team/apps/shop-was (GitLab)').closest('tr')!
+  expect(within(was).getByText('node ≥20')).toBeInTheDocument()
+  expect(within(was).getByText('없음', { selector: '.badge--ok' })).toBeInTheDocument()
+  // repo CI 를 못 읽은 서비스 · repo 를 안 적은 서비스 · GitHub 서비스
+  expect(within(table.getByTitle('repo 프로젝트: team/pay (GitLab)').closest('tr')!).getByText('못 읽음')).toBeInTheDocument()
+  expect(screen.getByText(/repo 프로젝트를 안 적은 서비스 — sync/)).toBeInTheDocument()
+  expect(screen.getByText(/에서 빌드하는 서비스는 GitLab repo 가 없어 이 표에 없어요 — tv2 web/)).toBeInTheDocument()
+  expect(table.queryByText('tv2')).toBeNull()
+  expect(screen.getByText('확인할 것 — 빌드≠코드 1 · 빌드≠실행 1 · 코드≠실행 0')).toBeInTheDocument()
+  // 고른 보기는 기억 — 다시 열면 repo 그대로
+  unmount()
+  render(<ConfigRepo />)
+  expect(await screen.findByRole('tab', { name: 'repo' })).toHaveAttribute('aria-selected', 'true')
 })

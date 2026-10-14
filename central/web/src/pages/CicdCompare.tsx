@@ -1,8 +1,9 @@
 import { Fragment, useEffect, useState } from 'react'
-import { fetchShapes, type DeployCell, type ExecutorCell, type ShapeRow } from '../api'
+import { fetchShapes, type DeployCell, type ExecutorCell, type ShapeRow, type VersionCell } from '../api'
 import GroupFilter from '../components/GroupFilter'
 import Legend, { type LegendRow } from '../components/Legend'
 import SectionHead, { latestTime, runAll } from '../components/SectionHead'
+import { cmpVer, verParts } from '../vercmp'
 
 // 환경 칸 순서(데이터에 있는 환경만 보인다)
 const ENV_ORDER = ['dev', 'lab', 'stg', 'preview', 'prod']
@@ -45,6 +46,82 @@ function deployCell(c?: DeployCell) {
         </span>
       )}
       {sub && <span className="cell-sub">{sub}</span>}
+    </span>
+  )
+}
+
+// ── 빌드 버전 · 배포 버전 — 환경마다 마지막으로 성공한 빌드·배포 job 의 tag ─────────────
+const day = (at?: string | null) => (at ? at.slice(0, 10) : '날짜 모름')
+const verTitle = (what: string, c: VersionCell) =>
+  `${what}: ${c.tag} · ${day(c.at)}${c.job ? ` · job #${c.job}` : ''}${c.side ? ` (${c.side} CI)` : ''}`
+
+// 배포가 빌드보다 옛 버전이면 = 빌드해 두고 아직 배포 안 함
+export function behind(r: ShapeRow, env: string): boolean {
+  const b = r.versions?.build?.[env]
+  const d = r.versions?.deploy?.[env]
+  return !!(b && d && cmpVer(verParts(d.version), verParts(b.version)) < 0)
+}
+
+function versionEnvs(r: ShapeRow): string[] {
+  const v = r.versions
+  return ENV_ORDER.filter((e) => v?.build?.[e] || v?.deploy?.[e])
+}
+
+function unknownVersion(r: ShapeRow) {
+  if (r.host === 'github') return <span className="muted" title="GitHub 에서 빌드 — 아직 못 읽음">—</span>
+  return (
+    <span className="muted" title="GitLab API 로 안 읽음 — 토큰을 넣고 runner shape (로컬 사본으로 읽으면 버전을 모름)">
+      모름
+    </span>
+  )
+}
+
+function BuildVersions({ r }: { r: ShapeRow }) {
+  if (!r.versions) return unknownVersion(r)
+  const envs = ENV_ORDER.filter((e) => r.versions!.build?.[e])
+  if (envs.length === 0) return <span className="muted" title="tag 로 성공한 빌드 job 이 없음">—</span>
+  return (
+    <span className="exec-lines">
+      {envs.map((e) => {
+        const c = r.versions!.build[e]
+        return (
+          <span key={e} className="exec-line ver-line" title={verTitle('빌드', c)}>
+            <span className="ver-env">{e}</span>
+            <span className="ver">{c.version}</span>
+          </span>
+        )
+      })}
+    </span>
+  )
+}
+
+function DeployVersions({ r }: { r: ShapeRow }) {
+  if (!r.versions) return unknownVersion(r)
+  const envs = versionEnvs(r)
+  if (envs.length === 0) return <span className="muted" title="tag 로 성공한 배포 job 이 없음">—</span>
+  return (
+    <span className="exec-lines">
+      {envs.map((e) => {
+        const d = r.versions!.deploy?.[e]
+        const b = r.versions!.build?.[e]
+        if (!d)
+          return (
+            <span key={e} className="exec-line ver-line" title={`이 환경 배포 job 이 CI 에 없음 — 손으로 배포하거나 CI 밖${b ? ` · ${verTitle('빌드', b)}` : ''}`}>
+              <span className="ver-env">{e}</span>
+              <span className="muted">—</span>
+            </span>
+          )
+        const late = behind(r, e)
+        return (
+          <span key={e} className="exec-line ver-line" title={`${verTitle('배포', d)}${late && b ? `\n빌드는 ${b.tag}(${day(b.at)}) — 아직 배포 안 됨` : ''}`}>
+            <span className="ver-env">{e}</span>
+            <span className={late ? 'ver ver--old' : 'ver'}>
+              {late ? '⚠ ' : ''}
+              {d.version}
+            </span>
+          </span>
+        )
+      })}
     </span>
   )
 }
@@ -192,6 +269,22 @@ const LEGEND: LegendRow[] = [
     ],
   },
   { term: <span className="badge badge--warn">⚠ compose 다름</span>, what: 'CI 와 서버 compose 의 배포 모양이 다름' },
+  {
+    term: '빌드 버전 · 배포 버전',
+    what: '환경마다 마지막으로 성공한 빌드·배포 job 의 tag (마우스 = tag · 날짜)',
+    items: [
+      [
+        <>
+          <span className="ver-env">prod</span>
+          <span className="ver">v1.0.9</span>
+        </>,
+        '그 환경 버전',
+      ],
+      [<span className="ver ver--old">⚠ v1.0.2</span>, '빌드보다 옛날 = 배포 안 됨'],
+      [<span className="muted">prod —</span>, 'CI 에 배포 job 없음'],
+      [<span className="muted">모름</span>, 'API 로 안 읽음'],
+    ],
+  },
   {
     term: 'executor',
     what: 'job 을 어디서 돌리나 (job 이름: 방식)',
@@ -345,12 +438,13 @@ export default function CicdCompare() {
     }))
   const groupNames = [...new Set(all.map((r) => r.group || '기타'))].sort()
   const appCount = ordered.reduce((n, g) => n + g.apps.length, 0)
+  const lateCount = all.reduce((n, r) => n + versionEnvs(r).filter((e) => behind(r, e)).length, 0) // 빌드해 두고 배포 안 한 환경
 
   return (
     <div>
       <SectionHead
         title="서비스 비교"
-        sub={rows ? `그룹 ${ordered.length} · 서비스 ${appCount}` : undefined}
+        sub={rows ? `그룹 ${ordered.length} · 서비스 ${appCount} · 배포 안 된 빌드 ${lateCount}곳` : undefined}
         asOf={latestTime(all.map((r) => r.collected_at))}
         onRefresh={() => runAll(setBusy, [load])}
         busy={busy}
@@ -358,7 +452,7 @@ export default function CicdCompare() {
       <Legend
         id="build"
         rows={LEGEND}
-        source="repo·center GitLab(.gitlab-ci.yml · job 로그) + 서버 docker-compose — runner shape"
+        source="repo·center GitLab(.gitlab-ci.yml · job 로그 · tag 로 돈 job) + 서버 docker-compose — runner shape"
       />
       <div className="toolbar" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
         <GroupFilter groups={groupNames} value={groupSel} onChange={setGroupSel} />
@@ -374,6 +468,8 @@ export default function CicdCompare() {
               {envs.map((e) => (
                 <th key={e}>{e}</th>
               ))}
+              <th>빌드 버전</th>
+              <th>배포 버전</th>
               <th>executor · repo</th>
               <th>executor · center</th>
             </tr>
@@ -415,6 +511,12 @@ export default function CicdCompare() {
                           {envs.map((e) => (
                             <td key={e}>{deployCell(r.deploy?.[e])}</td>
                           ))}
+                          <td>
+                            <BuildVersions r={r} />
+                          </td>
+                          <td>
+                            <DeployVersions r={r} />
+                          </td>
                           <td>
                             <ExecCell e={r.executor_repo} side="repo" />
                           </td>

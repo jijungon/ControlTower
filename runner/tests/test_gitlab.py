@@ -1,7 +1,14 @@
 """GitLab 파이프라인 조회 단위 테스트(httpx MockTransport)."""
 import httpx
 
-from runner.gitlab import fetch_job_log_head, fetch_latest_pipeline, fetch_recent_jobs, fetch_repo_file, fetch_repo_tree
+from runner.gitlab import (
+    fetch_job_log_head,
+    fetch_latest_pipeline,
+    fetch_recent_jobs,
+    fetch_repo_file,
+    fetch_repo_tree,
+    fetch_tag_jobs,
+)
 
 
 def _t(handler):
@@ -106,3 +113,29 @@ def test_repo_file_without_ref_uses_default_branch():
 
     assert fetch_repo_file("http://gl", "tok", "g/r", ".gitlab-ci.yml", transport=_t(handler)) == "x"
     assert fetch_repo_tree("http://gl", "tok", "g/r", transport=_t(lambda r: httpx.Response(200, json=[]))) == []
+
+
+def test_tag_jobs_reads_pages_and_keeps_only_tag_refs():
+    """빌드·배포 버전용 — 성공한 job 만(scope=success), 여러 쪽, 브랜치로 돈 job 은 뺀다."""
+    pages = {
+        "1": ([
+            {"id": 9, "name": "deploy-prod", "ref": "prod-web-v1.2.0", "tag": True, "finished_at": "2026-10-02T01:00:00Z", "stage": "deploy"},
+            {"id": 8, "name": "notify", "ref": "main", "tag": False, "finished_at": "2026-10-01T01:00:00Z"},
+        ], "2"),
+        "2": ([{"id": 5, "name": "build", "ref": "prod-web-v1.2.0", "tag": True, "finished_at": "2026-10-01T00:00:00Z"}], ""),
+    }
+    seen: list[dict] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(dict(req.url.params))
+        body, nxt = pages[req.url.params["page"]]
+        return httpx.Response(200, json=body, headers={"X-Next-Page": nxt})
+
+    jobs = fetch_tag_jobs("http://gl", "tok", "g/r", transport=_t(handler))
+    assert [j["id"] for j in jobs] == [9, 5]
+    assert jobs[0] == {"id": 9, "name": "deploy-prod", "ref": "prod-web-v1.2.0", "finished_at": "2026-10-02T01:00:00Z"}
+    assert [p["page"] for p in seen] == ["1", "2"] and all(p["scope[]"] == "success" for p in seen)
+    # 쪽 수 상한 — 다음 쪽이 계속 있어도 max_pages 에서 멈춤
+    endless = _t(lambda r: httpx.Response(200, json=[], headers={"X-Next-Page": "2"}))
+    assert fetch_tag_jobs("http://gl", "tok", "g/r", transport=endless, max_pages=3) == []
+    assert fetch_tag_jobs("http://gl", "tok", "g/r", transport=_t(lambda r: httpx.Response(401))) is None

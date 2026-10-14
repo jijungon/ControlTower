@@ -71,11 +71,23 @@ test.beforeAll(async () => {
   const shape = await api.post('/api/cicd/shape', {
     data: {
       shapes: [
-        { service: 'shop web', group: 'shop', data: { runtime: 'node', runtime_version: '18', deploy: { dev: { path: 'direct', by: 'repo', manual: false } }, startup: true, host: 'gitlab' } },
+        {
+          service: 'shop web', group: 'shop',
+          data: {
+            runtime: 'node', runtime_version: '18', deploy: { dev: { path: 'direct', by: 'repo', manual: false } }, startup: true, host: 'gitlab',
+            // repo 보기: 빌드 node 20(CI 이미지) · 코드 node 22(.nvmrc) · 실행 node 18 → 셋 다 다름
+            repo: { project: 'team/shop-web', read: true, build: [{ runtime: 'node', version: '20', image: 'node:20-slim', jobs: ['build'] }], code: { node: '22', node_from: '.nvmrc', node_rule: 'exact' } },
+          },
+        },
         {
           service: 'shop admin', group: 'shop',
           data: {
             runtime: 'node', runtime_version: '20', deploy: { dev: { path: 'image', manual: false } }, startup: false, host: 'gitlab',
+            // 빌드·배포 버전: prod 는 v2.0.0 을 빌드해 두고 v1.9.0 이 배포돼 있음
+            versions: {
+              build: { dev: { version: 'v2.0.0', tag: 'dev-admin-v2.0.0', at: '2026-10-12T00:00:00Z', job: 21, side: 'center' }, prod: { version: 'v2.0.0', tag: 'prod-admin-v2.0.0', at: '2026-10-13T00:00:00Z', job: 23, side: 'center' } },
+              deploy: { dev: { version: 'v2.0.0', tag: 'dev-admin-v2.0.0', at: '2026-10-12T01:00:00Z', job: 22, side: 'center' }, prod: { version: 'v1.9.0', tag: 'prod-admin-v1.9.0', at: '2026-10-01T00:00:00Z', job: 15, side: 'center' } },
+            },
             // job 로그로 확정한 executor — 펼치면 job | image | 러너, 아래 러너 표에 등록된 이름
             executor_center: {
               value: 'docker', guess: false, tags: ['builder', 'deployer'], counts: { shell: 1, docker: 2 },
@@ -194,7 +206,6 @@ test('config 탭 — 처음 실행할 명령(이미지·서버)·정리할 것 +
   await expect(table.getByText('CMD 로 옮기기')).toBeVisible()
   await expect(page.getByRole('columnheader', { name: 'dev', exact: true })).toBeVisible() // (서버) 환경 열
   await expect(table.getByText('서버 compose')).toBeVisible() // shop/api dev: 서버 compose 의 command:
-  await expect(page.locator('table.grid--nowrap').getByText('⚠ 다름')).toBeVisible() // 코드 node 22 ≠ 이미지 node 18
   await page.getByRole('button', { name: 'config 폴더 새로고침' }).click()
   await expect(page.getByText(/데이터 기준/)).toBeVisible()
 })
@@ -221,6 +232,34 @@ test('빌드·배포 — 그룹 칸 GitLab/GitHub, executor 펼치면 job | imag
   await expect(legend).not.toHaveAttribute('open', '')
   await legend.locator('summary').click()
   await expect(legend.locator('.legend-grid > dt').first()).toHaveText('dev · stg · prod')
+})
+
+test('빌드·배포 — 빌드 버전 · 배포 버전 칸, 배포가 밀린 환경은 빨간 칸', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: '빌드·배포', exact: true }).click()
+  await expect(page.getByRole('columnheader', { name: '빌드 버전' })).toBeVisible()
+  await expect(page.getByRole('columnheader', { name: '배포 버전' })).toBeVisible()
+  const admin = page.locator('table.grid--nowrap tr', { hasText: 'admin' })
+  await expect(admin.getByText('⚠ v1.9.0')).toHaveClass(/ver--old/) // 빌드 v2.0.0 · 배포 v1.9.0
+  await expect(page.getByText(/배포 안 된 빌드 1곳/)).toBeVisible()
+  await expect(page.locator('table.grid--nowrap tr', { hasText: 'blog' }).getByText('모름')).toHaveCount(0) // GitHub = —
+})
+
+test('config — center / repo 보기: repo 는 빌드 · 코드 · 실행 비교', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'config' }).click()
+  await expect(page.getByRole('tab', { name: 'center' })).toHaveAttribute('aria-selected', 'true')
+  await page.getByRole('tab', { name: 'repo' }).click()
+  const table = page.locator('table.grid--nowrap')
+  const web = table.locator('tr', { hasText: 'team/shop-web' })
+  await expect(web).toContainText('node 20') // 빌드(CI 이미지)
+  await expect(web).toContainText('node 22') // 코드(.nvmrc)
+  await expect(web.locator('.badge--warn')).toHaveText(['⚠ 빌드≠코드', '⚠ 빌드≠실행', '⚠ 코드≠실행'])
+  await expect(page.locator('.note-line', { hasText: 'GitLab repo 가 없어' })).toContainText('blog web')
+  // 고른 보기는 기억 — 다른 탭에 갔다 와도 repo
+  await page.getByRole('button', { name: '빌드·배포', exact: true }).click()
+  await page.getByRole('button', { name: 'config' }).click()
+  await expect(page.getByRole('tab', { name: 'repo' })).toHaveAttribute('aria-selected', 'true')
 })
 
 test('config — ▸ 줄 펼치면 환경별 표, 그룹 칸 config repo, GitHub 서비스 안내', async ({ page }) => {

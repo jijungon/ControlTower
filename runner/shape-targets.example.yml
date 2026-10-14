@@ -11,6 +11,8 @@
 # 기본은 GitLab: 서비스의 repo:/center:, config 의 project: 에 적힌 프로젝트를 무조건 GitLab API 로 읽는다
 #   (.gitlab-ci.yml · .nvmrc · package.json · config 폴더, 토큰 = .env 의 CT_GITLAB_TOKEN · CT_GITLAB_CENTER_TOKEN, read_api).
 #   토큰이 없으면 빈 표를 올리지 않고 멈춘다. API 로 읽은 쪽은 러너마다 최근 job 로그 맨 윗줄로 executor 를 확정.
+#   빌드·배포 버전: tag(<env>-<타입>-v1.2.3)로 성공한 job 중 환경마다 마지막 빌드·배포 — center 먼저, repo 는 서버로 바로
+#   복사하는 job 이 있을 때만. 같은 center 프로젝트를 쓰는 서비스끼리는 tag 타입(tag_type/type)·deploy_role 로 나눈다.
 #   로컬 사본(repo_ci/center_ci/file)은 고를 때만: python -m runner.cli shape --source local
 # 빈 칸은 그냥 빼면 됩니다(표에 '—').
 
