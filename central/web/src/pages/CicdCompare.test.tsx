@@ -24,7 +24,7 @@ const ROWS: ShapeRow[] = [
     deploy: { dev: { path: 'image', manual: false }, prod: { path: 'image', manual: true } },
     executor_repo: {
       value: 'docker', guess: false,
-      groups: [{ tag: 'r1', value: 'docker', guess: false, why: 'job 로그 #41', jobs: ['build'], images: {}, default_image: 'docker:27' }],
+      groups: [{ tag: 'r1', value: 'docker', guess: false, why: 'job 로그 #41', jobs: ['build'], images: {}, default_image: 'docker:27', runner_name: 'build-01' }],
     },
     executor_center: null,
     startup: false, env_keys: 2,
@@ -127,4 +127,16 @@ test('빈 상태 안내', async () => {
   stub([])
   render(<CicdCompare />)
   expect(await screen.findByText(/아직 비교표가 없습니다/)).toBeInTheDocument()
+})
+
+test('러너 표 — 태그마다 방식 · 확인 근거 · 등록된 러너 이름 · 쓰는 서비스', async () => {
+  stub(ROWS)
+  render(<CicdCompare />)
+  const head = await screen.findByRole('heading', { name: '러너' })
+  const table = within(head.closest('.section-head')!.nextElementSibling as HTMLElement)
+  const row = (tag: string) => table.getByText(tag, { selector: 'td' }).closest('tr')!
+  expect(row('r1')).toHaveTextContent(/^repor1docker확정 · job 로그 #41build-01shop admin · job 1개$/)
+  expect(row('old-shell')).toHaveTextContent('확정 · runners 표')
+  expect(row('new-runner')).toHaveTextContent('추정')
+  expect(row('builder')).toHaveTextContent(/^centerbuilder/)
 })

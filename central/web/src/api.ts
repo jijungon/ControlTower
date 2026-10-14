@@ -181,6 +181,7 @@ export type ExecutorGroup = {
   jobs: string[]
   images?: Record<string, string>
   default_image?: string
+  runner_name?: string // GitLab 에 등록된 러너 이름(job 로그로 확인했을 때)
 }
 export type ExecutorCell = {
   value: string

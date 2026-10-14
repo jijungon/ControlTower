@@ -815,8 +815,8 @@ def test_cmd_shape_reads_gitlab_by_default_local_only_when_chosen(monkeypatch, t
     monkeypatch.setattr(cli, "fetch_repo_file", lambda u, t, p, path, ref="main", timeout=8: calls.append(f"file {p}:{path}") or (center_ci if path == ".gitlab-ci.yml" else DOCKER_NEW))
     monkeypatch.setattr(cli, "fetch_repo_tree", lambda u, t, p, ref="main", timeout=8: calls.append(f"tree {p}") or ["shop/web/Dockerfile"])
     monkeypatch.setattr(cli, "fetch_recent_jobs", lambda u, t, p, timeout=8: calls.append(f"jobs {p}") or [
-        {"id": 7, "name": "deploy", "status": "success", "runner_id": 2, "web_url": ""},
-        {"id": 5, "name": "build", "status": "success", "runner_id": 1, "web_url": ""},
+        {"id": 7, "name": "deploy", "status": "success", "runner_id": 2, "runner_name": "deploy-01", "web_url": ""},
+        {"id": 5, "name": "build", "status": "success", "runner_id": 1, "runner_name": "build-01", "web_url": ""},
     ])
     logs = {5: 'Preparing the "shell" executor\n', 7: 'Preparing the "docker" executor\nUsing Docker executor with image deploy-image:latest ...\n'}
     monkeypatch.setattr(cli, "fetch_job_log_head", lambda u, t, p, jid, timeout=8: calls.append(f"log {jid}") or logs[jid])
@@ -846,6 +846,7 @@ def test_cmd_shape_reads_gitlab_by_default_local_only_when_chosen(monkeypatch, t
     groups = {g["tag"]: g for g in ex["groups"]}
     assert (groups["builder"]["value"], groups["builder"]["guess"], groups["builder"]["why"]) == ("shell", False, "job 로그 #5")
     assert (groups["deployer"]["value"], groups["deployer"]["why"]) == ("docker", "job 로그 #7")
+    assert (groups["builder"]["runner_name"], groups["deployer"]["runner_name"]) == ("build-01", "deploy-01")  # GitLab 에 등록된 러너 이름
     assert "default_image" not in groups["deployer"]  # deploy 는 image: 를 적어 둠 → 러너 기본 이미지 아님
     assert "shop/web" in sent["config"]
     # 4) --source local 이면 토큰이 있어도 로컬

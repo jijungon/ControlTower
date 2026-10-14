@@ -118,7 +118,8 @@ def fetch_recent_jobs(
 ) -> list[dict[str, Any]] | None:
     """프로젝트의 최근 job 들(최신순). 오류면 None. executor 를 job 로그로 확정할 때 어떤 job 을 볼지 고르는 용도.
 
-    반환: [{id, name, status, runner_id, web_url}] — 러너가 안 붙은 job(대기·취소)은 runner_id None.
+    반환: [{id, name, status, runner_id, runner_name, web_url}] — 러너가 안 붙은 job(대기·취소)은 runner_id None.
+    runner_name = GitLab 에 등록된 러너 이름(설명).
     """
     pid = quote(str(project), safe="")
     url = f"{base_url.rstrip('/')}/api/v4/projects/{pid}/jobs"
@@ -135,6 +136,7 @@ def fetch_recent_jobs(
             "name": j.get("name"),
             "status": j.get("status"),
             "runner_id": (j.get("runner") or {}).get("id"),
+            "runner_name": (j.get("runner") or {}).get("description"),
             "web_url": j.get("web_url"),
         }
         for j in r.json()

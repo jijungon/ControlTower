@@ -264,7 +264,7 @@ def parse_executor_log(text: str | None) -> dict | None:
 def confirm_executor(cell: dict | None, confirmed: dict[str, dict]) -> dict | None:
     """job 로그로 확인한 결과를 러너 태그 그룹에 덮어씀 → 대표값 다시 계산.
 
-    confirmed: {러너 태그: {executor, job_id, default_image?}} — 확인 못 한 그룹은 그대로(추정 유지).
+    confirmed: {러너 태그: {executor, job_id, runner_name?, default_image?}} — 확인 못 한 그룹은 그대로(추정 유지).
     """
     if not cell or not confirmed:
         return cell
@@ -273,6 +273,8 @@ def confirm_executor(cell: dict | None, confirmed: dict[str, dict]) -> dict | No
         c = confirmed.get(g["tag"])
         if c:
             g = {**g, "value": c["executor"], "guess": False, "why": f"job 로그 #{c['job_id']}"}
+            if c.get("runner_name"):
+                g["runner_name"] = c["runner_name"]  # GitLab 에 등록된 러너 이름
             if c.get("default_image"):
                 g["default_image"] = c["default_image"]  # image: 없이 도는 job 이 실제로 쓰는 러너 기본 이미지(로그에서)
         groups.append(g)

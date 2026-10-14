@@ -169,6 +169,99 @@ const LEGEND: LegendRow[] = [
   },
 ]
 
+// 러너 표 — 등록된 러너(태그)마다 방식 · 확정 근거 · GitLab 러너 이름 · 쓰는 서비스. 서비스 칸의 executor 를 태그로 모은 것
+type RunnerInfo = {
+  side: 'repo' | 'center'
+  tag: string
+  value: string
+  guess: boolean
+  why: string
+  name?: string
+  services: Set<string>
+  jobs: number
+}
+
+export function collectRunners(rows: ShapeRow[]): RunnerInfo[] {
+  const map = new Map<string, RunnerInfo>()
+  for (const r of rows) {
+    for (const side of ['repo', 'center'] as const) {
+      for (const g of (side === 'repo' ? r.executor_repo : r.executor_center)?.groups ?? []) {
+        const k = `${side}|${g.tag}`
+        const cur = map.get(k)
+        // 확정(로그·runners 표)이 하나라도 있으면 그걸로 — 추정보다 우선
+        const better = !cur || (cur.guess && !g.guess)
+        const info: RunnerInfo = better
+          ? {
+              side, tag: g.tag, value: g.value, guess: g.guess,
+              why: g.why ?? (g.guess ? 'image: 유무로 짐작' : 'runners 표'), // 옛 수집엔 why 가 없음
+              name: g.runner_name ?? cur?.name, services: cur?.services ?? new Set(), jobs: cur?.jobs ?? 0,
+            }
+          : cur!
+        if (!info.name && g.runner_name) info.name = g.runner_name
+        info.services.add(r.service)
+        info.jobs += g.jobs.length
+        map.set(k, info)
+      }
+    }
+  }
+  return [...map.values()].sort((a, b) => a.side.localeCompare(b.side) || b.jobs - a.jobs)
+}
+
+function RunnerTable({ rows }: { rows: ShapeRow[] }) {
+  const runners = collectRunners(rows)
+  if (runners.length === 0) return null
+  return (
+    <>
+      <div className="section-head">
+        <h2 className="section-title">러너</h2>
+        <span className="section-sub">job 이 도는 곳 — CI 의 tags: 로 고른 러너마다</span>
+      </div>
+      <div className="card" style={{ overflowX: 'auto' }}>
+        <table className="grid grid--dense">
+          <thead>
+            <tr>
+              <th>GitLab</th>
+              <th>러너 태그</th>
+              <th>방식</th>
+              <th>확인</th>
+              <th>등록된 러너 이름</th>
+              <th>쓰는 서비스</th>
+            </tr>
+          </thead>
+          <tbody>
+            {runners.map((x) => (
+              <tr key={`${x.side}|${x.tag}`}>
+                <td className="muted">{x.side}</td>
+                <td className="mono" style={{ whiteSpace: 'nowrap' }}>{x.tag}</td>
+                <td>
+                  <b>{x.value}</b>
+                </td>
+                <td style={{ whiteSpace: 'nowrap' }}>
+                  {x.guess ? (
+                    <span className="muted" title="job 로그로 확인 못 함 — image: 가 있으면 docker, 없으면 shell 로 짐작">
+                      추정 · {x.why}
+                    </span>
+                  ) : (
+                    <span className="st-asis" style={{ fontWeight: 400 }}>
+                      확정 · {x.why}
+                    </span>
+                  )}
+                </td>
+                <td className="mono">{x.name ?? <span className="muted">—</span>}</td>
+                <td title={[...x.services].join(', ')}>
+                  {[...x.services].slice(0, 3).join(', ')}
+                  {x.services.size > 3 && <span className="muted"> 외 {x.services.size - 3}개</span>}
+                  <span className="muted"> · job {x.jobs}개</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  )
+}
+
 export default function CicdCompare() {
   const [rows, setRows] = useState<ShapeRow[] | null>(null)
   const [err, setErr] = useState(false)
@@ -305,6 +398,8 @@ export default function CicdCompare() {
           </div>
         )}
       </div>
+
+      <RunnerTable rows={all} />
     </div>
   )
 }

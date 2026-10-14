@@ -349,7 +349,7 @@ def _ci_source(svc: dict, side: str, cfg: RunnerConfig, source: str) -> tuple[ob
 def _executor_from_logs(side: str, project: str, cell: dict | None, cfg: RunnerConfig, cache: dict) -> dict[str, dict]:
     """러너 태그 그룹마다 최근 job 하나의 로그 맨 윗줄('Preparing the "shell" executor')로 executor 를 확정.
 
-    같은 러너(runner id)는 한 번만 읽는다(cache). 반환: {러너 태그: {executor, job_id, default_image?}} — 못 본 그룹은 빠짐.
+    같은 러너(runner id)는 한 번만 읽는다(cache). 반환: {러너 태그: {executor, job_id, runner_name?, default_image?}} — 못 본 그룹은 빠짐.
     """
     if not cell or not cell.get("groups"):
         return {}
@@ -367,13 +367,20 @@ def _executor_from_logs(side: str, project: str, cell: dict | None, cfg: RunnerC
         if key not in cache:
             parsed = parse_executor_log(fetch_job_log_head(url, token, project, job["id"], cfg.connect_timeout))
             if parsed:
-                parsed = {"executor": parsed["executor"], "job_id": job["id"], "image": parsed.get("image"), "job": job["name"]}
+                parsed = {
+                    "executor": parsed["executor"], "job_id": job["id"], "image": parsed.get("image"), "job": job["name"],
+                    "runner_name": job.get("runner_name"),
+                }
             cache[key] = parsed
         hit = cache[key]
         if hit:
             # image: 없이 돈 job 의 로그에 찍힌 이미지 = 그 러너의 기본 이미지
             default = hit["image"] if hit.get("image") and hit["job"] not in (g.get("images") or {}) else None
-            out[g["tag"]] = {"executor": hit["executor"], "job_id": hit["job_id"], **({"default_image": default} if default else {})}
+            out[g["tag"]] = {
+                "executor": hit["executor"], "job_id": hit["job_id"],
+                **({"runner_name": hit["runner_name"]} if hit.get("runner_name") else {}),
+                **({"default_image": default} if default else {}),
+            }
     return out
 
 

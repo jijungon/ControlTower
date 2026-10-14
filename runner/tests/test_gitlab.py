@@ -75,14 +75,14 @@ def test_recent_jobs_and_runner_id():
     def handler(req: httpx.Request) -> httpx.Response:
         assert "/projects/g%2Fr/jobs?" in str(req.url) and req.headers["PRIVATE-TOKEN"] == "tok"
         return httpx.Response(200, json=[
-            {"id": 9, "name": "build", "status": "success", "runner": {"id": 3}, "web_url": "http://gl/j/9"},
+            {"id": 9, "name": "build", "status": "success", "runner": {"id": 3, "description": "build-01"}, "web_url": "http://gl/j/9"},
             {"id": 8, "name": "deploy", "status": "pending", "runner": None, "web_url": "http://gl/j/8"},
         ])
 
     jobs = fetch_recent_jobs("http://gl", "tok", "g/r", transport=_t(handler))
     assert jobs == [
-        {"id": 9, "name": "build", "status": "success", "runner_id": 3, "web_url": "http://gl/j/9"},
-        {"id": 8, "name": "deploy", "status": "pending", "runner_id": None, "web_url": "http://gl/j/8"},
+        {"id": 9, "name": "build", "status": "success", "runner_id": 3, "runner_name": "build-01", "web_url": "http://gl/j/9"},
+        {"id": 8, "name": "deploy", "status": "pending", "runner_id": None, "runner_name": None, "web_url": "http://gl/j/8"},
     ]
     assert fetch_recent_jobs("http://gl", "tok", "g/r", transport=_t(lambda r: httpx.Response(403))) is None
 
