@@ -49,6 +49,12 @@ function deployCell(c?: DeployCell) {
   )
 }
 
+// executor 알약 — docker 하늘 · shell 연두, 추정이면 점선 테두리
+function ExecPill({ value, guess }: { value: string; guess?: boolean }) {
+  const kind = value === 'docker' ? 'docker' : value === 'shell' ? 'shell' : 'other'
+  return <span className={`exec-pill exec-pill--${kind}${guess ? ' exec-pill--guess' : ''}`}>{value}</span>
+}
+
 // job 이름 몇 개만(길면 '외 N개')
 const jobNames = (jobs: string[]) => (jobs.length <= 2 ? jobs.join('·') : `${jobs.slice(0, 2).join('·')} 외 ${jobs.length - 2}개`)
 
@@ -101,7 +107,7 @@ function ExecCell({ e, side }: { e?: ExecutorCell; side: 'repo' | 'center' }) {
         const head = (
           <>
             {label && <span className="muted">{label}: </span>}
-            <span className={m.guess ? 'muted' : undefined}>{m.value}</span>
+            <ExecPill value={m.value} guess={m.guess} />
             {m.guess && <small className="muted"> (추정)</small>}
           </>
         )
@@ -179,9 +185,14 @@ const LEGEND: LegendRow[] = [
     term: 'executor',
     what: 'job 을 어디서 돌리나 (job 이름: 방식)',
     items: [
-      [<b>shell</b>, '러너가 깔린 서버에서 바로'],
-      [<b>docker</b>, '그 서버 위 새 컨테이너 안에서'],
-      [<small className="muted">(추정)</small>, '로그로 확인 못 함'],
+      [<ExecPill value="shell" />, '러너가 깔린 서버에서 바로'],
+      [<ExecPill value="docker" />, '그 서버 위 새 컨테이너 안에서'],
+      [
+        <>
+          <ExecPill value="docker" guess /> <small className="muted">(추정)</small>
+        </>,
+        '점선 = job 로그로 확인 못 함',
+      ],
       ['▸', 'job · image 보기'],
     ],
   },
@@ -253,7 +264,7 @@ function RunnerTable({ rows }: { rows: ShapeRow[] }) {
                 <td className="muted">{x.side}</td>
                 <td className="mono" style={{ whiteSpace: 'nowrap' }}>{x.tag}</td>
                 <td>
-                  <b>{x.value}</b>
+                  <ExecPill value={x.value} guess={x.guess} />
                 </td>
                 <td style={{ whiteSpace: 'nowrap' }}>
                   {x.guess ? (

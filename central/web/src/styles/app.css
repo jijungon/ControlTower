@@ -228,6 +228,12 @@ table.subgrid { width: 100%; border-collapse: collapse; font-size: 13px; }
 .run-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--danger); margin-right: 4px; vertical-align: middle; }
 .exec-lines { display: inline-flex; flex-direction: column; gap: 1px; } /* executor: job 별 한 줄씩 */
 .exec-line { white-space: nowrap; }
+/* executor 알약: docker 하늘 · shell 연두 — node 버전 칸처럼 고정폭 굵은 글자 */
+.exec-pill { display: inline-block; font-family: var(--font-mono); font-weight: 600; font-size: 11px; line-height: 1.5; padding: 0 8px; border-radius: 999px; border: 1px solid transparent; }
+.exec-pill--docker { color: var(--exec-docker); background: var(--exec-docker-bg); }
+.exec-pill--shell { color: var(--exec-shell); background: var(--exec-shell-bg); }
+.exec-pill--other { color: var(--ink-muted-80); background: var(--surface-pearl); }
+.exec-pill--guess { background: transparent; border-style: dashed; border-color: currentColor; opacity: 0.8; } /* 추정 = 점선 테두리 */
 /* ▸ 를 누르면 아래로 펼침: job 하나하나 + image */
 .exec-more summary { cursor: pointer; list-style: none; }
 .exec-more summary::-webkit-details-marker { display: none; }
