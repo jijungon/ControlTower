@@ -159,6 +159,10 @@ table.grid { width: 100%; border-collapse: collapse; font-size: 15px; }
 .legend-items > li { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 .legend-v { color: var(--ink); }
 .legend-m { color: var(--ink-muted-80); }
+/* 값 칩 — 글자만 있는 값(이미지·파일 복사 등)을 뜻과 구분. 칸 모양 그대로(아랫줄은 칩 안 작은 글씨) */
+.legend-key { display: inline-block; padding: 2px 9px; border: 1px solid var(--hairline); border-radius: 6px; background: var(--canvas); color: var(--ink); font-weight: 600; line-height: 1.35; }
+.legend-key .cell-sub { font-weight: 400; }
+.legend-key .ver-env { min-width: 0; margin-right: 4px; }
 .legend b { color: var(--ink); font-weight: 600; }
 /* 묶은 표의 경계: 그룹(진한 선) → 서비스(보통 선) → 타입(기본 얇은 선) */
 .grid tbody tr.grp-start td { border-top: 2px solid var(--ink-muted-48); }

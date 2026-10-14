@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import { fetchShapes, type DeployCell, type ExecutorCell, type ShapeRow, type VersionCell } from '../api'
 import GroupFilter from '../components/GroupFilter'
 import Legend, { type LegendRow } from '../components/Legend'
@@ -254,6 +254,16 @@ function ExecCell({ e, side }: { e?: ExecutorCell; side: 'repo' | 'center' }) {
   )
 }
 
+// 표 읽는 법의 값 — 표 칸에 보이는 모양 그대로 테두리 칩에 담아 뜻(옆 글)과 구분. sub = 칸의 아랫줄(작은 글씨)
+function Key({ children, sub }: { children: ReactNode; sub?: string }) {
+  return (
+    <span className="legend-key">
+      {children}
+      {sub && <span className="cell-sub">{sub}</span>}
+    </span>
+  )
+}
+
 // 표 읽는 법 — 칸마다 '무엇을 보여주나' + '값 → 뜻'(짧게)
 const LEGEND: LegendRow[] = [
   {
@@ -261,27 +271,38 @@ const LEGEND: LegendRow[] = [
     what: '환경마다 마지막으로 성공한 빌드·배포 job 의 tag (마우스 = tag · 날짜)',
     items: [
       [
-        <>
+        <Key>
           <span className="ver-env">prod</span>
           <span className="ver">v1.0.9</span>
-        </>,
+        </Key>,
         '그 환경 버전',
       ],
       [<span className="ver ver--old">⚠ v1.0.2</span>, '빌드보다 옛날 = 배포 안 됨'],
-      [<span className="muted">prod —</span>, 'CI 에 배포 job 없음'],
-      [<span className="muted">모름</span>, 'API 로 안 읽음'],
+      [
+        <Key>
+          <span className="ver-env">prod</span>
+          <span className="muted">—</span>
+        </Key>,
+        'CI 에 배포 job 없음',
+      ],
+      [
+        <Key>
+          <span className="muted">모름</span>
+        </Key>,
+        'API 로 안 읽음',
+      ],
     ],
   },
   {
     term: 'dev · stg · prod',
     what: '그 환경에 어떻게 배포하나',
     items: [
-      ['이미지', '도커 이미지로 배포'],
-      ['파일 복사', '결과물을 서버에 복사'],
-      ['빌드만', '배포 안 함'],
-      [<span className="muted">아랫줄 repo · center</span>, '누가 복사'],
-      [<span className="muted">아랫줄 수동</span>, '버튼 눌러 배포'],
-      [<span className="muted">아랫줄 compose 기준</span>, '서버 compose 로 짐작'],
+      [<Key>이미지</Key>, '도커 이미지로 배포'],
+      [<Key>파일 복사</Key>, '결과물을 서버에 복사'],
+      [<Key>빌드만</Key>, '배포 안 함'],
+      [<Key sub="repo · center">파일 복사</Key>, '아랫줄 = 누가 복사'],
+      [<Key sub="수동">이미지</Key>, '아랫줄 = 버튼 눌러 배포'],
+      [<Key sub="compose 기준">이미지</Key>, '아랫줄 = 서버 compose 로 짐작'],
     ],
   },
   { term: <span className="badge badge--warn">⚠ compose 다름</span>, what: 'CI 와 서버 compose 의 배포 모양이 다름' },
@@ -297,7 +318,7 @@ const LEGEND: LegendRow[] = [
         </>,
         '점선 = job 로그로 확인 못 함',
       ],
-      ['▸', 'job · image 보기'],
+      [<Key>▸</Key>, 'job · image 보기'],
     ],
   },
 ]
