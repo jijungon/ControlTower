@@ -48,6 +48,7 @@ config:
 services:
   - name: shop web          # 표에 보이는 이름
     repo:   shop/shop-web     # repo GitLab 프로젝트 — 기본은 여기를 GitLab API 로(repo_ci 는 --source local 때만)
+                              #   repo 저장소가 없으면(없어짐) repo: false — 아무것도 안 읽고 화면에 'repo 없음'
     center: shop/shop         # center GitLab 프로젝트 — 기본은 여기를 GitLab API 로(center_ci 는 --source local 때만)
     group: shop             # 서비스보다 큰 묶음(프로젝트 그룹) — 표에서 그룹별로 나뉨
     note: 옛 사본            # (선택) 표에 작게 붙는 서비스 메모(예: repo: other-repo)

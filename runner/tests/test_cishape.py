@@ -1044,6 +1044,17 @@ def test_build_row_repo_part():
     # 프로젝트는 적었는데 CI 를 못 읽음 → read False(화면에서 '못 읽음')
     assert build_row({"name": "a", "repo": "g/a"}, {"repo_ci": None})["data"]["repo"] == {"project": "g/a", "read": False, "build": []}
     assert build_row({"name": "b", "center": "g/b"}, {})["data"]["repo"] is None  # repo 를 안 씀
+    # repo: false = 저장소가 없어짐 → 안 읽고 '없음' (로컬 사본 repo_ci 가 있어도)
+    assert build_row({"name": "c", "repo": False}, {"repo_ci": "build:\n  image: node:20\n  script: [x]\n"})["data"]["repo"] == {"project": None, "missing": True}
+
+
+def test_ci_source_skips_repo_marked_missing():
+    import types
+
+    from runner.cli import _ci_source
+
+    cfg = types.SimpleNamespace(gitlab_url="", gitlab_token="", gitlab_center_url="", gitlab_center_token="")
+    assert _ci_source({"repo": False, "repo_ci": {"file": "old.yml"}}, "repo", cfg, "api") == (None, None)  # 옛 사본도 안 읽음
 
 
 def test_cmd_shape_attaches_versions_and_repo_code(monkeypatch, tmp_path, capsys):

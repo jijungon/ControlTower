@@ -597,7 +597,12 @@ def build_row(spec: dict, files: dict[str, Any], runners: dict[str, str] | None 
             "startup": startup,
             "env_keys": env_keys,
             # repo 쪽 — 프로젝트 · CI 가 빌드에 쓰는 런타임 이미지(코드에 적힌 버전은 러너가 repo 파일을 읽어 붙임)
-            "repo": {"project": repo_project, "read": repo is not None, "build": build_runtimes(repo)} if (repo or repo_project) else None,
+            # repo: false = repo 저장소가 없음(없어짐) → 아무것도 안 읽고 화면에 'repo 없음'
+            "repo": (
+                {"project": None, "missing": True} if repo_spec is False
+                else {"project": repo_project, "read": repo is not None, "build": build_runtimes(repo)} if (repo or repo_project)
+                else None
+            ),
         },
         "env_hash": env_hash,
     }

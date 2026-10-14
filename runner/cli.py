@@ -348,7 +348,9 @@ def _pick(src: object, source: str) -> object:
 
 def _ci_source(svc: dict, side: str, cfg: RunnerConfig, source: str) -> tuple[object, tuple[str, str | None] | None]:
     """repo/center CI 를 어디서 읽나 → (소스, API 면 (프로젝트, ref)). 대상 파일의 repo:/center: 프로젝트를 GitLab API 로,
-    --source local 일 때(또는 프로젝트 이름이 없을 때)만 {side}_ci(로컬 사본)."""
+    --source local 일 때(또는 프로젝트 이름이 없을 때)만 {side}_ci(로컬 사본). repo: false(저장소 없음)면 아무것도 안 읽음."""
+    if svc.get(side) is False:
+        return None, None
     project, ref = _project_of(svc.get(side))
     if _use_api(project, source):
         src: dict = {"gitlab": side, "project": project, "path": ".gitlab-ci.yml"}

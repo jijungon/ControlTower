@@ -76,9 +76,17 @@ export function repoChecks(r: ShapeRow): [string, string][] {
   return out
 }
 
+// repo 저장소가 없는 서비스 — 읽을 게 없으니 '—'
+const NONE = (
+  <span className="muted" title="repo 저장소가 없음 — 읽지 않음">
+    —
+  </span>
+)
+
 // 빈 칸은 '—' 대신 이유를 짧게 — 없는 것(안 적힘)과 못 읽은 것(빨간 '못 읽음')을 화면에서 바로 구분
 function buildCell(r: ShapeRow) {
   const repo = r.repo
+  if (repo?.missing) return NONE
   if (repo && repo.read === false)
     return (
       <span className="miss-fail st-fail" title="repo CI(.gitlab-ci.yml)를 못 읽음 — 프로젝트 경로·토큰 권한 확인">
@@ -117,6 +125,7 @@ function buildCell(r: ShapeRow) {
 }
 
 function codeCell(r: ShapeRow) {
+  if (r.repo?.missing) return NONE
   const c = r.repo?.code
   const t = c ? codeText(c) : null
   if (!c || !t)
@@ -139,6 +148,7 @@ function runCell(r: ShapeRow) {
 }
 
 function checkCell(r: ShapeRow) {
+  if (r.repo?.missing) return NONE
   const checks = repoChecks(r)
   if (checks.length === 0) return <span className="badge badge--ok">없음</span>
   return (
@@ -186,6 +196,7 @@ export const REPO_LEGEND: LegendRow[] = [
       ],
       [<span className="muted">CI 에 없음 (shell)</span>, '로그에도 버전 없음'],
       [<span className="muted">안 적힘</span>, '코드에 버전 없음'],
+      [<span className="muted">repo 없음</span>, '저장소가 없어 안 읽음'],
       [<span className="miss-fail st-fail">못 읽음</span>, '읽기 실패'],
     ],
   },
@@ -282,6 +293,10 @@ export default function RepoTable({ rows }: { rows: ShapeRow[] }) {
                         <td rowSpan={projectSpan(rs, i)}>
                           {r.repo?.project ? (
                             <ProjectPath path={r.repo.project} />
+                          ) : r.repo?.missing ? (
+                            <span className="muted empty-why" title="repo 저장소가 없음(없어짐) — 읽지 않음, 실행 이미지만 center 에서">
+                              repo 없음
+                            </span>
                           ) : (
                             <span className="muted empty-why" title="대상 파일에 repo: 프로젝트를 안 적음 — 로컬 사본을 읽음">
                               안 적음
