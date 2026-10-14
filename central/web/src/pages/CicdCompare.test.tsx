@@ -12,7 +12,7 @@ const ROWS: ShapeRow[] = [
     executor_repo: {
       value: 'shell', guess: false, counts: { shell: 7, docker: 1 },
       groups: [
-        { tag: 'old-shell', value: 'shell', guess: false, jobs: ['build', 'push_src'] },
+        { tag: 'old-shell', value: 'shell', guess: false, jobs: ['build', 'push_src'], images: {} },
         { tag: 'new-runner', value: 'docker', guess: true, jobs: ['notify'], images: { notify: 'node:22' } },
       ],
     },
@@ -73,6 +73,9 @@ test('배포·executor 칸 — 쉬운 말 + 마우스 올리면 뜻', async () =
     'push_src · image 없음(러너 서버에서 바로)',
   ])
   expect([...lines[0].querySelectorAll('li')].map((li) => li.textContent)).toEqual(['notify · image node:22'])
+  // image 를 모으기 전의 옛 데이터(images 없음)는 '없음' 이 아니라 '모름'
+  const centerCell = rest[rest.length - 1]
+  expect([...centerCell.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['build-image · image 모름(다시 수집 필요)'])
   // job 이 한 종류면 방식만(이름 없이)
   expect(rest[rest.length - 1].querySelector('summary')!.textContent).toBe('docker (추정)')
   // 안 읽은 쪽은 '—' + 이유

@@ -60,11 +60,16 @@ function ExecCell({ e, side }: { e?: ExecutorCell; side: 'repo' | 'center' }) {
       </span>
     )
   // 같은 방식(+확정/추정)끼리 합침 — 러너 태그가 달라도 결과가 같으면 한 줄
-  const merged = new Map<string, { value: string; guess: boolean; jobs: string[]; tags: string[]; why: Set<string>; images: Record<string, string> }>()
+  // images 가 아예 없는 그룹 = image 를 모으기 전의 옛 수집 → '없음' 이 아니라 '모름'
+  const merged = new Map<
+    string,
+    { value: string; guess: boolean; jobs: string[]; tags: string[]; why: Set<string>; images: Record<string, string>; unknown: Set<string> }
+  >()
   for (const g of e.groups?.length ? e.groups : [{ tag: (e.tags ?? []).join(', '), value: e.value, guess: e.guess, jobs: [] }]) {
     const k = `${g.value}|${g.guess}`
-    const m = merged.get(k) ?? { value: g.value, guess: g.guess, jobs: [], tags: [], why: new Set<string>(), images: {} }
+    const m = merged.get(k) ?? { value: g.value, guess: g.guess, jobs: [], tags: [], why: new Set<string>(), images: {}, unknown: new Set<string>() }
     m.jobs.push(...g.jobs)
+    if (!g.images) g.jobs.forEach((j) => m.unknown.add(j))
     Object.assign(m.images, g.images ?? {})
     m.tags.push(g.tag)
     if (g.why) m.why.add(g.why)
@@ -104,6 +109,11 @@ function ExecCell({ e, side }: { e?: ExecutorCell; side: 'repo' | 'center' }) {
                   <span className="mono">{j}</span>
                   {m.images[j] ? (
                     <span className="muted"> · image </span>
+                  ) : m.unknown.has(j) ? (
+                    <span className="muted" title="image 를 모으기 전의 데이터 — runner shape 로 다시 모으고 새로고침">
+                      {' '}
+                      · image 모름(다시 수집 필요)
+                    </span>
                   ) : (
                     <span className="muted"> · image 없음{m.value === 'shell' ? '(러너 서버에서 바로)' : '(러너 기본 이미지)'}</span>
                   )}
