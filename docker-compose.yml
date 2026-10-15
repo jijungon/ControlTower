@@ -1,5 +1,6 @@
 # Control Tower — 중앙 서비스 (사내 VM에서 실행)
-# 러너는 로컬 네이티브 CLI라 여기에 없음 (로컬 ~/.ssh 접근 필요). runner/ 참고.
+# 수집기(collector)는 화면 [다시 수집] 요청만 처리하고 GitLab 만 읽는다(SSH 키 없음).
+# 서버 SSH 가 필요한 수집(compose · OS 패치 · /etc)은 키가 있는 곳의 러너 CLI 로. runner/ 참고.
 # 실행: cp .env.example .env  →  값 채우고  →  docker compose up -d --build
 
 services:
@@ -36,6 +37,25 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
+    restart: unless-stopped
+
+  # 수집기 — 화면 [다시 수집] 요청을 5초마다 확인해 처리. GitLab 만 다시 읽음(서버에 SSH 키를 두지 않음 → 서버 compose 는 지난 값).
+  # .env 를 나눔: 중앙(api·db)은 .env, 수집기는 collector.env — GitLab 읽기 토큰은 수집기 컨테이너에만 들어감.
+  #   cp collector.env.example collector.env → 값 채우기. 대상 파일(shape-targets.yml)은 읽기 전용으로 붙임.
+  collector:
+    build: ./runner
+    command: ["python", "-m", "runner.cli", "agent"]
+    depends_on:
+      api:
+        condition: service_healthy
+    env_file:
+      - ${CT_COLLECTOR_ENV_FILE:-./collector.env}
+    environment:
+      CT_CENTRAL_URL: http://api:8000                            # 같은 compose 안의 중앙 API
+      CT_API_TOKEN: ${CT_API_TOKEN:?set CT_API_TOKEN in .env}     # 중앙과 같은 러너 토큰(.env 에서)
+      CT_SHAPE_TARGETS: /targets/shape-targets.yml
+    volumes:
+      - ${CT_SHAPE_TARGETS_FILE:-./shape-targets.yml}:/targets/shape-targets.yml:ro
     restart: unless-stopped
 
   web:

@@ -208,6 +208,20 @@ test('그룹 칸·그룹 필터 — 빌드·배포 표처럼 그룹 → 서비�
   expect(table.getByText('c')).toBeInTheDocument()
 })
 
+test("GitLab 만 다시 수집한 뒤 — 서버 compose 칸 출처에 '지난 값'", async () => {
+  const rows: ConfigRow[] = [
+    { path: 'shop/web', runtime: 'node', runtime_version: '22', start: 'dockerfile', start_files: [], state: 'done', compose: { prod: 'command' },
+      compose_src: { prod: { kind: 'ssh', via: 'gw-prod', where: 'gw-prod → web-prod:/app/web/docker-compose.yml', kept: true } } },
+  ]
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(url.includes('/api/cicd/config') ? rows : []), { status: 200 })))
+  render(<ConfigRepo />)
+  const table = within(await findDataTable())
+  const tag = table.getByText('gw · 지난 값')
+  expect(tag.closest('[title]')).toHaveAttribute('title', expect.stringContaining('지난 수집 값 — 이번 수집은 GitLab 만'))
+  // 위쪽에 [다시 수집] 버튼
+  expect(screen.getByRole('button', { name: '다시 수집' })).toBeInTheDocument()
+})
+
 test('줄마다 ▸ 펼치면 환경 | 처음 실행할 명령 | 어디서 읽었나 | 위치·이유 표', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(ROWS), { status: 200 })))
   render(<ConfigRepo />)

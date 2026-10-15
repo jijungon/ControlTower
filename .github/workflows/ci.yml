@@ -100,6 +100,8 @@ jobs:
         run: docker build -t controltower-api:ci central/api
       - name: Build web image (push 안 함)
         run: docker build -t controltower-web:ci central/web
+      - name: Build collector image (push 안 함) — 화면 [다시 수집] 을 처리하는 수집기
+        run: docker build -t controltower-collector:ci runner
 
   e2e:
     if: github.event_name != 'pull_request'

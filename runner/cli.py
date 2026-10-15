@@ -24,6 +24,8 @@ import time
 from collections import Counter
 from typing import Any
 
+import httpx
+
 from . import applier
 from .api import CentralAPI
 from .apt import parse_upgradable
@@ -503,14 +505,25 @@ def _config_listing(config: dict, cfg: RunnerConfig, base_dir: str):
     return config_dirs(tree), lambda rel: fetch_repo_file(url, token, str(config["project"]), rel, ref, cfg.connect_timeout)
 
 
-def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str | None = None, source: str = "api") -> None:
+def _ssh_src(src: object) -> bool:
+    """서버에 SSH 로 들어가 읽는 소스인가({ssh: …})."""
+    return isinstance(src, dict) and bool(src.get("ssh"))
+
+
+def cmd_shape(
+    cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str | None = None, source: str = "api", no_ssh: bool = False,
+) -> dict:
     """ssh_mode: None = 대상 파일에 적힌 것만 / 'plan' = center CI 로 서버 compose 위치를 찾아 목록만 출력(접속 안 함)
     / 'read' = 그 목록대로 SSH 로 실제 읽음(대상 파일에 이미 적힌 환경은 건드리지 않음).
-    source: GitLab 파일을 어디서 읽나 — api(기본: 무조건 GitLab, 토큰 없으면 멈춤) / local(로컬 사본, 고를 때만)."""
+    source: GitLab 파일을 어디서 읽나 — api(기본: 무조건 GitLab, 토큰 없으면 멈춤) / local(로컬 사본, 고를 때만).
+    no_ssh: GitLab 만 다시 읽음(SSH 키 없는 서버의 수집기) — 서버 compose 는 지난 수집 값을 이어 씀.
+    반환: {ok, message} — 수집기가 화면 요청을 '완료/실패'로 닫을 때 씀."""
+    if no_ssh:
+        ssh_mode = None
     path = targets_path or cfg.shape_targets
     if not os.path.exists(path):
         print(f"비교표 대상 파일 없음({path}) — runner/shape-targets.example.yml 을 복사해 채우세요.")
-        return
+        return {"ok": False, "message": f"대상 파일 없음({os.path.basename(path)})"}
     with open(path, encoding="utf-8") as f:
         targets_text = f.read()
     runners, services, configs = parse_targets(targets_text)
@@ -518,7 +531,7 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
     gateway_sudo = parse_gateway_sudo(targets_text)  # 이 gw 들은 root 의 ssh 설정으로(sudo -n)
     if not services and not configs:
         print(f"비교표 대상이 비어 있음 — {path} 의 services: / config: 를 채우세요.")
-        return
+        return {"ok": False, "message": "대상 파일이 비어 있음"}
     base_dir = os.path.dirname(os.path.abspath(path))
     # config repo 들도 project: 가 있으면 API 로(--source local 일 때만 file:)
     cfg_api_sides: set[str] = set()
@@ -544,7 +557,7 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
             f"  GitLab 토큰이 없어 멈춤({'·'.join(no_token)}) — .env 에 {' / '.join(env[s] for s in no_token)}(read_api) 를 넣거나,"
             " 로컬 사본으로 보려면 --source local"
         )
-        return
+        return {"ok": False, "message": f"GitLab 토큰이 없어 멈춤({'·'.join(no_token)})"}
     if source != "local":  # 프로젝트 이름이 없어 로컬 사본을 읽는 서비스(알려만 줌)
         local_only = [
             f"{s['name']}({'·'.join(side for side in ('repo', 'center') if not _project_of(s.get(side))[0] and s.get(f'{side}_ci'))})"
@@ -553,6 +566,16 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
         ]
         if local_only:
             print(f"  프로젝트 이름이 없어 로컬 사본을 읽음: {', '.join(local_only)} — repo:/center: 를 적으면 GitLab 으로")
+    prev_shapes: dict[str, dict] = {}  # GitLab 만 읽을 때 — 서비스 → 지난 수집(서버 compose 판독 결과를 이어 씀)
+    prev_config: dict[str, dict] = {}  # config 줄 → 지난 수집
+    if no_ssh:
+        print("  서버 compose 는 SSH 로 안 읽음(GitLab 만) — 지난 수집 값을 이어 씀")
+        api_prev = CentralAPI(cfg.central_url, cfg.api_token)
+        try:
+            prev_shapes = {str(r["service"]): r for r in api_prev.list_shapes()}
+            prev_config = {str(r["path"]): r for r in api_prev.list_config()}
+        finally:
+            api_prev.close()
     # config repo 들의 폴더를 한 표로 모음 — 폴더마다 어느 repo 에서 읽나(reader)·그 repo 의 group
     dirs: dict[str, list[str]] = {}
     readers: dict[str, Any] = {}
@@ -631,6 +654,8 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
     code_by_dir: dict[str, dict] = {}  # config 폴더 ↔ 코드에 적힌 버전(서비스의 repo CI 옆 파일들)
     for cdir, envs in compose_map.items():
         for env, src in ((e, _pick(x, source)) for e, x in (envs or {}).items()):
+            if no_ssh and _ssh_src(src):
+                continue  # 지난 수집 값을 이어 씀(아래 config 줄 만들 때)
             tried, text = _read_source(src, cfg, base_dir)
             if tried and text is None:
                 missing.append(f"config {cdir}:compose.{env}")
@@ -673,6 +698,8 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
             files.setdefault("startup", sh)
         compose = {}
         for env, src in ((e, _pick(x, source)) for e, x in (svc.get("compose") or {}).items()):
+            if no_ssh and _ssh_src(src):
+                continue
             tried, text = _read_source(src, cfg, base_dir)
             if tried and text is None:
                 missing.append(f"{svc['name']}:compose.{env}")
@@ -723,6 +750,9 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
                     compose_by_dir.setdefault(ckey, {}).setdefault(env, text)
                     src_by_dir.setdefault(ckey, {}).setdefault(env, _src_info(src, auto=True))
         files["compose"] = compose
+        if no_ssh:  # 이번에 안 읽은 환경 → 지난 수집의 compose 판독 결과
+            kept = (prev_shapes.get(str(svc["name"])) or {}).get("compose_facts") or {}
+            files["compose_facts"] = {e: f for e, f in kept.items() if not compose.get(e)}
         row = build_row(svc, files, runners)
         for side, (project, _ref) in api.items():  # API 로 읽은 쪽은 job 로그로 executor 확정
             k = f"executor_{side}"
@@ -770,6 +800,16 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
             data["compose"] = {env: m for env, m in moves.items() if m}
             data["compose_src"] = {env: src_by_dir.get(key, {}).get(env) for env in data["compose"]}  # 칸마다 어디서 읽었나
             data["compose_miss"] = {e: m for e, m in miss_by_dir.get(key, {}).items() if e not in data["compose"]}
+            prev = prev_config.get(key) if no_ssh else None
+            if prev:  # GitLab 만 읽었음 → 서버 compose 칸은 지난 수집 값(어디서 읽었나에 '지난 값' 표시)
+                for env, start in (prev.get("compose") or {}).items():
+                    if env not in data["compose"]:
+                        data["compose"][env] = start
+                        data["compose_src"][env] = {**((prev.get("compose_src") or {}).get(env) or {"kind": "unknown"}), "kept": True}
+                        data["compose_miss"].pop(env, None)
+                for env, m in (prev.get("compose_miss") or {}).items():
+                    if env not in data["compose"]:
+                        data["compose_miss"].setdefault(env, m)
             if envs_by_dir.get(key):  # 여기 없는 환경엔 배포를 안 함 → 화면에서 '안 읽음' 대신 '—' (CI 를 못 읽어 비면 안 붙임 = 모름)
                 data["deploy_envs"] = sorted(envs_by_dir[key])
             if key != cdir:  # 역할 줄 — 실제 config 폴더
@@ -783,11 +823,13 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
                 data["config_repo"] = dir_repo[cdir]  # 화면 그룹 칸에 '어느 config repo' 로
             items.append({"path": key, "data": data})
 
+    summary: list[str] = []
     api = CentralAPI(cfg.central_url, cfg.api_token)
     try:
         if services:
             res = api.upload_shapes(rows, replace=True)  # 대상 파일이 기준 — 빠진 서비스는 표에서 내림
             print(f"비교표 수집: {res['accepted']}개 서비스")
+            summary.append(f"서비스 {res['accepted']}개")
             with_ver = sum(1 for r in rows if r["data"].get("versions"))
             from_log = [b for r in rows for b in ((r["data"].get("repo") or {}).get("build") or []) if b.get("from") == "log"]
             if from_log:
@@ -796,6 +838,7 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
         if configs:
             res = api.upload_config(items, replace=True)
             print(f"config 수집: {res['accepted']}개 줄")  # 보통 폴더 하나 = 한 줄(역할로 나뉘면 역할마다)
+            summary.append(f"config {res['accepted']}줄")
     finally:
         api.close()
     if plan:
@@ -814,6 +857,43 @@ def cmd_shape(cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str 
             print("  ※ 목록만 보여줬어요(접속 안 함). 실제로 읽으려면: python -m runner.cli shape --ssh")
     if missing:
         print(f"  못 읽은 파일 {len(missing)}개: {', '.join(missing)}")
+        summary.append(f"못 읽은 파일 {len(missing)}개")
+    if no_ssh:
+        summary.append("서버 compose 는 지난 값")
+    return {"ok": True, "message": " · ".join(summary)}
+
+
+def cmd_agent(
+    cfg: RunnerConfig, targets_path: str | None = None, interval: float = 5.0, once: bool = False, ssh: bool = False,
+    name: str | None = None,
+) -> None:
+    """화면 [다시 수집] 요청을 기다렸다가 처리하는 수집기 — ControlTower 와 같은 서버(또는 PC)에 켜 둔다.
+
+    interval 초마다 ControlTower 에 요청이 있는지 확인(켜져 있다는 표시도 됨) → 있으면 shape 수집 → 완료/실패로 닫음.
+    기본은 GitLab 만 다시 읽음(서버에 SSH 키 없이). ssh=True 면 서버 compose 도 SSH 로(키가 있는 PC 에서만).
+    """
+    name = name or cfg.runner_name
+    mode = "gitlab+ssh" if ssh else "gitlab"
+    print(f"수집기 시작: {name} ({mode}) — {interval:g}초마다 요청 확인")
+    while True:
+        api = CentralAPI(cfg.central_url, cfg.api_token)
+        try:
+            req = api.claim_collect("shape", name, mode)
+            if req:
+                print(f"[{time.strftime('%H:%M:%S')}] 요청 #{req['id']} 수집 시작")
+                try:
+                    res = cmd_shape(cfg, targets_path, "read" if ssh else None, no_ssh=not ssh)
+                except Exception as e:  # 수집 중 오류 → 실패로 닫고 계속 기다림
+                    res = {"ok": False, "message": f"수집 중 오류: {type(e).__name__}: {e}"[:300]}
+                api.finish_collect(req["id"], res["ok"], res["message"])
+                print(f"[{time.strftime('%H:%M:%S')}] 요청 #{req['id']} {'완료' if res['ok'] else '실패'} — {res['message']}")
+        except httpx.HTTPError as e:
+            print(f"[{time.strftime('%H:%M:%S')}] ControlTower 에 못 닿음: {e}")
+        finally:
+            api.close()
+        if once:
+            return
+        time.sleep(interval)
 
 
 def cmd_apply(cfg: RunnerConfig, dry_run: bool = False, rollback_id: int | None = None) -> None:
@@ -941,6 +1021,12 @@ def main() -> None:
         "--source", choices=["api", "local"], default="api",
         help="GitLab 파일을 어디서 — api(기본): repo:/center:/project: 를 무조건 GitLab 으로(토큰 필요) / local: 로컬 사본",
     )
+    agp = sub.add_parser("agent", help="화면 [다시 수집] 요청을 기다렸다 처리(ControlTower 와 같은 서버에 켜 둠)")
+    agp.add_argument("--targets", help="대상 파일 경로(기본 CT_SHAPE_TARGETS 또는 ./shape-targets.yml)")
+    agp.add_argument("--interval", type=float, default=5, help="요청 확인 간격(초, 기본 5)")
+    agp.add_argument("--once", action="store_true", help="한 번만 확인하고 끝(cron·테스트용)")
+    agp.add_argument("--ssh", action="store_true", help="서버 compose 도 SSH 로 읽음(키가 있는 PC 에서만) — 기본은 GitLab 만")
+    agp.add_argument("--name", help="수집기 이름(기본 CT_RUNNER_NAME)")
     allp = sub.add_parser("all", help="모든 수집기 1회 실행(--loop 로 주기 반복)")
     allp.add_argument("--loop", action="store_true", help="간격을 두고 반복 실행")
     allp.add_argument("--interval", type=int, default=300, help="반복 간격(초, 기본 300)")
@@ -968,6 +1054,8 @@ def main() -> None:
         cmd_cicd(cfg)
     elif args.cmd == "shape":
         cmd_shape(cfg, args.targets, "read" if args.ssh else ("plan" if args.ssh_plan else None), args.source)
+    elif args.cmd == "agent":
+        cmd_agent(cfg, args.targets, interval=args.interval, once=args.once, ssh=args.ssh, name=args.name)
     elif args.cmd == "all":
         cmd_all(cfg, loop=args.loop, interval=args.interval)
     elif args.cmd == "apply":

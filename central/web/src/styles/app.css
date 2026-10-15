@@ -322,3 +322,10 @@ table.grid tbody tr.row-detail > td { background: var(--canvas-parchment); paddi
   background: var(--surface-pearl); color: var(--ink);
   border-top: 1px solid var(--hairline); white-space: pre;
 }
+
+/* 다시 수집 버튼 — 요청됨 → 수집 중 → 완료/실패 */
+.collect { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.collect-state { font-size: 12px; color: var(--ink-muted-48); }
+.collect-state--ok { color: var(--ok); }
+.collect-state--warn { color: var(--warn); }
+.collect-state--fail { color: var(--danger); }

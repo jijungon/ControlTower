@@ -4,7 +4,7 @@ VENV := .venv
 PY   := $(VENV)/bin/python
 PIP  := $(VENV)/bin/pip
 
-.PHONY: help setup dev web import runner conf collect migrate test lint clean
+.PHONY: help setup dev web import runner conf collect agent migrate test lint clean
 
 help:
 	@echo "make setup   - venv + 의존성 + .env (최초 1회)"
@@ -15,6 +15,7 @@ help:
 	@echo "make migrate - DB 스키마를 최신으로(Alembic upgrade head)"
 	@echo "make conf    - 관리 경로 conf 수집 → 드리프트 비교"
 	@echo "make collect - 모든 수집기 1회 실행(import→test→conf→updates→versions[→gitlab])"
+	@echo "make agent   - 화면 [다시 수집] 요청을 기다렸다 처리(GitLab 만, 켜 둔 동안)"
 	@echo "make test    - 전체 테스트 (pytest)"
 	@echo "make lint    - 코드 린트 (ruff)"
 	@echo "make clean   - 캐시·로컬 DB 정리"
@@ -51,6 +52,11 @@ conf:
 # 또는 상주 실행: .venv/bin/python -m runner.cli all --loop --interval 300
 collect:
 	$(PY) -m runner.cli all
+
+# 화면 [다시 수집] 버튼 → 이 수집기가 요청을 가져가 GitLab 을 다시 읽음. 서버에선 docker compose 의 collector 가 같은 일.
+# 키가 있는 PC 에서 서버 compose 까지 읽으려면: $(PY) -m runner.cli agent --ssh
+agent:
+	$(PY) -m runner.cli agent
 
 lint:
 	$(VENV)/bin/ruff check .

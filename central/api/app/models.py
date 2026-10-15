@@ -215,6 +215,30 @@ class ConfigItem(Base):
     collected_at: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
+# ── 다시 수집(화면 버튼 → 수집기) ───────────────────────────────────────
+
+class CollectRequest(Base):
+    """화면 [다시 수집] 버튼이 남기는 요청. 중앙은 키·토큰이 없어 직접 수집하지 않고, 수집기(agent)가 가져가 처리한다."""
+    __tablename__ = "collect_requests"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String)                             # shape(빌드·배포·config)
+    status: Mapped[str] = mapped_column(String, default="pending")        # pending | running | done | failed
+    requested_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    started_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    finished_at: Mapped[str | None] = mapped_column(String, nullable=True)
+    collector: Mapped[str | None] = mapped_column(String, nullable=True)  # 가져간 수집기 이름
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)      # 결과 한 줄(요약·실패 이유)
+
+
+class Collector(Base):
+    """수집기(agent)가 마지막으로 요청을 확인한 시각 — 화면에서 '수집기가 꺼져 있어요' 판단용."""
+    __tablename__ = "collectors"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String, unique=True)
+    mode: Mapped[str | None] = mapped_column(String, nullable=True)       # gitlab | gitlab+ssh (무엇을 읽나)
+    last_seen_at: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
 # ── 작업이력 / 감사 로그 ─────────────────────────────────────────────
 
 class AuditLog(Base):

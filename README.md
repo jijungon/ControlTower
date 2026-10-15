@@ -165,6 +165,17 @@ CI/CD 파이프라인 상태와 repo 선언본 버전(node/nest/java)은 GitLab 
 
 > 읽기 전용. 읽은 파일 원문은 중앙에 올리지 않고 결과 칸만 올린다. CI 변수는 **값 없이** 개수 + 해시만 보낸다(화면엔 안 보임). executor 는 **job 마다** 정한다(job 이름: 방식, 가장 많은 쪽은 '나머지 N개'). CI 파일만으로는 확정할 수 없어 대상 파일의 `runners:` 표(태그→shell/docker)에 있으면 확정, 없으면 `image:` 유무로 `(추정)` — 확정은 job 로그 맨 윗줄 `Preparing the "…" executor`. (GitLab 토큰이 있으면 이 로그를 API 로 읽어 자동 확정 — 4번)
 
+### 화면에서 [다시 수집] — 수집기(agent)
+
+빌드·배포 · config 탭의 **[다시 수집]** 버튼은 GitLab 을 다시 읽어 오라는 **요청**을 남긴다(↻ 는 이미 모은 값을 화면에 다시 불러오기만).
+중앙은 키·토큰이 없어 직접 모으지 않는다 — 요청은 **수집기**가 가져가 처리한다.
+
+- 수집기: `python -m runner.cli agent` (`make agent`) — 5초마다 요청 확인, 있으면 `shape` 를 **GitLab 만** 다시 읽어 올림
+  - 서버 compose 는 SSH 로 안 읽고 **지난 수집 값**을 이어 씀(화면 출처에 `· 지난 값`). 키가 있는 PC 에서 `--ssh` 면 compose 도
+- 서버: `docker compose up -d` 의 `collector` 서비스가 같은 일 — env 파일을 나눔: 중앙(api·db)은 `.env`, 수집기는 `collector.env`(GitLab 읽기 토큰, `collector.env.example` 복사) + `shape-targets.yml`(읽기 전용으로 붙임)
+- 화면 상태: 요청됨 → 수집 중 → 완료(표 새로 불러옴) / 실패(이유). 수집기가 꺼져 있으면 `수집기 꺼짐`, 15분 넘게 안 끝나면 실패로 닫음
+- API: `POST /api/collect/requests`(버튼) · `GET /api/collect/status` · `POST /api/collect/claim`·`/requests/{id}/finish`(수집기, 러너 토큰)
+
 ### 탭별 출처 — 고칠 때 어디를 보면 되나
 
 기준: **방식(어떻게)은 빌드·배포, 버전(무엇으로)은 config, 서버에 깔린 것은 서버 탭.** 화면의 표마다 같은 "출처" 줄이 붙어 있다.
