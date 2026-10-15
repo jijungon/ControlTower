@@ -103,5 +103,27 @@ class CentralAPI:
         r.raise_for_status()
         return r.json()
 
+    def list_shapes(self) -> list[dict[str, Any]]:
+        """지난 수집의 비교표 — GitLab 만 다시 읽을 때 서버 compose 값을 이어 쓰려고."""
+        r = self._client.get("/api/cicd/shape")
+        r.raise_for_status()
+        return r.json()
+
+    def list_config(self) -> list[dict[str, Any]]:
+        r = self._client.get("/api/cicd/config")
+        r.raise_for_status()
+        return r.json()
+
+    # ── 다시 수집(화면 버튼) ──
+    def claim_collect(self, kind: str, collector: str, mode: str) -> dict[str, Any] | None:
+        """켜져 있다는 표시 + 기다리는 요청이 있으면 하나 가져옴(없으면 None)."""
+        r = self._client.post("/api/collect/claim", json={"kind": kind, "collector": collector, "mode": mode})
+        r.raise_for_status()
+        return r.json().get("request")
+
+    def finish_collect(self, request_id: int, ok: bool, message: str | None) -> None:
+        r = self._client.post(f"/api/collect/requests/{request_id}/finish", json={"ok": ok, "message": message})
+        r.raise_for_status()
+
     def close(self) -> None:
         self._client.close()

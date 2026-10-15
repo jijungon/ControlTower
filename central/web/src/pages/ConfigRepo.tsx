@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState } from 'react'
 import { fetchConfig, fetchShapes, type ComposeSrc, type ConfigRow, type ShapeRow } from '../api'
+import CollectButton from '../components/CollectButton'
 import GroupFilter from '../components/GroupFilter'
 import Legend, { type LegendRow } from '../components/Legend'
 import SectionHead, { latestTime, runAll } from '../components/SectionHead'
@@ -94,6 +95,10 @@ export function codeMismatch(r: ConfigRow): string | null {
 // 서버 compose 를 어디서 읽었나 — 칸 옆 작은 글씨. 서버 = 실서버에서 직접(SSH), 사본 = 복사해 둔 파일(다를 수 있음)
 function srcLabel(info?: ComposeSrc | null): { text: string; title: string } | null {
   if (!info) return null
+  if (info.kept) {  // 이번 수집은 GitLab 만 — 서버 compose 는 지난 수집 값
+    const s = srcLabel({ ...info, kept: false })
+    return s && { text: `${s.text} · 지난 값`, title: `${s.title}\n지난 수집 값 — 이번 수집은 GitLab 만 다시 읽음(서버 compose 는 SSH 로 안 읽음)` }
+  }
   if (info.kind === 'ssh' && info.via) return { text: 'gw', title: `게이트웨이를 거쳐 실서버에서 읽음 (${info.where}) — center CI 의 배포 서버·폴더로 자동으로 찾음` }
   if (info.kind === 'ssh') return { text: info.auto ? '자동' : '서버', title: `실서버에서 SSH 로 읽음 (${info.where})${info.auto ? ' — center CI 의 배포 서버·폴더로 자동으로 찾음' : ''}` }
   if (info.kind === 'file') return { text: info.note || '사본', title: `복사해 둔 파일을 읽음 — 실서버와 다를 수 있음 (${info.where})` }
@@ -445,11 +450,14 @@ export default function ConfigRepo() {
 
   return (
     <div>
-      <div className="page-head">
-        <h1 className="page-title">config</h1>
-        <p className="page-sub">
-          {side === 'repo' ? 'repo 가 무엇으로 빌드하나 — 서비스마다' : '이미지가 무엇으로 만들어지고 어떻게 뜨나 — config repo 폴더마다'}
-        </p>
+      <div className="page-head page-head--row">
+        <div>
+          <h1 className="page-title">config</h1>
+          <p className="page-sub">
+            {side === 'repo' ? 'repo 가 무엇으로 빌드하나 — 서비스마다' : '이미지가 무엇으로 만들어지고 어떻게 뜨나 — config repo 폴더마다'}
+          </p>
+        </div>
+        <CollectButton onDone={() => load()} />
       </div>
 
       <div className="seg" role="tablist" aria-label="config 보기" style={{ marginBottom: 12 }}>

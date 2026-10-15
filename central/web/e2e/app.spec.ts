@@ -272,6 +272,18 @@ test('config — ▸ 줄 펼치면 환경별 표, 그룹 칸 config repo, GitHub
   await expect(table.getByText('합쳐짐 → shop/api')).toBeVisible()
 })
 
+test('[다시 수집] — 요청을 남기고, 수집기가 없으면 꺼져 있다고 알림(중앙은 직접 안 모음)', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: '빌드·배포', exact: true }).click()
+  await expect(page.locator('.collect-state')).toHaveText('수집기 꺼짐') // e2e 에는 수집기가 없음
+  await page.getByRole('button', { name: '다시 수집' }).click()
+  await expect(page.locator('.collect-state')).toHaveText('요청됨 — ⚠ 수집기가 꺼져 있어요')
+  await expect(page.getByRole('button', { name: '수집 중…' })).toBeDisabled() // 연타 방지
+  // config 탭에도 같은 버튼 — 같은 요청을 보고 있음
+  await page.getByRole('button', { name: 'config' }).click()
+  await expect(page.locator('.collect-state')).toHaveText('요청됨 — ⚠ 수집기가 꺼져 있어요')
+})
+
 test('대시보드 카드를 누르면 그 탭으로 · 작업이력은 페이지로', async ({ page }) => {
   await page.goto('/')
   await page.locator('a.stat', { hasText: '파일 복사 배포' }).click()

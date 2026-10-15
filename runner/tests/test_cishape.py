@@ -1220,3 +1220,117 @@ def _row_with_runtime(spec, files, runners):
     row = build_row(spec, files, runners)
     row["data"].update(runtime="node", runtime_version="18")
     return row
+
+
+def test_cmd_shape_gitlab_only_keeps_last_compose(monkeypatch, tmp_path, capsys):
+    """수집기(서버, SSH 키 없음) — GitLab 만 다시 읽고, 서버 compose 칸은 SSH 로 안 읽고 지난 수집 값을 이어 씀."""
+    import types
+
+    import runner.cli as cli
+
+    center_ci = "deploy-dev:\n  script: [ssh x \"docker compose pull && docker compose up -d\"]\n  rules: [{if: '$CI_COMMIT_TAG =~ /^dev-web-v/'}]\n"
+    (tmp_path / "config" / "shop" / "web").mkdir(parents=True)
+    (tmp_path / "config" / "shop" / "web" / "Dockerfile").write_text(DOCKER_NEW)
+    (tmp_path / "center.yml").write_text(center_ci)
+    targets = tmp_path / "shape-targets.yml"
+    targets.write_text(
+        "config: {file: config}\n"
+        "services:\n"
+        "  - name: shop web\n"
+        "    center_ci: {file: center.yml}\n"
+        "    config_dir: shop/web\n"
+        "    compose:\n"
+        "      dev:  {ssh: web-dev, via: gw-dev, path: /app/web/docker-compose.yml}\n"
+        "      prod: {ssh: web-prod, path: /app/web/docker-compose.yml}\n"
+    )
+    prev_shape = {"service": "shop web", "compose_facts": {"prod": {"path": "direct", "startup": True, "start": "mount"}}}
+    prev_cfg = {
+        "path": "shop/web", "compose": {"prod": "mount"},
+        "compose_src": {"prod": {"kind": "ssh", "where": "web-prod:/app/web/docker-compose.yml"}},
+        "compose_miss": {"stg": {"state": "fail", "reason": "SSH 로 못 읽음"}},
+    }
+    sent: dict = {}
+
+    class FakeAPI:
+        def __init__(self, *a):
+            pass
+
+        def list_shapes(self):
+            return [prev_shape]
+
+        def list_config(self):
+            return [prev_cfg]
+
+        def upload_shapes(self, shapes, replace=False):
+            sent["shapes"] = {s["service"]: s["data"] for s in shapes}
+            return {"accepted": len(shapes), "removed": 0}
+
+        def upload_config(self, items, replace=False):
+            sent["config"] = {i["path"]: i["data"] for i in items}
+            return {"accepted": len(items), "removed": 0}
+
+        def close(self):
+            pass
+
+    ssh_reads: list = []
+    monkeypatch.setattr(cli, "CentralAPI", FakeAPI)
+    monkeypatch.setattr(cli, "read_file", lambda *a, **k: ssh_reads.append(a) or ("x", None))
+    monkeypatch.setattr(cli, "read_file_via", lambda *a, **k: ssh_reads.append(a) or ("x", None))
+    cfg = types.SimpleNamespace(
+        shape_targets=str(targets), central_url="x", api_token="t", gitlab_url="", gitlab_token="",
+        gitlab_center_url="", gitlab_center_token="", gitlab_ref="", connect_timeout=1,
+    )
+    res = cli.cmd_shape(cfg, no_ssh=True)
+    assert ssh_reads == []  # 서버에 SSH 로 안 들어감
+    assert res == {"ok": True, "message": "서비스 1개 · config 1줄 · 서버 compose 는 지난 값"}
+    cfg_row = sent["config"]["shop/web"]
+    assert cfg_row["compose"] == {"prod": "mount"}  # 지난 값 그대로
+    assert cfg_row["compose_src"]["prod"] == {"kind": "ssh", "where": "web-prod:/app/web/docker-compose.yml", "kept": True}  # '지난 값' 표시
+    assert cfg_row["compose_miss"] == {"stg": {"state": "fail", "reason": "SSH 로 못 읽음"}}
+    shape = sent["shapes"]["shop web"]
+    assert shape["compose_facts"]["prod"]["path"] == "direct"  # 다음 번에도 이어 쓰도록 다시 저장
+    assert shape["deploy"]["prod"] == {"path": "direct", "by": "compose", "manual": None, "mismatch": False}  # CI 에 prod 배포가 없어 compose 로 짐작
+    assert "서버 compose 는 SSH 로 안 읽음(GitLab 만)" in capsys.readouterr().out
+
+
+def test_cmd_agent_claims_request_and_finishes(monkeypatch):
+    """수집기 — 요청이 있으면 수집하고 완료/실패로 닫음, 기본은 GitLab 만(SSH 없이)."""
+    import types
+
+    import runner.cli as cli
+
+    calls: list = []
+
+    class FakeAPI:
+        def __init__(self, *a):
+            pass
+
+        def claim_collect(self, kind, collector, mode):
+            calls.append(("claim", kind, collector, mode))
+            return {"id": 7} if len([c for c in calls if c[0] == "claim"]) == 1 else None
+
+        def finish_collect(self, rid, ok, message):
+            calls.append(("finish", rid, ok, message))
+
+        def close(self):
+            pass
+
+    shaped: list = []
+    monkeypatch.setattr(cli, "CentralAPI", FakeAPI)
+    monkeypatch.setattr(cli, "cmd_shape", lambda cfg, t, ssh_mode=None, no_ssh=False: shaped.append((ssh_mode, no_ssh)) or {"ok": True, "message": "서비스 3개"})
+    cfg = types.SimpleNamespace(central_url="x", api_token="t", runner_name="srv-collector")
+    cli.cmd_agent(cfg, once=True)
+    assert shaped == [(None, True)]  # GitLab 만
+    assert calls == [("claim", "shape", "srv-collector", "gitlab"), ("finish", 7, True, "서비스 3개")]
+    # 요청이 없으면 수집 안 함(켜져 있다는 표시만)
+    cli.cmd_agent(cfg, once=True)
+    assert shaped == [(None, True)] and calls[-1] == ("claim", "shape", "srv-collector", "gitlab")
+    # 수집 중 오류 → 실패로 닫음
+    calls.clear()
+
+    def boom(*a, **k):
+        raise RuntimeError("GitLab 응답 없음")
+
+    monkeypatch.setattr(cli, "cmd_shape", boom)
+    cli.cmd_agent(cfg, once=True)
+    assert calls[-1] == ("finish", 7, False, "수집 중 오류: RuntimeError: GitLab 응답 없음")

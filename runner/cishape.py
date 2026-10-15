@@ -554,6 +554,9 @@ def build_row(spec: dict, files: dict[str, Any], runners: dict[str, str] | None 
     docker = analyze_dockerfile(files.get("dockerfile"))
     composes = {env: analyze_compose(t) for env, t in (files.get("compose") or {}).items()}
     composes = {env: c for env, c in composes.items() if c}
+    # GitLab 만 다시 읽을 때(SSH 없이) — 이번에 안 읽은 환경은 지난 수집의 compose 판독 결과를 이어 씀
+    for env, fact in (files.get("compose_facts") or {}).items():
+        composes.setdefault(env, fact)
 
     deploy: dict[str, dict] = {}
     for env in ENVS:
@@ -596,6 +599,8 @@ def build_row(spec: dict, files: dict[str, Any], runners: dict[str, str] | None 
             "executor_center": center["executor"] if center else None,
             "startup": startup,
             "env_keys": env_keys,
+            # 서버 compose 판독 결과만(원문 X) — 다음에 GitLab 만 다시 읽을 때 이어 쓰려고
+            "compose_facts": {env: {k: c[k] for k in ("path", "startup", "start") if k in c} for env, c in composes.items()},
             # repo 쪽 — 프로젝트 · CI 가 빌드에 쓰는 런타임 이미지(코드에 적힌 버전은 러너가 repo 파일을 읽어 붙임)
             # repo: false = repo 저장소가 없음(없어짐) → 아무것도 안 읽고 화면에 'repo 없음'
             "repo": (

@@ -237,7 +237,8 @@ export type ShapeRow = {
 }
 
 // 서버 compose 를 어디서 읽었나 — ssh(서버에서 직접) / file(복사해 둔 사본) / gitlab
-export type ComposeSrc = { kind: 'ssh' | 'file' | 'gitlab' | 'unknown'; auto?: boolean; via?: string; note?: string | null; where?: string } // via = 거친 게이트웨이
+// via = 거친 게이트웨이, kept = 이번 수집은 GitLab 만이라 지난 수집 값을 이어 씀
+export type ComposeSrc = { kind: 'ssh' | 'file' | 'gitlab' | 'unknown'; auto?: boolean; via?: string; note?: string | null; where?: string; kept?: boolean }
 
 // center config repo 폴더 하나(<서비스>/<타입>)
 export type ConfigRow = {
@@ -264,6 +265,38 @@ export type ConfigRow = {
 export async function fetchConfig(): Promise<ConfigRow[]> {
   const res = await fetch('/api/cicd/config')
   if (!res.ok) throw new Error(`GET /api/cicd/config ${res.status}`)
+  return res.json()
+}
+
+// 다시 수집 — 화면 버튼이 남긴 요청. 중앙은 키·토큰이 없어, ControlTower 서버의 수집기(runner agent)가 가져가 처리
+export type CollectRequest = {
+  id: number
+  kind: string
+  status: 'pending' | 'running' | 'done' | 'failed'
+  requested_at?: string | null
+  started_at?: string | null
+  finished_at?: string | null
+  collector?: string | null
+  message?: string | null
+}
+export type CollectStatus = {
+  request: CollectRequest | null
+  collector: { name: string; mode?: string | null; last_seen_at?: string | null; alive: boolean } | null
+}
+
+export async function fetchCollectStatus(kind = 'shape'): Promise<CollectStatus> {
+  const res = await fetch(`/api/collect/status?kind=${encodeURIComponent(kind)}`)
+  if (!res.ok) throw new Error(`GET /api/collect/status ${res.status}`)
+  return res.json()
+}
+
+export async function requestCollect(kind = 'shape'): Promise<CollectRequest> {
+  const res = await fetch('/api/collect/requests', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind }),
+  })
+  if (!res.ok) throw new Error(`POST /api/collect/requests ${res.status}`)
   return res.json()
 }
 
