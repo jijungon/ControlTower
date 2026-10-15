@@ -5,6 +5,7 @@ from runner.gitlab import (
     fetch_job_log_head,
     fetch_latest_pipeline,
     fetch_recent_jobs,
+    fetch_repo_dir,
     fetch_repo_file,
     fetch_repo_tree,
     fetch_tag_jobs,
@@ -139,3 +140,36 @@ def test_tag_jobs_reads_pages_and_keeps_only_tag_refs():
     endless = _t(lambda r: httpx.Response(200, json=[], headers={"X-Next-Page": "2"}))
     assert fetch_tag_jobs("http://gl", "tok", "g/r", transport=endless, max_pages=3) == []
     assert fetch_tag_jobs("http://gl", "tok", "g/r", transport=_t(lambda r: httpx.Response(401))) is None
+
+
+def test_repo_dir_lists_one_folder_blobs_only():
+    """버전 파일이 있는지 먼저 보려고 — 폴더 하나(재귀 X)의 파일 이름만, 쪽 넘김, 오류면 None."""
+    seen: list[dict] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(dict(req.url.params))
+        if req.url.params["page"] == "1":
+            return httpx.Response(200, json=[{"name": ".nvmrc", "type": "blob"}, {"name": "src", "type": "tree"}], headers={"X-Next-Page": "2"})
+        return httpx.Response(200, json=[{"name": "package.json", "type": "blob"}])
+
+    assert fetch_repo_dir("http://gl", "tok", "g/r", "app", "dev", transport=_t(handler)) == [".nvmrc", "package.json"]
+    assert seen[0]["path"] == "app" and seen[0]["ref"] == "dev" and "recursive" not in seen[0]
+    assert fetch_repo_dir("http://gl", "tok", "g/r", transport=_t(lambda r: httpx.Response(404))) is None
+
+
+def test_session_reuses_one_client_per_thread():
+    """부를 때마다 새로 연결(TLS)하지 않게 — 같은 스레드는 같은 Client, 다른 스레드는 따로. transport(테스트)는 그때만."""
+    import threading
+
+    import runner.gitlab as gl
+
+    with gl._session(None, 7) as a, gl._session(None, 7) as b:
+        assert a is b and not a.is_closed
+    other: list = []
+    t = threading.Thread(target=lambda: other.append(gl._session(None, 7).__enter__()))
+    t.start()
+    t.join()
+    assert other[0] is not a
+    with gl._session(_t(lambda r: httpx.Response(200)), 7) as c:
+        assert c is not a
+    assert c.is_closed  # 테스트용은 쓰고 닫음

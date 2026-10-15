@@ -1,4 +1,6 @@
 """비교표 판독기(cishape) — 실제 파일 모양을 본뜬 가짜 CI/Dockerfile/compose 로 검증."""
+import re
+
 from runner.cishape import (
     analyze_ci,
     analyze_compose,
@@ -1101,8 +1103,11 @@ def test_cmd_shape_attaches_versions_and_repo_code(monkeypatch, tmp_path, capsys
         {"id": 29, "name": "build", "ref": "dev-was-v1.0.9", "finished_at": "2026-10-01T00:00:00Z"},
     ]
     monkeypatch.setattr(cli, "CentralAPI", FakeAPI)
-    monkeypatch.setattr(cli, "fetch_repo_file", lambda u, t, p, path, ref="", timeout=8: center_ci if p == "g/shop" else repo_files.get(path))
-    monkeypatch.setattr(cli, "fetch_recent_jobs", lambda *a, **k: [])
+    job_calls: list[str] = []
+    file_calls: list[str] = []
+    monkeypatch.setattr(cli, "fetch_repo_file", lambda u, t, p, path, ref="", timeout=8: file_calls.append(f"{p}:{path}") or (center_ci if p == "g/shop" else repo_files.get(path)))
+    monkeypatch.setattr(cli, "fetch_repo_dir", lambda u, t, p, path="", ref="", timeout=8: list(repo_files))  # repo 폴더 = 이 파일들만 있음
+    monkeypatch.setattr(cli, "fetch_recent_jobs", lambda u, t, p, timeout=8: job_calls.append(p) or [])
     monkeypatch.setattr(cli, "fetch_tag_jobs", lambda u, t, p, timeout=8: tag_calls.append(p) or tag_jobs)
     cfg = types.SimpleNamespace(
         shape_targets=str(targets), central_url="x", api_token="t", gitlab_url="http://repo", gitlab_token="tok",
@@ -1111,6 +1116,11 @@ def test_cmd_shape_attaches_versions_and_repo_code(monkeypatch, tmp_path, capsys
     cli.cmd_shape(cfg)
     out = capsys.readouterr().out
     assert tag_calls == ["g/shop"]  # center 한 번만 · repo 는 서버로 바로 복사하는 job 이 없어 안 읽음
+    # 같은 GitLab 호출은 수집 한 번에 한 번 — center g/shop 을 web·was 가 같이 써도 job 목록은 한 번
+    assert sorted(job_calls) == ["g/shop", "g/shop-was", "g/shop-web"]
+    # 없는 파일은 안 부름 — 폴더 목록에 있는 .nvmrc · package.json 만(pom.xml · build.gradle 은 404 를 받으러 가지 않음)
+    assert not any(c.endswith(("pom.xml", "build.gradle", "build.gradle.kts")) for c in file_calls)
+    assert len(file_calls) == len(set(file_calls))  # 같은 파일 두 번 X
     was, web = sent["shapes"]["shop was"], sent["shapes"]["shop web"]
     assert {e: c["version"] for e, c in was["versions"]["build"].items()} == {"prod": "v1.0.9", "dev": "v1.0.9"}
     assert was["versions"]["deploy"] == {"prod": {"version": "v1.0.2", "tag": "prod-was-v1.0.2", "at": "2026-10-01T00:00:00Z", "job": 30, "side": "center"}}
@@ -1200,6 +1210,7 @@ def test_cmd_shape_reads_shell_build_versions_from_job_logs(monkeypatch, tmp_pat
     monkeypatch.setattr(cli, "CentralAPI", FakeAPI)
     monkeypatch.setattr(cli, "fetch_repo_file", lambda u, t, p, path, ref="", timeout=8: repo_ci if path == ".gitlab-ci.yml" else None)
     monkeypatch.setattr(cli, "fetch_recent_jobs", lambda u, t, p, timeout=8: jobs[p])
+    monkeypatch.setattr(cli, "fetch_repo_dir", lambda *a, **k: [".gitlab-ci.yml", "package.json"])
     monkeypatch.setattr(cli, "fetch_job_log_head", lambda u, t, p, jid, timeout=8, max_bytes=20000: read.append(jid) or logs.get(jid, ""))
     monkeypatch.setattr(cli, "build_row", lambda spec, files, runners=None: _row_with_runtime(spec, files, runners))
     cfg = types.SimpleNamespace(
@@ -1282,7 +1293,7 @@ def test_cmd_shape_gitlab_only_keeps_last_compose(monkeypatch, tmp_path, capsys)
     )
     res = cli.cmd_shape(cfg, no_ssh=True)
     assert ssh_reads == []  # 서버에 SSH 로 안 들어감
-    assert res == {"ok": True, "message": "서비스 1개 · config 1줄 · 서버 compose 는 지난 값"}
+    assert res["ok"] and re.fullmatch(r"서비스 1개 · config 1줄 · 서버 compose 는 지난 값 · \d+초", res["message"])  # 걸린 시간도
     cfg_row = sent["config"]["shop/web"]
     assert cfg_row["compose"] == {"prod": "mount"}  # 지난 값 그대로
     assert cfg_row["compose_src"]["prod"] == {"kind": "ssh", "where": "web-prod:/app/web/docker-compose.yml", "kept": True}  # '지난 값' 표시

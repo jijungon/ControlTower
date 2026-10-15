@@ -189,7 +189,7 @@ test('서버 탭 /etc 설정 적용: 계획 → 승인 (서버 쓰기 없음)', 
   await expect(page.getByText('승인됨')).toBeVisible()
 })
 
-test('config 탭 — 처음 실행할 명령(이미지·서버)·정리할 것 + 새로고침', async ({ page }) => {
+test('config 탭 — 처음 실행할 명령(이미지·서버)·정리할 것 (↻ 대신 [다시 수집])', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'config' }).click()
   await page.getByRole('tab', { name: 'center' }).click() // 기본은 repo 보기
@@ -199,8 +199,8 @@ test('config 탭 — 처음 실행할 명령(이미지·서버)·정리할 것 +
   await expect(table.getByText('CMD 로 옮기기')).toBeVisible()
   await expect(page.getByRole('columnheader', { name: 'dev', exact: true })).toBeVisible() // (서버) 환경 열
   await expect(table.getByText('서버 compose')).toBeVisible() // shop/api dev: 서버 compose 의 command:
-  await page.getByRole('button', { name: 'config 폴더 새로고침' }).click()
   await expect(page.getByText(/데이터 기준/)).toBeVisible()
+  await expect(page.getByRole('button', { name: 'config 폴더 새로고침' })).toHaveCount(0) // [다시 수집] 과 겹쳐 뺌
 })
 
 test('빌드·배포 — 그룹 칸 GitLab/GitHub, executor 펼치면 job | image | 러너, 러너 표', async ({ page }) => {
@@ -272,16 +272,31 @@ test('config — ▸ 줄 펼치면 환경별 표, 그룹 칸 config repo, GitHub
   await expect(table.getByText('합쳐짐 → shop/api')).toBeVisible()
 })
 
-test('[다시 수집] — 요청을 남기고, 수집기가 없으면 꺼져 있다고 알림(중앙은 직접 안 모음)', async ({ page }) => {
+test('[다시 수집] — 수집기가 꺼져 있으면 버튼도 꺼짐, 켜지면 켜짐 → 요청 → 수집기가 처리 → 완료', async ({ page }) => {
+  test.setTimeout(60_000)
+  const collector = await request.newContext({ baseURL: API, extraHTTPHeaders: { Authorization: `Bearer ${TOKEN}` } })
+  const claim = async () => (await (await collector.post('/api/collect/claim', { data: { kind: 'shape', collector: 'e2e-collector', mode: 'gitlab' } })).json()).request
   await page.goto('/')
   await page.getByRole('button', { name: '빌드·배포', exact: true }).click()
-  await expect(page.locator('.collect-state')).toHaveText('수집기 꺼짐') // e2e 에는 수집기가 없음
-  await page.getByRole('button', { name: '다시 수집' }).click()
-  await expect(page.locator('.collect-state')).toHaveText('요청됨 — ⚠ 수집기가 꺼져 있어요')
+  const button = page.locator('.collect button')
+  // e2e 에는 수집기가 없음 → 버튼 꺼짐(누르면 영원히 '요청됨'이 되니까)
+  await expect(page.locator('.collect-state')).toHaveText(/^수집기 꺼짐 · 데이터 기준 /)
+  await expect(button).toBeDisabled()
+  await expect(page.locator('.section-asof')).toHaveCount(0) // 시각은 버튼 옆 한 곳에만
+  // 수집기가 켜짐(5초마다 확인하는 것처럼 한 번 확인) → 화면이 10초 안에 알아채고 버튼을 켬
+  expect(await claim()).toBeNull()
+  await expect(button).toBeEnabled({ timeout: 15_000 })
+  await button.click()
+  await expect(page.locator('.collect-state')).toHaveText('요청됨 — 곧 시작')
   await expect(page.getByRole('button', { name: '수집 중…' })).toBeDisabled() // 연타 방지
-  // config 탭에도 같은 버튼 — 같은 요청을 보고 있음
-  await page.getByRole('button', { name: 'config' }).click()
-  await expect(page.locator('.collect-state')).toHaveText('요청됨 — ⚠ 수집기가 꺼져 있어요')
+  // 수집기가 가져가서 끝냄 → 화면은 완료 + 표를 새로 불러옴
+  const req = await claim()
+  expect(req.status).toBe('running')
+  await expect(page.locator('.collect-state')).toHaveText('수집 중 — GitLab 을 다시 읽는 중')
+  await collector.post(`/api/collect/requests/${req.id}/finish`, { data: { ok: true, message: '서비스 3개' } })
+  await expect(page.locator('.collect-state')).toHaveText(/^데이터 기준 .* · 방금 갱신$/)
+  await expect(button).toHaveText('다시 수집')
+  await collector.dispose()
 })
 
 test('대시보드 카드를 누르면 그 탭으로 · 작업이력은 페이지로', async ({ page }) => {

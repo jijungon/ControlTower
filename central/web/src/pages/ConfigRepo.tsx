@@ -3,7 +3,7 @@ import { fetchConfig, fetchShapes, type ComposeSrc, type ConfigRow, type ShapeRo
 import CollectButton from '../components/CollectButton'
 import GroupFilter from '../components/GroupFilter'
 import Legend, { type LegendRow } from '../components/Legend'
-import SectionHead, { latestTime, runAll } from '../components/SectionHead'
+import SectionHead, { latestTime } from '../components/SectionHead'
 import { isOld, newestBy, Ver, verParts } from '../vercmp'
 import RepoTable, { RepoLegend, repoChecks } from './RepoTable'
 
@@ -373,7 +373,6 @@ const LEGEND: LegendRow[] = [
 export default function ConfigRepo() {
   const [rows, setRows] = useState<ConfigRow[] | null>(null)
   const [err, setErr] = useState(false)
-  const [busy, setBusy] = useState(false)
   const [groupSel, setGroupSel] = useState('')
   const [openRows, setOpenRows] = useState<Set<string>>(new Set()) // ▸ 펼친 줄(환경별 자세히)
   const toggleRow = (path: string) =>
@@ -450,14 +449,11 @@ export default function ConfigRepo() {
 
   return (
     <div>
-      <div className="page-head page-head--row">
-        <div>
-          <h1 className="page-title">config</h1>
-          <p className="page-sub">
-            {side === 'repo' ? 'repo 가 무엇으로 빌드하나 — 서비스마다' : '이미지가 무엇으로 만들어지고 어떻게 뜨나 — config repo 폴더마다'}
-          </p>
-        </div>
-        <CollectButton onDone={() => load()} />
+      <div className="page-head">
+        <h1 className="page-title">config</h1>
+        <p className="page-sub">
+          {side === 'repo' ? 'repo 가 무엇으로 빌드하나 — 서비스마다' : '이미지가 무엇으로 만들어지고 어떻게 뜨나 — config repo 폴더마다'}
+        </p>
       </div>
 
       <div className="seg" role="tablist" aria-label="config 보기" style={{ marginBottom: 12 }}>
@@ -484,9 +480,7 @@ export default function ConfigRepo() {
           <SectionHead
             title="repo 프로젝트"
             sub={shapes ? `확인할 것 — 빌드≠코드 ${checkCount('빌드≠코드')} · 빌드≠실행 ${checkCount('빌드≠실행')} · 코드≠실행 ${checkCount('코드≠실행')}` : undefined}
-            asOf={latestTime(repoRows.map((r) => r.collected_at))}
-            onRefresh={() => runAll(setBusy, [load])}
-            busy={busy}
+            right={<CollectButton asOf={latestTime(repoRows.map((r) => r.collected_at))} onDone={() => load()} />}
           />
           <RepoLegend />
           <div className="toolbar" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
@@ -523,9 +517,7 @@ export default function ConfigRepo() {
                 ? `할 일 — CMD 로 옮기기 ${count('legacy')} · start.sh 지우기 ${count('leftover')} · CMD 넣기 ${count('server')} · 오래된 버전 ${oldCount}칸`
                 : undefined
             }
-            asOf={latestTime(all.map((r) => r.collected_at))}
-            onRefresh={() => runAll(setBusy, [load])}
-            busy={busy}
+            right={<CollectButton asOf={latestTime(all.map((r) => r.collected_at))} onDone={() => load()} />}
           />
 
           <Legend
