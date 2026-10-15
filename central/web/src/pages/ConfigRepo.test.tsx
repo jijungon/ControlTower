@@ -93,16 +93,16 @@ test('처음 실행할 명령(이미지·서버)·정리할 것 — 한 가지 �
   expect([...todo.querySelectorAll('.legend-items .legend-v')].map((d) => d.textContent)).toEqual(['CMD 로 옮기기', 'start.sh 지우기', 'CMD 넣기', '없음', 'java 라 start.sh 안 씀', '합쳐짐 → chat/was'])
   // 서비스별로 묶음: shop 의 6개 폴더가 한 칸
   expect(table.getByText('shop').closest('td')).toHaveAttribute('rowspan', '6')
-  // 새로고침 = 다시 불러오기
-  await userEvent.click(screen.getByRole('button', { name: 'config 폴더 새로고침' }))
-  expect(fetchMock.mock.calls.filter(([u]) => String(u).includes('/api/cicd/config')).length).toBe(2)
+  // ↻ 는 뺐음 — [다시 수집] 이 끝나면 표를 새로 불러옴(겹치는 버튼 두 개 X)
+  expect(screen.queryByRole('button', { name: 'config 폴더 새로고침' })).toBeNull()
+  expect(fetchMock.mock.calls.filter(([u]) => String(u).includes('/api/cicd/config')).length).toBe(1)
 })
 
 test('빈 상태 안내', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => new Response('[]', { status: 200 })))
   render(<ConfigRepo />)
   expect(await screen.findByText(/아직 config 를 읽지 않았습니다/)).toBeInTheDocument()
-  expect(screen.getByText('아직 수집 없음')).toBeInTheDocument()
+  expect(await screen.findByText(/아직 수집 없음/)).toBeInTheDocument() // 버튼 옆 시각 자리
 })
 
 test("lab·preview 는 '기타' 한 열에 모음", async () => {

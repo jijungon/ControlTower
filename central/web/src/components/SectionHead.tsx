@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+
 // 표 하나(섹션)의 머리줄: 제목 · 데이터 기준 시각 · [새로고침].
 // 새로고침은 '화면 새로고침'(중앙에 저장된 값을 다시 읽음)이다. 서버·GitLab 을 다시 수집하는 건 러너 몫.
 
@@ -37,17 +39,22 @@ type Props = {
   onRefresh?: () => void | Promise<unknown>
   busy?: boolean
   source?: string // 이 표가 어디서 온 값인지(관리할 때 헷갈리지 않게)
+  right?: ReactNode // 오른쪽을 통째로 바꿀 때(예: [다시 수집] + 데이터 기준 — 시각을 한 곳에만)
 }
 
-export default function SectionHead({ title, sub, asOf, onRefresh, busy, source }: Props) {
+export default function SectionHead({ title, sub, asOf, onRefresh, busy, source, right }: Props) {
   return (
     <>
     <div className="section-head">
       <h2 className="section-title">{title}</h2>
       {sub && <span className="section-sub">{sub}</span>}
       <span className="spacer" />
-      <span className="section-asof">{asOf ? `데이터 기준 ${fmtTime(asOf)}` : '아직 수집 없음'}</span>
-      {onRefresh && <RefreshButton label={`${title} 새로고침`} onClick={onRefresh} busy={busy} />}
+      {right ?? (
+        <>
+          <span className="section-asof">{asOf ? `데이터 기준 ${fmtTime(asOf)}` : '아직 수집 없음'}</span>
+          {onRefresh && <RefreshButton label={`${title} 새로고침`} onClick={onRefresh} busy={busy} />}
+        </>
+      )}
     </div>
     {source && <p className="section-source">출처: {source}</p>}
     </>

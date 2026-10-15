@@ -21,6 +21,7 @@ router = APIRouter(prefix="/api/collect", tags=["collect"])
 KINDS = {"shape"}  # shape = 빌드·배포 + config (runner shape)
 ALIVE_SECONDS = 60  # 이 안에 확인했으면 '수집기 켜짐'
 STALE_MINUTES = 15  # 수집 중으로 이만큼 지나면 수집기가 죽은 것 → 실패로
+PENDING_MINUTES = 10  # 요청됨으로 이만큼 아무도 안 가져가면 취소(수집기가 꺼져 있던 것)
 
 
 def _now() -> datetime:
@@ -40,6 +41,23 @@ def _out(r: CollectRequest | None) -> dict | None:
     }
 
 
+def _alive(db: Session, now: datetime) -> Collector | None:
+    """ALIVE_SECONDS 안에 확인한 수집기(가장 최근)."""
+    c = db.query(Collector).order_by(Collector.last_seen_at.desc()).first()
+    if c and c.last_seen_at and now - datetime.fromisoformat(c.last_seen_at) <= timedelta(seconds=ALIVE_SECONDS):
+        return c
+    return None
+
+
+def _expire(db: Session, now: datetime) -> None:
+    """오래 멈춘 요청을 닫음 — 수집 중 STALE_MINUTES(수집기가 도중에 죽음) · 요청됨 PENDING_MINUTES(아무도 안 가져감)."""
+    for r in db.query(CollectRequest).filter(CollectRequest.status.in_(("pending", "running"))).all():
+        if r.status == "running" and r.started_at and now - datetime.fromisoformat(r.started_at) > timedelta(minutes=STALE_MINUTES):
+            r.status, r.finished_at, r.message = "failed", _iso(now), f"{STALE_MINUTES}분 넘게 끝나지 않음(수집기가 멈춘 듯)"
+        elif r.status == "pending" and r.requested_at and now - datetime.fromisoformat(r.requested_at) > timedelta(minutes=PENDING_MINUTES):
+            r.status, r.finished_at, r.message = "failed", _iso(now), f"{PENDING_MINUTES}분 동안 수집기가 가져가지 않아 취소"
+
+
 def _kind(kind: str) -> str:
     if kind not in KINDS:
         raise HTTPException(status_code=400, detail=f"모르는 수집 종류: {kind}")
@@ -53,6 +71,11 @@ class RequestIn(BaseModel):
 @router.post("/requests")  # 화면 버튼 — open(다른 UI 액션처럼). 실제 수집은 러너 토큰을 가진 수집기만
 def request_collect(body: RequestIn, db: Session = Depends(get_db)) -> dict:
     kind = _kind(body.kind)
+    now = _now()
+    _expire(db, now)
+    if _alive(db, now) is None:  # 아무도 안 가져갈 요청을 쌓지 않음(화면 버튼도 이때는 꺼져 있음)
+        db.commit()
+        raise HTTPException(status_code=409, detail="수집기가 꺼져 있어요 — 수집기를 켠 뒤 다시 눌러 주세요")
     open_ = (
         db.query(CollectRequest)
         .filter(CollectRequest.kind == kind, CollectRequest.status.in_(("pending", "running")))
@@ -61,7 +84,7 @@ def request_collect(body: RequestIn, db: Session = Depends(get_db)) -> dict:
     )
     if open_:  # 이미 기다리거나 도는 중이면 새로 안 만듦(버튼 연타)
         return {**_out(open_), "reused": True}
-    r = CollectRequest(kind=kind, status="pending", requested_at=_iso(_now()))
+    r = CollectRequest(kind=kind, status="pending", requested_at=_iso(now))
     db.add(r)
     record(db, "collect.request", actor="user", target_type="collect", target_id=kind)
     db.commit()
@@ -71,15 +94,16 @@ def request_collect(body: RequestIn, db: Session = Depends(get_db)) -> dict:
 
 @router.get("/status")
 def collect_status(kind: str = "shape", db: Session = Depends(get_db)) -> dict:
-    """가장 최근 요청 + 수집기가 켜져 있나(마지막 확인 시각)."""
+    """가장 최근 요청 + 수집기가 켜져 있나(마지막 확인 시각). 오래 멈춘 요청은 여기서도 닫음."""
     kind = _kind(kind)
+    now = _now()
+    _expire(db, now)
+    db.commit()
     last = db.query(CollectRequest).filter(CollectRequest.kind == kind).order_by(CollectRequest.id.desc()).first()
     c = db.query(Collector).order_by(Collector.last_seen_at.desc()).first()
     collector = None
     if c:
-        seen = datetime.fromisoformat(c.last_seen_at) if c.last_seen_at else None
-        alive = bool(seen and _now() - seen <= timedelta(seconds=ALIVE_SECONDS))
-        collector = {"name": c.name, "mode": c.mode, "last_seen_at": c.last_seen_at, "alive": alive}
+        collector = {"name": c.name, "mode": c.mode, "last_seen_at": c.last_seen_at, "alive": _alive(db, now) is not None}
     return {"request": _out(last), "collector": collector}
 
 
@@ -97,10 +121,7 @@ def claim(body: ClaimIn, db: Session = Depends(get_db)) -> dict:
     c = db.query(Collector).filter(Collector.name == body.collector).first() or Collector(name=body.collector)
     c.mode, c.last_seen_at = body.mode, _iso(now)
     db.add(c)
-    # 수집 중으로 너무 오래 → 수집기가 도중에 죽은 것
-    for r in db.query(CollectRequest).filter(CollectRequest.status == "running").all():
-        if r.started_at and now - datetime.fromisoformat(r.started_at) > timedelta(minutes=STALE_MINUTES):
-            r.status, r.finished_at, r.message = "failed", _iso(now), f"{STALE_MINUTES}분 넘게 끝나지 않음(수집기가 멈춘 듯)"
+    _expire(db, now)
     r = (
         db.query(CollectRequest)
         .filter(CollectRequest.kind == kind, CollectRequest.status == "pending")

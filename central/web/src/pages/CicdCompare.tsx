@@ -2,7 +2,8 @@ import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import { fetchShapes, type DeployCell, type ExecutorCell, type ShapeRow, type VersionCell } from '../api'
 import GroupFilter from '../components/GroupFilter'
 import Legend, { type LegendRow } from '../components/Legend'
-import SectionHead, { latestTime, runAll } from '../components/SectionHead'
+import CollectButton from '../components/CollectButton'
+import SectionHead, { latestTime } from '../components/SectionHead'
 import { cmpVer, verParts } from '../vercmp'
 
 // 환경 칸 순서(데이터에 있는 환경만 보인다)
@@ -431,7 +432,6 @@ export default function CicdCompare() {
   const [rows, setRows] = useState<ShapeRow[] | null>(null)
   const [err, setErr] = useState(false)
   const [groupSel, setGroupSel] = useState('')
-  const [busy, setBusy] = useState(false)
 
   const load = () =>
     fetchShapes()
@@ -476,9 +476,7 @@ export default function CicdCompare() {
       <SectionHead
         title="서비스 비교"
         sub={rows ? `그룹 ${ordered.length} · 서비스 ${appCount} · 배포 안 된 빌드 ${lateCount}곳` : undefined}
-        asOf={latestTime(all.map((r) => r.collected_at))}
-        onRefresh={() => runAll(setBusy, [load])}
-        busy={busy}
+        right={<CollectButton asOf={latestTime(all.map((r) => r.collected_at))} onDone={load} />}
       />
       <Legend
         id="build"

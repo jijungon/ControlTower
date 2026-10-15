@@ -1,14 +1,35 @@
-"""GitLab CI 조회 (읽기 전용) — 최근 파이프라인 상태 · repo 파일 · 최근 job · tag 로 돈 job · job 로그 앞부분.
+"""GitLab CI 조회 (읽기 전용) — 최근 파이프라인 상태 · repo 파일·폴더 · 최근 job · tag 로 돈 job · job 로그 앞부분.
 
 토큰은 러너 로컬에만 둔다(PRIVATE-TOKEN 헤더). 중앙엔 결과 상태만 올리고 토큰은 저장하지 않는다.
 transport 인자는 테스트에서 httpx.MockTransport 주입용.
 """
 from __future__ import annotations
 
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 from urllib.parse import quote
 
 import httpx
+
+_local = threading.local()
+
+
+@contextmanager
+def _session(transport: httpx.BaseTransport | None, timeout: float) -> Iterator[httpx.Client]:
+    """연결 재사용 — 같은 스레드는 같은 Client(keep-alive)로 부른다. 부를 때마다 새로 연결하면 TLS 핸드셰이크가
+    매번 들어가 느렸다(회사망 TLS 가로채기를 지나면 더). transport 를 주면(테스트) 예전처럼 그때만 쓰고 닫음."""
+    if transport is not None:
+        with httpx.Client(transport=transport, timeout=timeout) as c:
+            yield c
+        return
+    clients: dict = getattr(_local, "clients", None) or {}
+    _local.clients = clients
+    c = clients.get(timeout)
+    if c is None or c.is_closed:
+        c = clients[timeout] = httpx.Client(timeout=timeout)
+    yield c
 
 
 def fetch_latest_pipeline(
@@ -27,7 +48,7 @@ def fetch_latest_pipeline(
     pid = quote(str(project), safe="")
     url = f"{base_url.rstrip('/')}/api/v4/projects/{pid}/pipelines"
     try:
-        with httpx.Client(transport=transport, timeout=timeout) as c:
+        with _session(transport, timeout) as c:
             r = c.get(
                 url,
                 params={"per_page": 1, "order_by": "updated_at", "sort": "desc"},
@@ -64,7 +85,7 @@ def fetch_repo_file(
     fpath = quote(path, safe="")
     url = f"{base_url.rstrip('/')}/api/v4/projects/{pid}/repository/files/{fpath}/raw"
     try:
-        with httpx.Client(transport=transport, timeout=timeout) as c:
+        with _session(transport, timeout) as c:
             r = c.get(url, params={"ref": ref} if ref else {}, headers={"PRIVATE-TOKEN": token})
     except httpx.HTTPError:
         return None
@@ -89,7 +110,7 @@ def fetch_repo_tree(
     paths: list[str] = []
     page = "1"
     try:
-        with httpx.Client(transport=transport, timeout=timeout) as c:
+        with _session(transport, timeout) as c:
             for _ in range(max_pages):
                 r = c.get(
                     url,
@@ -105,6 +126,38 @@ def fetch_repo_tree(
     except httpx.HTTPError:
         return None
     return paths
+
+
+def fetch_repo_dir(
+    base_url: str,
+    token: str,
+    project: str,
+    path: str = "",
+    ref: str = "",
+    timeout: int = 8,
+    *,
+    transport: httpx.BaseTransport | None = None,
+) -> list[str] | None:
+    """폴더 하나의 파일 이름들(하위 폴더는 안 들어감). 오류면 None.
+    .nvmrc · package.json · pom.xml 처럼 '있을 수도 있는' 파일을 하나씩 불러 404 를 받는 대신 먼저 있는지 본다."""
+    pid = quote(str(project), safe="")
+    url = f"{base_url.rstrip('/')}/api/v4/projects/{pid}/repository/tree"
+    names: list[str] = []
+    page = "1"
+    try:
+        with _session(transport, timeout) as c:
+            for _ in range(10):
+                params = {"per_page": 100, "page": page, **({"path": path} if path else {}), **({"ref": ref} if ref else {})}
+                r = c.get(url, params=params, headers={"PRIVATE-TOKEN": token})
+                if r.status_code != 200:
+                    return None
+                names += [i["name"] for i in r.json() if i.get("type") == "blob" and i.get("name")]
+                page = r.headers.get("X-Next-Page", "")
+                if not page:
+                    break
+    except httpx.HTTPError:
+        return None
+    return names
 
 
 def fetch_recent_jobs(
@@ -124,7 +177,7 @@ def fetch_recent_jobs(
     pid = quote(str(project), safe="")
     url = f"{base_url.rstrip('/')}/api/v4/projects/{pid}/jobs"
     try:
-        with httpx.Client(transport=transport, timeout=timeout) as c:
+        with _session(transport, timeout) as c:
             r = c.get(url, params={"per_page": per_page}, headers={"PRIVATE-TOKEN": token})
     except httpx.HTTPError:
         return None
@@ -163,7 +216,7 @@ def fetch_tag_jobs(
     out: list[dict[str, Any]] = []
     page = "1"
     try:
-        with httpx.Client(transport=transport, timeout=timeout) as c:
+        with _session(transport, timeout) as c:
             for _ in range(max_pages):
                 r = c.get(
                     url,
@@ -199,7 +252,7 @@ def fetch_job_log_head(
     pid = quote(str(project), safe="")
     url = f"{base_url.rstrip('/')}/api/v4/projects/{pid}/jobs/{job_id}/trace"
     try:
-        with httpx.Client(transport=transport, timeout=timeout) as c:
+        with _session(transport, timeout) as c:
             with c.stream("GET", url, headers={"PRIVATE-TOKEN": token}) as r:
                 if r.status_code != 200:
                     return None

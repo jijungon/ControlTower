@@ -72,3 +72,6 @@ Thumbs.db
 
 # 수집기 전용 env (GitLab 토큰) — collector.env.example 을 복사해서 씀
 collector.env
+
+# 로컬 전용 compose 덧붙임(CA 묶음 등)
+docker-compose.override.yml

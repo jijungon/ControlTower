@@ -173,7 +173,11 @@ CI/CD 파이프라인 상태와 repo 선언본 버전(node/nest/java)은 GitLab 
 - 수집기: `python -m runner.cli agent` (`make agent`) — 5초마다 요청 확인, 있으면 `shape` 를 **GitLab 만** 다시 읽어 올림
   - 서버 compose 는 SSH 로 안 읽고 **지난 수집 값**을 이어 씀(화면 출처에 `· 지난 값`). 키가 있는 PC 에서 `--ssh` 면 compose 도
 - 서버: `docker compose up -d` 의 `collector` 서비스가 같은 일 — env 파일을 나눔: 중앙(api·db)은 `.env`, 수집기는 `collector.env`(GitLab 읽기 토큰, `collector.env.example` 복사) + `shape-targets.yml`(읽기 전용으로 붙임)
-- 화면 상태: 요청됨 → 수집 중 → 완료(표 새로 불러옴) / 실패(이유). 수집기가 꺼져 있으면 `수집기 꺼짐`, 15분 넘게 안 끝나면 실패로 닫음
+- 회사망이 HTTPS 를 중간에서 다시 서명하면(Cloudflare Zero Trust 등) 컨테이너가 `CERTIFICATE_VERIFY_FAILED` 로 GitLab 에 못 붙음 → `docker-compose.override.example.yml` 을 복사해 CA 묶음을 붙이고 `collector.env` 에 `SSL_CERT_FILE=/certs/ca-bundle.pem`
+- 처음 한 번은 키가 있는 PC 에서 `python -m runner.cli shape --ssh` 로 서버 compose 값까지 채움 — 이후 버튼(GitLab 만)은 그 값을 이어 씀
+- 화면 상태: 수집기가 꺼져 있으면 버튼도 꺼짐(10초마다 확인해 켜지면 켜짐) · 요청됨 → 수집 중 → 완료(표 새로 불러옴) / 실패(이유). 15분 넘게 안 끝나거나 10분 동안 아무도 안 가져가면 실패로 닫음
+- 빌드·배포 · config 는 ↻ 대신 이 버튼(끝나면 표를 새로 불러옴) — 데이터 기준 시각도 버튼 옆 한 곳에만
+- 속도: GitLab 호출을 미리 동시에(8개씩) 읽고, 같은 호출은 수집 한 번에 한 번만(같은 프로젝트의 job 목록 등), 버전 파일은 폴더 목록을 보고 있는 것만, 연결은 재사용 — 한 번에 55초 → 15초 안팎
 - API: `POST /api/collect/requests`(버튼) · `GET /api/collect/status` · `POST /api/collect/claim`·`/requests/{id}/finish`(수집기, 러너 토큰)
 
 ### 탭별 출처 — 고칠 때 어디를 보면 되나

@@ -3,6 +3,9 @@
 # 빌드 컨텍스트 = runner/ → 컨테이너 안 /app/runner 패키지로 둔다(python -m runner.cli).
 FROM python:3.12-slim
 
+# 로그를 바로 내보냄(docker compose logs collector 에 즉시 보이게)
+ENV PYTHONUNBUFFERED=1
+
 WORKDIR /app
 COPY requirements.txt ./runner/requirements.txt
 RUN pip install --no-cache-dir -r runner/requirements.txt

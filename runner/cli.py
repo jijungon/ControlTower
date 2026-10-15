@@ -20,8 +20,10 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import threading
 import time
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import httpx
@@ -54,6 +56,7 @@ from .gitlab import (
     fetch_job_log_head,
     fetch_latest_pipeline,
     fetch_recent_jobs,
+    fetch_repo_dir,
     fetch_repo_file,
     fetch_repo_tree,
     fetch_tag_jobs,
@@ -286,10 +289,25 @@ def _read_source(src: object, cfg: RunnerConfig, base_dir: str) -> tuple[bool, s
     url, token = _gitlab_of(src, cfg)
     if not url or not token or not src.get("project") or not src.get("path"):
         return False, None
-    text = fetch_repo_file(
-        url, token, str(src["project"]), str(src["path"]), str(src.get("ref") or cfg.gitlab_ref or ""), cfg.connect_timeout
+    text = _memo(
+        "file", fetch_repo_file,
+        url, token, str(src["project"]), str(src["path"]), str(src.get("ref") or cfg.gitlab_ref or ""), cfg.connect_timeout,
     )
     return True, text
+
+
+def _code_files(repo_src: object, cfg: RunnerConfig, base_dir: str) -> dict[str, str | None]:
+    """repo CI 옆의 버전 파일들(.nvmrc · package.json · pom.xml · build.gradle…). GitLab 이면 폴더 목록을 한 번 보고
+    있는 파일만 읽는다 — 없는 파일을 하나씩 불러 404 를 받던 것이 수집이 느린 큰 이유였음."""
+    if isinstance(repo_src, dict) and repo_src.get("gitlab") and repo_src.get("project") and not repo_src.get("file"):
+        url, token = _gitlab_of(repo_src, cfg)
+        if url and token:
+            d = os.path.dirname(str(repo_src.get("path") or ""))
+            ref = str(repo_src.get("ref") or cfg.gitlab_ref or "")
+            names = _memo("dir", fetch_repo_dir, url, token, str(repo_src["project"]), d, ref, cfg.connect_timeout)
+            if names is not None:
+                return {n: (_read_source(_sibling(repo_src, n), cfg, base_dir)[1] if n in names else None) for n in CODE_VERSION_FILES}
+    return {n: _read_source(_sibling(repo_src, n), cfg, base_dir)[1] for n in CODE_VERSION_FILES}
 
 
 def _sibling(src: object, name: str) -> dict | None:
@@ -305,6 +323,25 @@ def _sibling(src: object, name: str) -> dict | None:
 
 
 CODE_VERSION_FILES = (".nvmrc", "package.json", "pom.xml", "build.gradle", "build.gradle.kts")
+
+
+# 한 번 수집(shape)하는 동안 같은 GitLab 호출은 한 번만 — 미리 읽기(동시에) 결과와 같은 프로젝트의 job 목록을 다시 씀.
+# 수집이 끝나면 비움(다음 수집은 새로 읽음). None 이면 꺼짐(직접 부를 때 = 예전 그대로).
+_MEMO: dict | None = None
+_MEMO_LOCK = threading.Lock()
+GITLAB_WORKERS = 8  # 미리 읽을 때 동시에 부르는 수 — GitLab 에 무리 가지 않게
+
+
+def _memo(name: str, fn: Any, *args: Any, **kw: Any) -> Any:
+    if _MEMO is None:
+        return fn(*args, **kw)
+    key = (name, args, tuple(sorted(kw.items())))
+    with _MEMO_LOCK:
+        if key in _MEMO:
+            return _MEMO[key]
+    val = fn(*args, **kw)
+    with _MEMO_LOCK:
+        return _MEMO.setdefault(key, val)
 
 
 def _src_info(src: object, note: str | None = None, auto: bool = False) -> dict:
@@ -372,7 +409,7 @@ def _executor_from_logs(side: str, project: str, cell: dict | None, cfg: RunnerC
     url, token = _gitlab_of({"gitlab": side}, cfg)
     if not url or not token:
         return {}
-    jobs = fetch_recent_jobs(url, token, project, cfg.connect_timeout) or []
+    jobs = _memo("jobs", fetch_recent_jobs, url, token, project, cfg.connect_timeout) or []
     out: dict[str, dict] = {}
     for g in cell["groups"]:
         names = set(g["jobs"])
@@ -381,7 +418,7 @@ def _executor_from_logs(side: str, project: str, cell: dict | None, cfg: RunnerC
             continue
         key = (side, job["runner_id"])
         if key not in cache:
-            parsed = parse_executor_log(fetch_job_log_head(url, token, project, job["id"], cfg.connect_timeout))
+            parsed = parse_executor_log(_memo("log", fetch_job_log_head, url, token, project, job["id"], cfg.connect_timeout))
             if parsed:
                 parsed = {
                     "executor": parsed["executor"], "job_id": job["id"], "image": parsed.get("image"), "job": job["name"],
@@ -423,7 +460,7 @@ def _versions_of(
         url, token = _gitlab_of({"gitlab": side}, cfg)
         key = (side, project)
         if key not in cache:
-            cache[key] = fetch_tag_jobs(url, token, project, cfg.connect_timeout) if url and token else None
+            cache[key] = _memo("tags", fetch_tag_jobs, url, token, project, cfg.connect_timeout) if url and token else None
         if cache[key] is None:
             continue
         own_type = str(svc.get("tag_type") or svc.get("type") or "web")
@@ -459,19 +496,54 @@ def _build_from_log(row: dict, ci: dict | None, project: str, cfg: RunnerConfig,
         return None
     kinds = {n: j["kind"] for n, j in (ci.get("jobs") or {}).items()}
     if project not in cache:
-        cache[project] = fetch_recent_jobs(url, token, project, cfg.connect_timeout) or []
+        cache[project] = _memo("jobs", fetch_recent_jobs, url, token, project, cfg.connect_timeout) or []
     job = next(
         (j for j in cache[project] if j["status"] == "success" and kinds.get(j["name"]) == "other" and "build" in str(j["name"]).lower()),
         None,
     )
     if not job:
         return None
-    found = parse_build_log_versions(fetch_job_log_head(url, token, project, job["id"], cfg.connect_timeout, max_bytes=200_000))
+    found = parse_build_log_versions(
+        _memo("log", fetch_job_log_head, url, token, project, job["id"], cfg.connect_timeout, max_bytes=200_000)
+    )
     repo["build"] = [
         {"runtime": rt, "version": v, "image": None, "jobs": [job["name"]], "from": "log", "job": job["id"], "runner": job.get("runner_name")}
         for rt, v in found.items()
     ]
     return job.get("runner_name")
+
+
+def _prefetch(services: list[dict], cdirs: list[str], config_files: Any, cfg: RunnerConfig, source: str, base_dir: str) -> None:
+    """미리 읽기 — 아래에서 서비스마다 하나씩 부를 GitLab 호출을 GITLAB_WORKERS 개씩 동시에 먼저 불러 둔다(_MEMO 에).
+    CI 파일 · repo 버전 파일 · config 폴더 Dockerfile · 프로젝트마다 최근 job 목록 · center 의 tag 로 돈 job.
+    서버 compose(SSH)는 여기서 안 함. 하나가 실패해도 괜찮음 — 아래에서 그때 다시 부름."""
+    if _MEMO is None:
+        return
+
+    def ci_and_code(s: dict) -> None:
+        for side in ("repo", "center"):
+            src, api_side = _ci_source(s, side, cfg, source)
+            if api_side:
+                _read_source(src, cfg, base_dir)
+                if side == "repo":
+                    _code_files(src, cfg, base_dir)
+
+    tasks: list[Any] = [lambda s=s: ci_and_code(s) for s in services]
+    tasks += [lambda d=d: config_files(d) for d in cdirs]
+    projects = {(side, p) for s in services for side in ("repo", "center") if (p := _project_of(s.get(side))[0]) and _use_api(p, source)}
+    for side, project in sorted(projects):
+        url, token = _gitlab_of({"gitlab": side}, cfg)
+        if not url or not token:
+            continue
+        tasks.append(lambda u=url, t=token, p=project: _memo("jobs", fetch_recent_jobs, u, t, p, cfg.connect_timeout))
+        if side == "center":
+            tasks.append(lambda u=url, t=token, p=project: _memo("tags", fetch_tag_jobs, u, t, p, cfg.connect_timeout))
+    with ThreadPoolExecutor(max_workers=GITLAB_WORKERS) as pool:
+        for f in [pool.submit(t) for t in tasks]:
+            try:
+                f.result()
+            except Exception:  # 미리 읽기 실패는 무시 — 본 수집에서 다시 부름
+                pass
 
 
 def _config_listing(config: dict, cfg: RunnerConfig, base_dir: str):
@@ -499,10 +571,10 @@ def _config_listing(config: dict, cfg: RunnerConfig, base_dir: str):
     if not url or not token or not config.get("project"):
         return None
     ref = str(config.get("ref") or cfg.gitlab_ref or "")  # 비우면 프로젝트 기본 브랜치
-    tree = fetch_repo_tree(url, token, str(config["project"]), ref, cfg.connect_timeout)
+    tree = _memo("tree", fetch_repo_tree, url, token, str(config["project"]), ref, cfg.connect_timeout)
     if tree is None:
         return None
-    return config_dirs(tree), lambda rel: fetch_repo_file(url, token, str(config["project"]), rel, ref, cfg.connect_timeout)
+    return config_dirs(tree), lambda rel: _memo("file", fetch_repo_file, url, token, str(config["project"]), rel, ref, cfg.connect_timeout)
 
 
 def _ssh_src(src: object) -> bool:
@@ -511,6 +583,24 @@ def _ssh_src(src: object) -> bool:
 
 
 def cmd_shape(
+    cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str | None = None, source: str = "api", no_ssh: bool = False,
+) -> dict:
+    """비교표 + config 수집 한 번. 이 동안만 GitLab 호출을 기억(_MEMO)하고, 미리 읽기는 동시에 → 끝나면 비움."""
+    global _MEMO
+    _MEMO = {}
+    started = time.monotonic()
+    try:
+        res = _shape(cfg, targets_path, ssh_mode, source, no_ssh)
+    finally:
+        _MEMO = None
+    secs = round(time.monotonic() - started)
+    print(f"걸린 시간: {secs}초")
+    if res.get("ok"):
+        res = {**res, "message": f"{res['message']} · {secs}초"}
+    return res
+
+
+def _shape(
     cfg: RunnerConfig, targets_path: str | None = None, ssh_mode: str | None = None, source: str = "api", no_ssh: bool = False,
 ) -> dict:
     """ssh_mode: None = 대상 파일에 적힌 것만 / 'plan' = center CI 로 서버 compose 위치를 찾아 목록만 출력(접속 안 함)
@@ -618,6 +708,7 @@ def cmd_shape(
         reader = readers.get(cdir)
         return (reader(f"{cdir}/{df}") if (df and reader) else None), sh
 
+    _prefetch(services, list(dirs), config_files, cfg, source, base_dir)
     rows, missing = [], []
     compose_by_dir: dict[str, dict[str, str | None]] = {}
     src_by_dir: dict[str, dict[str, dict]] = {}  # config 폴더 → 환경 → 어디서 읽었나
@@ -773,7 +864,7 @@ def cmd_shape(
             if svc.get("group"):
                 group_by_key.setdefault(ckey, str(svc["group"]))
         if repo_src:  # 코드에 적힌 버전 — repo 탭(서비스마다) + center 탭(config 폴더마다)
-            code_files = {n: _read_source(_sibling(repo_src, n), cfg, base_dir)[1] for n in CODE_VERSION_FILES}
+            code_files = _code_files(repo_src, cfg, base_dir)
             cv = code_versions(code_files)
             if row["data"].get("repo") is not None:
                 row["data"]["repo"]["code"] = cv

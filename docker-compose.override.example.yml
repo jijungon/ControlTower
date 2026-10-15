@@ -1,0 +1,8 @@
+# 로컬(회사 PC)에서 docker compose 로 띄울 때만 — 복사해서 docker-compose.override.yml 로 쓰기(커밋 안 됨).
+# 회사망이 HTTPS 를 중간에서 다시 서명하면(예: Cloudflare Zero Trust) 컨테이너가 그 인증서를 몰라
+# 'CERTIFICATE_VERIFY_FAILED' 로 GitLab 에 못 붙는다 → 그 루트 인증서를 포함한 CA 묶음을 수집기에 붙인다.
+# collector.env 에 SSL_CERT_FILE=/certs/ca-bundle.pem 도 함께 넣기. 서버(가로채기 없는 망)에선 필요 없음.
+services:
+  collector:
+    volumes:
+      - ${HOME}/.config/controltower/ca-bundle.pem:/certs/ca-bundle.pem:ro
