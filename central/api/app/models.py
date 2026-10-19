@@ -228,6 +228,7 @@ class CollectRequest(Base):
     finished_at: Mapped[str | None] = mapped_column(String, nullable=True)
     collector: Mapped[str | None] = mapped_column(String, nullable=True)  # 가져간 수집기 이름
     message: Mapped[str | None] = mapped_column(Text, nullable=True)      # 결과 한 줄(요약·실패 이유)
+    trigger: Mapped[str | None] = mapped_column(String, nullable=True, default="user")  # user(버튼) | auto(매일 정해 둔 시각)
 
 
 class Collector(Base):
@@ -236,6 +237,7 @@ class Collector(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String, unique=True)
     mode: Mapped[str | None] = mapped_column(String, nullable=True)       # gitlab | gitlab+ssh (무엇을 읽나)
+    schedule: Mapped[str | None] = mapped_column(String, nullable=True)   # 자동 수집 시각(예: '09:00 Asia/Seoul'), 없으면 버튼만
     last_seen_at: Mapped[str | None] = mapped_column(String, nullable=True)
 
 

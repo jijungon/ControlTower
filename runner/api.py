@@ -115,11 +115,17 @@ class CentralAPI:
         return r.json()
 
     # ── 다시 수집(화면 버튼) ──
-    def claim_collect(self, kind: str, collector: str, mode: str) -> dict[str, Any] | None:
-        """켜져 있다는 표시 + 기다리는 요청이 있으면 하나 가져옴(없으면 None)."""
-        r = self._client.post("/api/collect/claim", json={"kind": kind, "collector": collector, "mode": mode})
+    def claim_collect(self, kind: str, collector: str, mode: str, schedule: str | None = None) -> dict[str, Any] | None:
+        """켜져 있다는 표시(+ 자동 수집 시각) + 기다리는 요청이 있으면 하나 가져옴(없으면 None)."""
+        r = self._client.post("/api/collect/claim", json={"kind": kind, "collector": collector, "mode": mode, "schedule": schedule})
         r.raise_for_status()
         return r.json().get("request")
+
+    def request_auto(self, kind: str, since: str) -> dict[str, Any]:
+        """매일 정해 둔 시각이 지났을 때 — since 뒤로 끝난 수집이 없으면 중앙이 자동 요청을 만듦."""
+        r = self._client.post("/api/collect/auto", json={"kind": kind, "since": since})
+        r.raise_for_status()
+        return r.json()
 
     def finish_collect(self, request_id: int, ok: bool, message: str | None) -> None:
         r = self._client.post(f"/api/collect/requests/{request_id}/finish", json={"ok": ok, "message": message})

@@ -24,7 +24,9 @@ import threading
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -954,22 +956,40 @@ def _shape(
     return {"ok": True, "message": " · ".join(summary)}
 
 
+def _daily_since(now: datetime, at: str, tz: str) -> str | None:
+    """오늘(tz 기준)의 자동 수집 시각이 지났으면 그 시각(ISO, UTC), 아직이면 None. at = 'HH:MM'."""
+    local = now.astimezone(ZoneInfo(tz))
+    hh, mm = (int(x) for x in at.split(":"))
+    due = local.replace(hour=hh, minute=mm, second=0, microsecond=0)
+    return due.astimezone(timezone.utc).isoformat(timespec="seconds") if local >= due else None
+
+
 def cmd_agent(
     cfg: RunnerConfig, targets_path: str | None = None, interval: float = 5.0, once: bool = False, ssh: bool = False,
-    name: str | None = None,
+    name: str | None = None, daily_at: str | None = None, tz: str = "Asia/Seoul",
 ) -> None:
-    """화면 [다시 수집] 요청을 기다렸다가 처리하는 수집기 — ControlTower 와 같은 서버(또는 PC)에 켜 둔다.
+    """화면 [다시 수집] 요청(수동)과 매일 정해 둔 시각(자동)에 수집하는 수집기 — ControlTower 와 같은 서버(또는 PC)에 켜 둔다.
 
     interval 초마다 ControlTower 에 요청이 있는지 확인(켜져 있다는 표시도 됨) → 있으면 shape 수집 → 완료/실패로 닫음.
+    daily_at('09:00', tz 기준)이 지나면 하루 한 번 자동 요청 — 그 뒤로 끝난 수집(버튼 포함)이 있으면 건너뜀.
+    수집기가 그 시각에 꺼져 있었으면 켜질 때 한 번 돈다(판단은 중앙 DB 로 해서 다시 켜도 두 번 안 돎).
     기본은 GitLab 만 다시 읽음(서버에 SSH 키 없이). ssh=True 면 서버 compose 도 SSH 로(키가 있는 PC 에서만).
     """
     name = name or cfg.runner_name
     mode = "gitlab+ssh" if ssh else "gitlab"
-    print(f"수집기 시작: {name} ({mode}) — {interval:g}초마다 요청 확인")
+    schedule = f"{daily_at} {tz}" if daily_at else None
+    print(f"수집기 시작: {name} ({mode}) — {interval:g}초마다 요청 확인" + (f" · 자동 매일 {schedule}" if schedule else " · 자동 없음(버튼만)"))
+    asked: str | None = None  # 오늘 자동 요청을 이미 물어봤나(같은 날 반복 호출 줄이기)
     while True:
         api = CentralAPI(cfg.central_url, cfg.api_token)
         try:
-            req = api.claim_collect("shape", name, mode)
+            since = _daily_since(datetime.now(timezone.utc), daily_at, tz) if daily_at else None
+            if since and since != asked:
+                res = api.request_auto("shape", since)
+                asked = since
+                if res.get("created"):
+                    print(f"[{time.strftime('%H:%M:%S')}] 자동 수집 요청(매일 {schedule})")
+            req = api.claim_collect("shape", name, mode, schedule)
             if req:
                 print(f"[{time.strftime('%H:%M:%S')}] 요청 #{req['id']} 수집 시작")
                 try:
@@ -1118,6 +1138,11 @@ def main() -> None:
     agp.add_argument("--once", action="store_true", help="한 번만 확인하고 끝(cron·테스트용)")
     agp.add_argument("--ssh", action="store_true", help="서버 compose 도 SSH 로 읽음(키가 있는 PC 에서만) — 기본은 GitLab 만")
     agp.add_argument("--name", help="수집기 이름(기본 CT_RUNNER_NAME)")
+    agp.add_argument(
+        "--daily-at", default=os.environ.get("CT_COLLECT_DAILY_AT", ""),
+        help="자동 수집 시각 HH:MM(기본 CT_COLLECT_DAILY_AT, 비우면 버튼만) — 예: 09:00",
+    )
+    agp.add_argument("--tz", default=os.environ.get("CT_COLLECT_TZ", "Asia/Seoul"), help="자동 수집 시각의 시간대(기본 Asia/Seoul)")
     allp = sub.add_parser("all", help="모든 수집기 1회 실행(--loop 로 주기 반복)")
     allp.add_argument("--loop", action="store_true", help="간격을 두고 반복 실행")
     allp.add_argument("--interval", type=int, default=300, help="반복 간격(초, 기본 300)")
@@ -1146,7 +1171,10 @@ def main() -> None:
     elif args.cmd == "shape":
         cmd_shape(cfg, args.targets, "read" if args.ssh else ("plan" if args.ssh_plan else None), args.source)
     elif args.cmd == "agent":
-        cmd_agent(cfg, args.targets, interval=args.interval, once=args.once, ssh=args.ssh, name=args.name)
+        cmd_agent(
+            cfg, args.targets, interval=args.interval, once=args.once, ssh=args.ssh, name=args.name,
+            daily_at=args.daily_at or None, tz=args.tz,
+        )
     elif args.cmd == "all":
         cmd_all(cfg, loop=args.loop, interval=args.interval)
     elif args.cmd == "apply":

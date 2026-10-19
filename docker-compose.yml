@@ -39,7 +39,8 @@ services:
       retries: 5
     restart: unless-stopped
 
-  # 수집기 — 화면 [다시 수집] 요청을 5초마다 확인해 처리. GitLab 만 다시 읽음(서버에 SSH 키를 두지 않음 → 서버 compose 는 지난 값).
+  # 수집기 — 화면 [다시 수집] 요청(수동)을 5초마다 확인해 처리 + 매일 CT_COLLECT_DAILY_AT(기본 09:00 서울)에 자동 한 번.
+  # GitLab 만 다시 읽음(서버에 SSH 키를 두지 않음 → 서버 compose 는 지난 값).
   # .env 를 나눔: 중앙(api·db)은 .env, 수집기는 collector.env — GitLab 읽기 토큰은 수집기 컨테이너에만 들어감.
   #   cp collector.env.example collector.env → 값 채우기. 대상 파일(shape-targets.yml)은 읽기 전용으로 붙임.
   collector:

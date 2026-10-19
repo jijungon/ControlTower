@@ -1316,7 +1316,7 @@ def test_cmd_agent_claims_request_and_finishes(monkeypatch):
         def __init__(self, *a):
             pass
 
-        def claim_collect(self, kind, collector, mode):
+        def claim_collect(self, kind, collector, mode, schedule=None):
             calls.append(("claim", kind, collector, mode))
             return {"id": 7} if len([c for c in calls if c[0] == "claim"]) == 1 else None
 
@@ -1345,3 +1345,56 @@ def test_cmd_agent_claims_request_and_finishes(monkeypatch):
     monkeypatch.setattr(cli, "cmd_shape", boom)
     cli.cmd_agent(cfg, once=True)
     assert calls[-1] == ("finish", 7, False, "수집 중 오류: RuntimeError: GitLab 응답 없음")
+
+
+
+def test_daily_since_is_todays_due_time_in_seoul():
+    """자동 수집 시각(서울 기준 09:00) — 지났으면 오늘의 그 시각(UTC), 아직이면 None."""
+    from datetime import datetime, timezone
+
+    from runner.cli import _daily_since
+
+    kst_0859 = datetime(2026, 10, 19, 23, 59, tzinfo=timezone.utc)  # 10/20 08:59 서울
+    kst_0900 = datetime(2026, 10, 20, 0, 0, tzinfo=timezone.utc)    # 10/20 09:00 서울
+    kst_2300 = datetime(2026, 10, 20, 14, 0, tzinfo=timezone.utc)   # 10/20 23:00 서울
+    assert _daily_since(kst_0859, "09:00", "Asia/Seoul") is None
+    assert _daily_since(kst_0900, "09:00", "Asia/Seoul") == "2026-10-20T00:00:00+00:00"
+    assert _daily_since(kst_2300, "09:00", "Asia/Seoul") == "2026-10-20T00:00:00+00:00"  # 같은 날 = 같은 시각(하루 한 번)
+
+
+def test_cmd_agent_asks_daily_auto_once_and_reports_schedule(monkeypatch):
+    """시각이 지났으면 자동 요청을 묻고(같은 날은 한 번만), 확인할 때 자동 시각을 알림(화면 안내용)."""
+    import types
+
+    import runner.cli as cli
+
+    calls: list = []
+
+    class FakeAPI:
+        def __init__(self, *a):
+            pass
+
+        def request_auto(self, kind, since):
+            calls.append(("auto", kind, since))
+            return {"created": True, "request": {"id": 1}}
+
+        def claim_collect(self, kind, collector, mode, schedule=None):
+            calls.append(("claim", schedule))
+            return None
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(cli, "CentralAPI", FakeAPI)
+    monkeypatch.setattr(cli, "_daily_since", lambda now, at, tz: "2026-10-20T00:00:00+00:00")
+    cfg = types.SimpleNamespace(central_url="x", api_token="t", runner_name="srv")
+    cli.cmd_agent(cfg, once=True, daily_at="09:00", tz="Asia/Seoul")
+    assert calls == [("auto", "shape", "2026-10-20T00:00:00+00:00"), ("claim", "09:00 Asia/Seoul")]
+    # 시각 전(None) 이면 안 묻고, 자동을 안 쓰면(daily_at 없음) schedule 도 없음
+    calls.clear()
+    monkeypatch.setattr(cli, "_daily_since", lambda now, at, tz: None)
+    cli.cmd_agent(cfg, once=True, daily_at="09:00")
+    assert calls == [("claim", "09:00 Asia/Seoul")]
+    calls.clear()
+    cli.cmd_agent(cfg, once=True)
+    assert calls == [("claim", None)]

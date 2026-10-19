@@ -171,6 +171,7 @@ CI/CD 파이프라인 상태와 repo 선언본 버전(node/nest/java)은 GitLab 
 중앙은 키·토큰이 없어 직접 모으지 않는다 — 요청은 **수집기**가 가져가 처리한다.
 
 - 수집기: `python -m runner.cli agent` (`make agent`) — 5초마다 요청 확인, 있으면 `shape` 를 **GitLab 만** 다시 읽어 올림
+  - **자동**: 매일 `CT_COLLECT_DAILY_AT`(예 `09:00`, 시간대 `CT_COLLECT_TZ` 기본 Asia/Seoul)에 한 번 — 그날 이미 모았으면 건너뛰고, 그 시각에 꺼져 있었으면 켜질 때 한 번. **수동**: 화면 [다시 수집]
   - 서버 compose 는 SSH 로 안 읽고 **지난 수집 값**을 이어 씀(화면 출처에 `· 지난 값`). 키가 있는 PC 에서 `--ssh` 면 compose 도
 - 서버: `docker compose up -d` 의 `collector` 서비스가 같은 일 — env 파일을 나눔: 중앙(api·db)은 `.env`, 수집기는 `collector.env`(GitLab 읽기 토큰, `collector.env.example` 복사) + `shape-targets.yml`(읽기 전용으로 붙임)
 - 회사망이 HTTPS 를 중간에서 다시 서명하면(Cloudflare Zero Trust 등) 컨테이너가 `CERTIFICATE_VERIFY_FAILED` 로 GitLab 에 못 붙음 → `docker-compose.override.example.yml` 을 복사해 CA 묶음을 붙이고 `collector.env` 에 `SSL_CERT_FILE=/certs/ca-bundle.pem`
