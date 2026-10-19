@@ -292,7 +292,14 @@ export default function RepoTable({ rows }: { rows: ShapeRow[] }) {
                       {projectSpan(rs, i) > 0 && (
                         <td rowSpan={projectSpan(rs, i)}>
                           {r.repo?.project ? (
-                            <ProjectPath path={r.repo.project} />
+                            <>
+                              <ProjectPath path={r.repo.project} />
+                              {r.repo.kept && (
+                                <span className="cell-tag" title="이번 수집은 repo GitLab 에 접속이 안 됨 — 이 줄의 빌드·코드 버전은 지난 수집 값">
+                                  지난 값
+                                </span>
+                              )}
+                            </>
                           ) : r.repo?.missing ? (
                             <span className="muted empty-why" title="repo 저장소가 없음(없어짐) — 읽지 않음, 실행 이미지만 center 에서">
                               repo 없음

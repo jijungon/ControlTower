@@ -14,22 +14,46 @@ from urllib.parse import quote
 import httpx
 
 _local = threading.local()
+# 접속 자체가 안 된 GitLab(연결 시간 초과·거부) — 수집 한 번 동안 기억해 두고 남은 호출은 기다리지 않고 바로 실패.
+# 예: 회사망에서만 받는 GitLab 을 회사망 밖 서버의 수집기가 부르면 호출마다 시간 초과를 기다려 114초가 걸렸다.
+_down: set[str] = set()
+_down_lock = threading.Lock()
+
+
+def reset_down() -> None:
+    """수집 한 번이 시작·끝날 때 비움(다음 수집은 다시 붙어 봄)."""
+    with _down_lock:
+        _down.clear()
+
+
+def is_down(base_url: str | None) -> bool:
+    """이번 수집에서 접속이 안 된 GitLab 인가."""
+    return bool(base_url) and base_url.rstrip("/") in _down
 
 
 @contextmanager
-def _session(transport: httpx.BaseTransport | None, timeout: float) -> Iterator[httpx.Client]:
+def _session(transport: httpx.BaseTransport | None, timeout: float, base_url: str = "") -> Iterator[httpx.Client]:
     """연결 재사용 — 같은 스레드는 같은 Client(keep-alive)로 부른다. 부를 때마다 새로 연결하면 TLS 핸드셰이크가
-    매번 들어가 느렸다(회사망 TLS 가로채기를 지나면 더). transport 를 주면(테스트) 예전처럼 그때만 쓰고 닫음."""
-    if transport is not None:
-        with httpx.Client(transport=transport, timeout=timeout) as c:
-            yield c
-        return
-    clients: dict = getattr(_local, "clients", None) or {}
-    _local.clients = clients
-    c = clients.get(timeout)
-    if c is None or c.is_closed:
-        c = clients[timeout] = httpx.Client(timeout=timeout)
-    yield c
+    매번 들어가 느렸다(회사망 TLS 가로채기를 지나면 더). transport 를 주면(테스트) 예전처럼 그때만 쓰고 닫음.
+    접속이 안 되면(연결 시간 초과·거부) 그 GitLab 을 기억 → 다음 호출부터 바로 ConnectError(부르는 쪽은 None)."""
+    if is_down(base_url):
+        raise httpx.ConnectError(f"이번 수집에서 접속이 안 된 GitLab — 건너뜀: {base_url}")
+    try:
+        if transport is not None:
+            with httpx.Client(transport=transport, timeout=timeout) as c:
+                yield c
+            return
+        clients: dict = getattr(_local, "clients", None) or {}
+        _local.clients = clients
+        c = clients.get(timeout)
+        if c is None or c.is_closed:
+            c = clients[timeout] = httpx.Client(timeout=timeout)
+        yield c
+    except (httpx.ConnectError, httpx.ConnectTimeout):
+        if base_url:
+            with _down_lock:
+                _down.add(base_url.rstrip("/"))
+        raise
 
 
 def fetch_latest_pipeline(
@@ -48,7 +72,7 @@ def fetch_latest_pipeline(
     pid = quote(str(project), safe="")
     url = f"{base_url.rstrip('/')}/api/v4/projects/{pid}/pipelines"
     try:
-        with _session(transport, timeout) as c:
+        with _session(transport, timeout, base_url) as c:
             r = c.get(
                 url,
                 params={"per_page": 1, "order_by": "updated_at", "sort": "desc"},
@@ -85,7 +109,7 @@ def fetch_repo_file(
     fpath = quote(path, safe="")
     url = f"{base_url.rstrip('/')}/api/v4/projects/{pid}/repository/files/{fpath}/raw"
     try:
-        with _session(transport, timeout) as c:
+        with _session(transport, timeout, base_url) as c:
             r = c.get(url, params={"ref": ref} if ref else {}, headers={"PRIVATE-TOKEN": token})
     except httpx.HTTPError:
         return None
@@ -110,7 +134,7 @@ def fetch_repo_tree(
     paths: list[str] = []
     page = "1"
     try:
-        with _session(transport, timeout) as c:
+        with _session(transport, timeout, base_url) as c:
             for _ in range(max_pages):
                 r = c.get(
                     url,
@@ -145,7 +169,7 @@ def fetch_repo_dir(
     names: list[str] = []
     page = "1"
     try:
-        with _session(transport, timeout) as c:
+        with _session(transport, timeout, base_url) as c:
             for _ in range(10):
                 params = {"per_page": 100, "page": page, **({"path": path} if path else {}), **({"ref": ref} if ref else {})}
                 r = c.get(url, params=params, headers={"PRIVATE-TOKEN": token})
@@ -177,7 +201,7 @@ def fetch_recent_jobs(
     pid = quote(str(project), safe="")
     url = f"{base_url.rstrip('/')}/api/v4/projects/{pid}/jobs"
     try:
-        with _session(transport, timeout) as c:
+        with _session(transport, timeout, base_url) as c:
             r = c.get(url, params={"per_page": per_page}, headers={"PRIVATE-TOKEN": token})
     except httpx.HTTPError:
         return None
@@ -216,7 +240,7 @@ def fetch_tag_jobs(
     out: list[dict[str, Any]] = []
     page = "1"
     try:
-        with _session(transport, timeout) as c:
+        with _session(transport, timeout, base_url) as c:
             for _ in range(max_pages):
                 r = c.get(
                     url,
@@ -252,7 +276,7 @@ def fetch_job_log_head(
     pid = quote(str(project), safe="")
     url = f"{base_url.rstrip('/')}/api/v4/projects/{pid}/jobs/{job_id}/trace"
     try:
-        with _session(transport, timeout) as c:
+        with _session(transport, timeout, base_url) as c:
             with c.stream("GET", url, headers={"PRIVATE-TOKEN": token}) as r:
                 if r.status_code != 200:
                     return None

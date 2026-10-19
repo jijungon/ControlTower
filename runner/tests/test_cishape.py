@@ -1,6 +1,8 @@
 """비교표 판독기(cishape) — 실제 파일 모양을 본뜬 가짜 CI/Dockerfile/compose 로 검증."""
 import re
 
+import httpx
+
 from runner.cishape import (
     analyze_ci,
     analyze_compose,
@@ -833,6 +835,7 @@ def test_cmd_shape_reads_gitlab_by_default_local_only_when_chosen(monkeypatch, t
     ])
     logs = {5: 'Preparing the "shell" executor\n', 7: 'Preparing the "docker" executor\nUsing Docker executor with image deploy-image:latest ...\n'}
     monkeypatch.setattr(cli, "fetch_job_log_head", lambda u, t, p, jid, timeout=8: calls.append(f"log {jid}") or logs[jid])
+    monkeypatch.setattr(cli, "fetch_tag_jobs", lambda u, t, p, timeout=8: [])  # 진짜 주소로 나가지 않게(접속 실패 = center 끊김으로 봄)
 
     def cfg(token: str):
         return types.SimpleNamespace(
@@ -1302,6 +1305,127 @@ def test_cmd_shape_gitlab_only_keeps_last_compose(monkeypatch, tmp_path, capsys)
     assert shape["compose_facts"]["prod"]["path"] == "direct"  # 다음 번에도 이어 쓰도록 다시 저장
     assert shape["deploy"]["prod"] == {"path": "direct", "by": "compose", "manual": None, "mismatch": False}  # CI 에 prod 배포가 없어 compose 로 짐작
     assert "서버 compose 는 SSH 로 안 읽음(GitLab 만)" in capsys.readouterr().out
+
+
+def test_keep_repo_side_uses_last_values_and_prefers_repo_for_direct_envs():
+    """repo GitLab 에 못 닿은 수집 — repo 쪽 칸은 지난 값(kept), 버전은 이번 center 값을 쓰되 repo 가 바로 복사하는 환경은 지난 repo 값."""
+    from runner.cli import _keep_repo_side
+
+    prev = {
+        "service": "shop web",
+        "repo": {"project": "shop/r", "read": True, "build": [{"runtime": "node", "version": "20"}], "code": {"node": "20"}},
+        "executor_repo": {"value": "docker"},
+        "deploy": {"prod": {"path": "direct", "by": "repo", "manual": True, "mismatch": False}, "dev": {"path": "image", "manual": None}},
+        "env_keys": 3,
+        "versions": {
+            "build": {"prod": {"tag": "prod-web-v1.0.0", "side": "repo"}, "dev": {"tag": "dev-web-v0.9.0", "side": "repo"}},
+            "deploy": {"prod": {"tag": "prod-web-v1.0.0", "side": "repo"}},
+        },
+    }
+    row = {
+        "service": "shop web", "env_hash": "abc",
+        "data": {
+            "repo": {"project": "shop/r", "read": False, "build": []}, "executor_repo": None, "deploy": {"prod": {"path": "image"}},
+            "versions": {"build": {"prod": {"tag": "prod-web-v2.0.0", "side": "center"}, "dev": {"tag": "dev-web-v1.0.0", "side": "center"}}, "deploy": {}},
+        },
+    }
+    _keep_repo_side(row, prev)
+    d = row["data"]
+    assert row["env_hash"] is None  # repo variables 를 못 봄 → '바뀜' 판단 안 함
+    assert d["repo"] == {**prev["repo"], "kept": True} and d["executor_repo"] == {"value": "docker"}
+    assert d["deploy"] == prev["deploy"] and d["env_keys"] == 3
+    assert d["versions"]["build"]["prod"] == {"tag": "prod-web-v1.0.0", "side": "repo", "kept": True}  # repo 가 바로 복사 → repo 값
+    assert d["versions"]["build"]["dev"] == {"tag": "dev-web-v1.0.0", "side": "center"}  # 이번 center 값
+    assert d["versions"]["deploy"]["prod"]["kept"] is True  # center 에 없던 환경 → 지난 값
+    first = {"env_hash": "x", "data": {"repo": {"project": "p", "read": False, "build": []}}}
+    _keep_repo_side(first, None)  # 지난 값이 없으면(첫 수집) 그대로
+    assert first["env_hash"] is None and "kept" not in first["data"]["repo"]
+
+
+def test_cmd_shape_repo_gitlab_unreachable_keeps_last_and_center_down_stops(monkeypatch, tmp_path, capsys):
+    """서버 수집기가 repo GitLab 에 못 닿음(회사망 전용) — 한 번만 기다리고 건너뜀, repo 쪽 칸은 지난 값, 실패 목록 대신 한 줄.
+    center 까지 못 닿으면 표를 덮어쓰지 않고 멈춤(올리면 표가 비어 버림)."""
+    import functools
+    import types
+
+    import runner.cli as cli
+    import runner.gitlab as gl
+
+    center_ci = "deploy-dev:\n  script: [ssh x \"docker compose pull && docker compose up -d\"]\n  rules: [{if: '$CI_COMMIT_TAG =~ /^dev-web-v/'}]\n"
+    (tmp_path / "config" / "shop" / "web").mkdir(parents=True)
+    (tmp_path / "config" / "shop" / "web" / "Dockerfile").write_text(DOCKER_NEW)
+    targets = tmp_path / "shape-targets.yml"
+    targets.write_text(
+        "config: {file: config}\n"
+        "services:\n"
+        "  - name: shop web\n"
+        "    repo: shop/shop-repo\n"
+        "    center: shop/shop\n"
+        "    config_dir: shop/web\n"
+    )
+    prev_repo = {"project": "shop/shop-repo", "read": True, "build": [{"runtime": "node", "version": "20"}], "code": {"node": "20"}}
+    prev_shape = {"service": "shop web", "repo": prev_repo, "deploy": {"prod": {"path": "direct", "by": "repo", "manual": True, "mismatch": False}}}
+    prev_cfg = {"path": "shop/web", "code": {"node": "20"}}
+    sent: dict = {}
+
+    class FakeAPI:
+        def __init__(self, *a):
+            pass
+
+        def list_shapes(self):
+            return [prev_shape]
+
+        def list_config(self):
+            return [prev_cfg]
+
+        def upload_shapes(self, shapes, replace=False):
+            sent["shapes"] = {s["service"]: s["data"] for s in shapes}
+            return {"accepted": len(shapes), "removed": 0}
+
+        def upload_config(self, items, replace=False):
+            sent["config"] = {i["path"]: i["data"] for i in items}
+            return {"accepted": len(items), "removed": 0}
+
+        def close(self):
+            pass
+
+    down_hosts: set[str] = {"repo"}
+    hits: list[str] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.url.host in down_hosts:
+            hits.append(req.url.host)
+            raise httpx.ConnectTimeout("timed out", request=req)
+        if req.url.path.endswith("/.gitlab-ci.yml/raw"):
+            return httpx.Response(200, text=center_ci)
+        if req.url.path.endswith("/jobs"):
+            return httpx.Response(200, json=[])
+        return httpx.Response(404)
+
+    t = httpx.MockTransport(handler)
+    for name in ("fetch_repo_file", "fetch_repo_tree", "fetch_repo_dir", "fetch_recent_jobs", "fetch_tag_jobs", "fetch_job_log_head"):
+        monkeypatch.setattr(cli, name, functools.partial(getattr(gl, name), transport=t))
+    monkeypatch.setattr(cli, "CentralAPI", FakeAPI)
+    cfg = types.SimpleNamespace(
+        shape_targets=str(targets), central_url="x", api_token="t", gitlab_url="http://repo", gitlab_token="tok",
+        gitlab_center_url="http://center", gitlab_center_token="tok", gitlab_ref="", connect_timeout=1,
+    )
+
+    res = cli.cmd_shape(cfg, no_ssh=True)
+    assert res["ok"] and "repo GitLab 접속 안 됨 · repo 쪽은 지난 값" in res["message"] and "못 읽은 파일" not in res["message"]
+    assert len(hits) <= 2  # 미리 읽기에서 동시에 나간 첫 호출들만 기다림 — 나머지는 바로 건너뜀
+    shape = sent["shapes"]["shop web"]
+    assert shape["repo"] == {**prev_repo, "kept": True}  # '못 읽음' 으로 비우지 않음
+    assert shape["deploy"] == prev_shape["deploy"]
+    assert sent["config"]["shop/web"]["code"] == {"node": "20"}  # center 탭의 코드 버전도 지난 값
+    assert "repo GitLab 에 접속이 안 됨" in capsys.readouterr().out
+    assert not gl.is_down("http://repo")  # 수집이 끝나면 비움
+
+    sent.clear()
+    down_hosts.add("center")
+    res = cli.cmd_shape(cfg, no_ssh=True)
+    assert not res["ok"] and res["message"] == "center GitLab 접속 안 됨 — 표는 지난 값 그대로"
+    assert sent == {}  # 아무것도 안 올림
 
 
 def test_cmd_agent_claims_request_and_finishes(monkeypatch):
