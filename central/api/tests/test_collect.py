@@ -76,3 +76,27 @@ def test_collector_seen_long_ago_is_not_alive(client):
         db.commit()
     assert client.get("/api/collect/status").json()["collector"]["alive"] is False  # 화면: 버튼 꺼짐 + '수집기 꺼짐'
     assert client.post("/api/collect/requests", json={"kind": "shape"}).status_code == 409
+
+
+def test_daily_auto_request_once_a_day(client):
+    """매일 정해 둔 시각이 지나면 수집기가 /auto — 그 뒤로 끝난 수집이 없을 때만 자동 요청(버튼 수집도 셈), 하루 한 번."""
+    since = _ago(60)  # '오늘 09:00' 이 1시간 전이라고 침
+    assert client.post("/api/collect/auto", json={"kind": "shape", "since": since}).status_code == 401  # 수집기(러너 토큰)만
+    client.post("/api/collect/claim", json={"kind": "shape", "collector": "srv", "mode": "gitlab", "schedule": "09:00 Asia/Seoul"}, headers=AUTH)
+    assert client.get("/api/collect/status").json()["collector"]["schedule"] == "09:00 Asia/Seoul"  # 화면에 '자동 매일 09:00'
+    made = client.post("/api/collect/auto", json={"kind": "shape", "since": since}, headers=AUTH).json()
+    assert made["created"] is True and made["request"]["trigger"] == "auto" and made["request"]["status"] == "pending"
+    # 기다리는 게 있으면 또 안 만듦
+    again = client.post("/api/collect/auto", json={"kind": "shape", "since": since}, headers=AUTH).json()
+    assert again["created"] is False and again["request"]["id"] == made["request"]["id"]
+    # 수집기가 처리 → 끝 → 같은 날 다시 불러도 안 만듦(수집기를 다시 켜도 두 번 안 돎)
+    got = client.post("/api/collect/claim", json={"kind": "shape", "collector": "srv"}, headers=AUTH).json()["request"]
+    client.post(f"/api/collect/requests/{got['id']}/finish", json={"ok": True, "message": "서비스 17개"}, headers=AUTH)
+    skip = client.post("/api/collect/auto", json={"kind": "shape", "since": since}, headers=AUTH).json()
+    assert skip == {"created": False, "reason": "오늘 이미 수집함", "request": None}
+    # 버튼으로 이미 모은 날도 자동은 건너뜀 — 다음 날(since 가 그 뒤)이면 다시 만듦
+    tomorrow = (datetime.now(timezone.utc) + timedelta(minutes=1)).isoformat(timespec="seconds")
+    assert client.post("/api/collect/auto", json={"kind": "shape", "since": tomorrow}, headers=AUTH).json()["created"] is True
+    actions = [(a["actor"], a["action"]) for a in client.get("/api/audit").json()]
+    assert ("collector", "collect.request") in actions  # 작업이력: 자동 요청은 수집기가 남김
+    assert client.get("/api/collect/status").json()["request"]["trigger"] == "auto"  # 화면: '자동 수집 중'

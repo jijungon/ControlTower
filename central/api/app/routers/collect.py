@@ -1,4 +1,4 @@
-"""다시 수집 — 화면 버튼이 요청을 남기고, 수집기(agent)가 가져가 처리한다.
+"""다시 수집 — 화면 버튼(수동)이나 수집기의 매일 정해 둔 시각(자동)이 요청을 남기고, 수집기(agent)가 가져가 처리한다.
 
 중앙은 키·토큰이 없다(조회 전용). 그래서 수집을 직접 하지 않고 요청만 저장한다.
 수집기는 ControlTower 와 같은 서버(또는 PC)에서 돌며 몇 초마다 /claim 으로 요청을 확인 → GitLab 을 다시 읽어 올림 → /finish.
@@ -38,6 +38,7 @@ def _out(r: CollectRequest | None) -> dict | None:
     return {
         "id": r.id, "kind": r.kind, "status": r.status, "requested_at": r.requested_at,
         "started_at": r.started_at, "finished_at": r.finished_at, "collector": r.collector, "message": r.message,
+        "trigger": r.trigger or "user",
     }
 
 
@@ -84,7 +85,7 @@ def request_collect(body: RequestIn, db: Session = Depends(get_db)) -> dict:
     )
     if open_:  # 이미 기다리거나 도는 중이면 새로 안 만듦(버튼 연타)
         return {**_out(open_), "reused": True}
-    r = CollectRequest(kind=kind, status="pending", requested_at=_iso(now))
+    r = CollectRequest(kind=kind, status="pending", requested_at=_iso(now), trigger="user")
     db.add(r)
     record(db, "collect.request", actor="user", target_type="collect", target_id=kind)
     db.commit()
@@ -103,7 +104,10 @@ def collect_status(kind: str = "shape", db: Session = Depends(get_db)) -> dict:
     c = db.query(Collector).order_by(Collector.last_seen_at.desc()).first()
     collector = None
     if c:
-        collector = {"name": c.name, "mode": c.mode, "last_seen_at": c.last_seen_at, "alive": _alive(db, now) is not None}
+        collector = {
+            "name": c.name, "mode": c.mode, "schedule": c.schedule, "last_seen_at": c.last_seen_at,
+            "alive": _alive(db, now) is not None,
+        }
     return {"request": _out(last), "collector": collector}
 
 
@@ -111,6 +115,7 @@ class ClaimIn(BaseModel):
     kind: str = "shape"
     collector: str = "collector"
     mode: str | None = None
+    schedule: str | None = None  # 자동 수집 시각(화면 안내용)
 
 
 @router.post("/claim", dependencies=[Depends(require_runner)])
@@ -119,7 +124,7 @@ def claim(body: ClaimIn, db: Session = Depends(get_db)) -> dict:
     kind = _kind(body.kind)
     now = _now()
     c = db.query(Collector).filter(Collector.name == body.collector).first() or Collector(name=body.collector)
-    c.mode, c.last_seen_at = body.mode, _iso(now)
+    c.mode, c.schedule, c.last_seen_at = body.mode, body.schedule, _iso(now)
     db.add(c)
     _expire(db, now)
     r = (
@@ -132,6 +137,39 @@ def claim(body: ClaimIn, db: Session = Depends(get_db)) -> dict:
         r.status, r.started_at, r.collector = "running", _iso(now), body.collector
     db.commit()
     return {"request": _out(r)}
+
+
+class AutoIn(BaseModel):
+    kind: str = "shape"
+    since: str  # 이 시각(ISO, 오늘의 자동 수집 시각) 뒤로 끝난 수집이 없으면 자동 요청을 만든다
+
+
+@router.post("/auto", dependencies=[Depends(require_runner)])
+def auto_request(body: AutoIn, db: Session = Depends(get_db)) -> dict:
+    """수집기가 매일 정해 둔 시각이 지나면 부름 — 그 뒤로 끝난 수집(버튼 포함)이 없고 기다리는 요청도 없으면 자동 요청을 하나 만듦.
+    수집기가 그 시각에 꺼져 있었다가 늦게 켜져도 하루 한 번은 돈다. 판단은 DB 로 해서 수집기를 다시 켜도 두 번 돌지 않음."""
+    kind = _kind(body.kind)
+    now = _now()
+    _expire(db, now)
+    since = datetime.fromisoformat(body.since)
+    done = (
+        db.query(CollectRequest)
+        .filter(CollectRequest.kind == kind, CollectRequest.status == "done", CollectRequest.finished_at.isnot(None))
+        .all()
+    )
+    if any(datetime.fromisoformat(r.finished_at) >= since for r in done):
+        db.commit()
+        return {"created": False, "reason": "오늘 이미 수집함", "request": None}
+    open_ = db.query(CollectRequest).filter(CollectRequest.kind == kind, CollectRequest.status.in_(("pending", "running"))).first()
+    if open_:
+        db.commit()
+        return {"created": False, "reason": "이미 기다리거나 도는 수집이 있음", "request": _out(open_)}
+    r = CollectRequest(kind=kind, status="pending", requested_at=_iso(now), trigger="auto")
+    db.add(r)
+    record(db, "collect.request", actor="collector", target_type="collect", target_id=kind, detail="자동(매일 정해 둔 시각)")
+    db.commit()
+    db.refresh(r)
+    return {"created": True, "reason": None, "request": _out(r)}
 
 
 class FinishIn(BaseModel):

@@ -44,7 +44,7 @@ test('다시 수집 — 요청 → 수집 중 → 완료면 표를 다시 불러
   expect(screen.getByRole('button', { name: '다시 수집' })).toBeEnabled()
   const calls = fetchMock.mock.calls.length
   await act(() => vi.advanceTimersByTimeAsync(20000))
-  expect(fetchMock.mock.calls.length).toBe(calls) // 끝나고 수집기도 켜져 있으면 확인을 멈춤
+  expect(fetchMock.mock.calls.length).toBe(calls) // 끝나면 평소(60초) 간격으로 — 20초 안엔 안 부름
   expect(onDone).toHaveBeenCalledTimes(1)
 })
 
@@ -71,4 +71,36 @@ test('꺼진 사이 남은 요청 · 실패면 이유', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => json({ request: { id: 2, kind: 'shape', status: 'failed', message: '10분 동안 수집기가 가져가지 않아 취소' }, collector: { name: 'srv', alive: true } })))
   render(<CollectButton onDone={() => {}} />)
   expect(await screen.findByText('실패 · 10분 동안 수집기가 가져가지 않아 취소 · 아직 수집 없음')).toHaveClass('collect-state--fail')
+})
+
+
+test('자동(매일 09:00) — 옆 글에 자동 시각, 자동 수집 중이면 그렇게 표시', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  let status: CollectStatus = { request: null, collector: { name: 'srv', alive: true, schedule: '09:00 Asia/Seoul' } }
+  vi.stubGlobal('fetch', vi.fn(async () => json(status)))
+  render(<CollectButton onDone={() => {}} asOf="2026-10-19T00:00:10+00:00" />)
+  const st = await screen.findByRole('status')
+  await vi.waitFor(() => expect(st).toHaveTextContent(/^데이터 기준 2026-10-19 .* · 매일 09:00 자동$/))
+  expect(st).toHaveAttribute('title', '자동: 매일 09:00 (Asia/Seoul) · 수동: [다시 수집]')
+  expect(screen.getByRole('button', { name: '다시 수집' })).toHaveAttribute('title', expect.stringContaining('자동은 매일 09:00'))
+})
+
+test('화면을 열어 둔 채로 자동 수집이 돌면 — 60초마다 확인해서 보이고, 끝나면 표를 새로 불러옴', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  let status: CollectStatus = {
+    request: { id: 8, kind: 'shape', status: 'done', trigger: 'user', finished_at: '2026-10-18T03:00:00+00:00' },
+    collector: { name: 'srv', alive: true, schedule: '09:00 Asia/Seoul' },
+  }
+  vi.stubGlobal('fetch', vi.fn(async () => json(status)))
+  const onDone = vi.fn()
+  render(<CollectButton onDone={onDone} />)
+  await screen.findByRole('status')
+  expect(onDone).not.toHaveBeenCalled() // 처음 불러올 때 이미 끝나 있던 수집은 기준만
+  status = { ...status, request: { id: 9, kind: 'shape', status: 'running', trigger: 'auto' } }
+  await act(() => vi.advanceTimersByTimeAsync(60000))
+  expect(screen.getByRole('status')).toHaveTextContent('자동 수집 중 — GitLab 을 다시 읽는 중')
+  status = { ...status, request: { id: 9, kind: 'shape', status: 'done', trigger: 'auto', finished_at: new Date().toISOString() } }
+  await act(() => vi.advanceTimersByTimeAsync(2000))
+  expect(onDone).toHaveBeenCalledTimes(1)
+  expect(screen.getByRole('status')).toHaveTextContent(/방금 자동 갱신$/)
 })

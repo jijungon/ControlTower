@@ -278,10 +278,12 @@ export type CollectRequest = {
   finished_at?: string | null
   collector?: string | null
   message?: string | null
+  trigger?: 'user' | 'auto' // 버튼(수동) | 매일 정해 둔 시각(자동)
 }
 export type CollectStatus = {
   request: CollectRequest | null
-  collector: { name: string; mode?: string | null; last_seen_at?: string | null; alive: boolean } | null
+  // schedule = 자동 수집 시각(예: '09:00 Asia/Seoul'), 없으면 버튼만
+  collector: { name: string; mode?: string | null; schedule?: string | null; last_seen_at?: string | null; alive: boolean } | null
 }
 
 export async function fetchCollectStatus(kind = 'shape'): Promise<CollectStatus> {
