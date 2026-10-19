@@ -62,6 +62,8 @@ from .gitlab import (
     fetch_repo_file,
     fetch_repo_tree,
     fetch_tag_jobs,
+    is_down,
+    reset_down,
 )
 from .probe import probe_ssh
 from .repoversions import extract_versions
@@ -515,6 +517,42 @@ def _build_from_log(row: dict, ci: dict | None, project: str, cfg: RunnerConfig,
     return job.get("runner_name")
 
 
+REPO_SIDE_KEYS = ("repo", "executor_repo", "deploy", "env_keys")  # repo CI(repo GitLab)로 정해지는 칸
+
+
+def _keep_repo_side(row: dict, prev: dict | None) -> None:
+    """repo GitLab 에 접속이 안 된 수집 — repo CI 로 정해지는 칸(repo 빌드·코드 버전 · repo executor · 배포 경로)은
+    비우지 않고 지난 수집 값을 이어 씀. 빌드·배포 버전은 이번에 center 에서 읽은 것을 쓰되, repo 가 서버로 바로
+    복사하는 환경(지난 배포 경로 by=repo)과 center 에 없는 환경은 지난 repo 값. 이어 쓴 값에는 kept 표시."""
+    row["env_hash"] = None  # repo variables 를 못 봄 → '바뀜' 판단 안 함
+    if not prev:
+        return
+    data = row["data"]
+    for k in REPO_SIDE_KEYS:
+        if k in prev:
+            data[k] = prev[k]
+    if isinstance(data.get("repo"), dict) and not data["repo"].get("missing"):
+        data["repo"] = {**data["repo"], "kept": True}
+    pv = prev.get("versions") or {}
+    cur = data.get("versions") or {"build": {}, "deploy": {}}
+    for what in ("build", "deploy"):
+        for env, v in (pv.get(what) or {}).items():
+            by_repo = ((data.get("deploy") or {}).get(env) or {}).get("by") == "repo"
+            if v.get("side") == "repo" and (by_repo or env not in cur.setdefault(what, {})):
+                cur.setdefault(what, {})[env] = {**v, "kept": True}
+    if any(cur.get(w) for w in ("build", "deploy")):
+        data["versions"] = cur
+
+
+def _load_prev(cfg: RunnerConfig) -> tuple[dict[str, dict], dict[str, dict]]:
+    """지난 수집(비교표 서비스 → 줄, config 줄 → 줄) — 이번에 못 읽은 칸을 이어 쓰려고."""
+    api_prev = CentralAPI(cfg.central_url, cfg.api_token)
+    try:
+        return {str(r["service"]): r for r in api_prev.list_shapes()}, {str(r["path"]): r for r in api_prev.list_config()}
+    finally:
+        api_prev.close()
+
+
 def _prefetch(services: list[dict], cdirs: list[str], config_files: Any, cfg: RunnerConfig, source: str, base_dir: str) -> None:
     """미리 읽기 — 아래에서 서비스마다 하나씩 부를 GitLab 호출을 GITLAB_WORKERS 개씩 동시에 먼저 불러 둔다(_MEMO 에).
     CI 파일 · repo 버전 파일 · config 폴더 Dockerfile · 프로젝트마다 최근 job 목록 · center 의 tag 로 돈 job.
@@ -590,11 +628,13 @@ def cmd_shape(
     """비교표 + config 수집 한 번. 이 동안만 GitLab 호출을 기억(_MEMO)하고, 미리 읽기는 동시에 → 끝나면 비움."""
     global _MEMO
     _MEMO = {}
+    reset_down()
     started = time.monotonic()
     try:
         res = _shape(cfg, targets_path, ssh_mode, source, no_ssh)
     finally:
         _MEMO = None
+        reset_down()
     secs = round(time.monotonic() - started)
     print(f"걸린 시간: {secs}초")
     if res.get("ok"):
@@ -662,12 +702,7 @@ def _shape(
     prev_config: dict[str, dict] = {}  # config 줄 → 지난 수집
     if no_ssh:
         print("  서버 compose 는 SSH 로 안 읽음(GitLab 만) — 지난 수집 값을 이어 씀")
-        api_prev = CentralAPI(cfg.central_url, cfg.api_token)
-        try:
-            prev_shapes = {str(r["service"]): r for r in api_prev.list_shapes()}
-            prev_config = {str(r["path"]): r for r in api_prev.list_config()}
-        finally:
-            api_prev.close()
+        prev_shapes, prev_config = _load_prev(cfg)
     # config repo 들의 폴더를 한 표로 모음 — 폴더마다 어느 repo 에서 읽나(reader)·그 repo 의 group
     dirs: dict[str, list[str]] = {}
     readers: dict[str, Any] = {}
@@ -711,6 +746,10 @@ def _shape(
         return (reader(f"{cdir}/{df}") if (df and reader) else None), sh
 
     _prefetch(services, list(dirs), config_files, cfg, source, base_dir)
+    if "repo" in api_sides and is_down(cfg.gitlab_url):
+        print("  repo GitLab 에 접속이 안 됨 — 기다리지 않고 건너뜀, repo 쪽 칸은 지난 수집 값을 이어 씀")
+        if not no_ssh:
+            prev_shapes, prev_config = _load_prev(cfg)
     rows, missing = [], []
     compose_by_dir: dict[str, dict[str, str | None]] = {}
     src_by_dir: dict[str, dict[str, dict]] = {}  # config 폴더 → 환경 → 어디서 읽었나
@@ -874,6 +913,8 @@ def _shape(
                 code_by_dir.setdefault(ckey, cv)
         if cdir and cdir in dirs:  # start.sh 칸 색: config 폴더 기준(실행에 씀 / 파일만 남음 / 없음)
             row["data"]["start_state"] = analyze_config_dir(dirs[cdir], config_files(cdir)[0])["state"]
+        if "repo" in api and is_down(cfg.gitlab_url):  # repo GitLab 에 접속 안 됨 → repo 쪽 칸은 지난 값
+            _keep_repo_side(row, prev_shapes.get(str(svc["name"])))
         rows.append(row)
 
     for row, runner in log_pending:  # 같은 러너(같은 서버)에서 빌드 → 그 서버의 node 를 쓴다고 보고 추정으로
@@ -911,11 +952,21 @@ def _shape(
             if merged:  # 다른 폴더로 합쳐져 안 쓰는 폴더(예: repo 둘이 center 에서 하나로)
                 data["merged_into"] = str(merged)
             data["code"] = code_by_dir.get(key)  # 코드에 적힌 버전(없으면 None)
+            if data["code"] is None and is_down(cfg.gitlab_url):  # repo GitLab 에 접속 안 됨 → 지난 값
+                data["code"] = (prev_config.get(key) or {}).get("code")
             data["group"] = group_by_key.get(key) or dir_group.get(cdir) or default_group
             if dir_repo.get(cdir):
                 data["config_repo"] = dir_repo[cdir]  # 화면 그룹 칸에 '어느 config repo' 로
             items.append({"path": key, "data": data})
 
+    # center(빌드·배포 버전 · config)에 접속이 안 되면 올리지 않음 — 올리면 표가 비어 버림
+    dead = sorted(s for s in (api_sides & {"center"}) | cfg_api_sides if is_down(_gitlab_of({"gitlab": s}, cfg)[0]))
+    if dead:
+        print(f"  {'·'.join(dead)} GitLab 에 접속이 안 됨 — 표를 덮어쓰지 않고 멈춤(지난 값 그대로)")
+        return {"ok": False, "message": f"{'·'.join(dead)} GitLab 접속 안 됨 — 표는 지난 값 그대로"}
+    repo_down = "repo" in api_sides and is_down(cfg.gitlab_url)
+    if repo_down:  # 서비스마다 '못 읽은 파일'로 늘어놓는 대신 한 줄로
+        missing = [m for m in missing if not m.endswith(":repo_ci")]
     summary: list[str] = []
     api = CentralAPI(cfg.central_url, cfg.api_token)
     try:
@@ -951,6 +1002,8 @@ def _shape(
     if missing:
         print(f"  못 읽은 파일 {len(missing)}개: {', '.join(missing)}")
         summary.append(f"못 읽은 파일 {len(missing)}개")
+    if repo_down:
+        summary.append("repo GitLab 접속 안 됨 · repo 쪽은 지난 값")
     if no_ssh:
         summary.append("서버 compose 는 지난 값")
     return {"ok": True, "message": " · ".join(summary)}

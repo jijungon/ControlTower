@@ -212,7 +212,8 @@ export type RepoBuild = {
   runner?: string | null
   guess?: boolean
 }
-export type RepoInfo = { project?: string | null; read?: boolean; missing?: boolean; build?: RepoBuild[]; code?: CodeVersions | null }
+// kept = 이번 수집은 repo GitLab 에 접속이 안 돼 지난 수집 값을 이어 씀
+export type RepoInfo = { project?: string | null; read?: boolean; missing?: boolean; kept?: boolean; build?: RepoBuild[]; code?: CodeVersions | null }
 
 export type ShapeRow = {
   service: string

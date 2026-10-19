@@ -173,3 +173,29 @@ def test_session_reuses_one_client_per_thread():
     with gl._session(_t(lambda r: httpx.Response(200)), 7) as c:
         assert c is not a
     assert c.is_closed  # 테스트용은 쓰고 닫음
+
+
+def test_unreachable_gitlab_is_skipped_for_the_rest_of_the_run():
+    """회사망에서만 받는 GitLab 을 밖(서버 수집기)에서 부르면 — 첫 접속 실패(시간 초과)만 기다리고,
+    같은 수집의 남은 호출은 부르지도 않고 바로 None. 응답이 온 실패(401·404)는 접속은 된 것이라 끊김으로 안 봄."""
+    import runner.gitlab as gl
+
+    hits: list[str] = []
+
+    def down(req: httpx.Request) -> httpx.Response:
+        hits.append(req.url.path)
+        raise httpx.ConnectTimeout("timed out", request=req)
+
+    gl.reset_down()
+    try:
+        assert fetch_repo_file("http://repo", "tok", "g/r", ".gitlab-ci.yml", transport=_t(down)) is None
+        assert gl.is_down("http://repo/") and not gl.is_down("http://center")
+        assert fetch_tag_jobs("http://repo", "tok", "g/r", transport=_t(down)) is None
+        assert fetch_job_log_head("http://repo", "tok", "g/r", 5, transport=_t(down)) is None
+        assert len(hits) == 1  # 두 번째부터는 기다리지 않음
+        assert fetch_tag_jobs("http://center", "tok", "g/r", transport=_t(lambda r: httpx.Response(200, json=[]))) == []
+        assert fetch_repo_file("http://center", "tok", "g/r", "x", transport=_t(lambda r: httpx.Response(404))) is None
+        assert not gl.is_down("http://center")
+    finally:
+        gl.reset_down()
+    assert not gl.is_down("http://repo")  # 다음 수집은 다시 붙어 봄

@@ -265,7 +265,8 @@ test('repo 보기 — 서비스마다 repo 프로젝트 · 빌드(CI 이미지) 
       repo: { project: 'team/apps/shop-web', read: true, build: [{ runtime: 'node', version: '20', image: 'node:20-slim', jobs: ['build', 'test'] }],
         code: { node: '22', node_from: '.nvmrc', node_rule: 'exact', nest: '10.3.0' } } },
     { service: 'shop was', group: 'g1', type: 'was', host: 'gitlab', runtime: 'node', runtime_version: '22',
-      repo: { project: 'team/apps/shop-was', read: true, build: [{ runtime: 'node', version: '22', image: 'node:22', jobs: ['build'] }], code: { node: '20', node_from: 'package.json', node_rule: 'min' } } },
+      // kept = 이번 수집은 repo GitLab 에 접속이 안 돼 지난 수집 값
+      repo: { project: 'team/apps/shop-was', read: true, kept: true, build: [{ runtime: 'node', version: '22', image: 'node:22', jobs: ['build'] }], code: { node: '20', node_from: 'package.json', node_rule: 'min' } } },
     { service: 'pay', group: 'g1', type: 'was', host: 'gitlab', repo: { project: 'team/pay', read: false, build: [] } },
     // 같은 repo 하나를 두 역할이 씀 → repo 프로젝트 칸 하나로 합침
     { service: 'acct manager', group: 'g1', type: 'manager', host: 'gitlab', runtime: 'node', runtime_version: '22', repo: { project: 'team/acct', read: true, build: [], code: {} } },
@@ -317,6 +318,9 @@ test('repo 보기 — 서비스마다 repo 프로젝트 · 빌드(CI 이미지) 
   const was = table.getByTitle('repo 프로젝트: team/apps/shop-was (GitLab)').closest('tr')!
   expect(within(was).getByText('node ≥20')).toBeInTheDocument()
   expect(within(was).getByText('없음', { selector: '.badge--ok' })).toBeInTheDocument()
+  // repo GitLab 에 못 닿은 수집 → 프로젝트 옆에 '지난 값'(이번에 새로 읽은 줄엔 없음)
+  expect(within(was).getByText('지난 값')).toHaveAttribute('title', expect.stringContaining('repo GitLab 에 접속이 안 됨'))
+  expect(within(web).queryByText('지난 값')).toBeNull()
   // repo CI 를 못 읽은 서비스 · repo 를 안 적은 서비스 · GitHub 서비스
   expect(within(table.getByTitle('repo 프로젝트: team/pay (GitLab)').closest('tr')!).getByText('못 읽음')).toBeInTheDocument()
   expect(screen.getByText(/repo 프로젝트를 안 적은 서비스 — sync/)).toBeInTheDocument()
