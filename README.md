@@ -33,22 +33,60 @@
 
 ## 어디서·구조 (Where)
 
+### 지금 이렇게 돌아간다 — 모으는 길 · 보는 길
+
+```mermaid
+flowchart TB
+    person["사람<br/>브라우저로 주소 열기"]
+    login["로그인 (사내 IdP)<br/>허락된 그룹만 통과"]
+    gitlab["GitLab 세 곳<br/>repo · center · config"]
+    later["아직 못 읽는 것<br/>서버 compose · OS 패치<br/>/etc 설정"]
+    subgraph server["ControlTower 서버 (운영)"]
+        web["화면<br/>저장된 걸 표로"]
+        db[("DB<br/>모은 정보 저장")]
+        collector["수집기<br/>매일 09:00 · [다시 수집]"]
+    end
+    person --> login --> web
+    gitlab -- 읽기만 --> collector
+    collector --> db
+    db --> web
+    collector -. 열쇠 없음 · 지난 값 .-> later
+
+    classDef see fill:#EEEDFE,stroke:#534AB7,color:#3C3489
+    classDef collect fill:#E1F5EE,stroke:#0F6E56,color:#085041
+    classDef store fill:#F1EFE8,stroke:#5F5E5A,color:#444441
+    classDef todo fill:transparent,stroke:#888780,stroke-dasharray:4 4,color:#888780
+    class person,login,web see
+    class gitlab,collector collect
+    class db store
+    class later todo
+    style server fill:transparent,stroke:#888780,stroke-dasharray:4 4
+```
+
+- **모으는 길(초록)** — **수집기**가 매일 09:00, 그리고 화면 [다시 수집]을 누를 때 GitLab 세 곳을 **읽기만** 해서 DB 에 넣는다(15초 안팎).
+  repo = 개발자가 코드를 올리는 곳(빌드 설정 · node 버전) · center = 이미지를 만들고 배포하는 곳(빌드·배포 버전) · config = 서버에서 실행할 설정(Dockerfile · start.sh).
+- **보는 길(보라)** — 주소를 열면 **로그인**(사내 IdP)부터, 허락된 그룹만 통과 → **화면**. 화면은 GitLab 을 직접 읽지 않고 **DB 에 모아 둔 것**을 보여 준다. 그래서 화면에 "데이터 기준 ○시 ○분" 이 함께 나온다.
+- **DB(회색)** — 두 길이 만나는 곳. 수집기는 넣기만, 화면은 꺼내기만.
+- **아직 못 읽는 것(점선)** — 서버 compose · OS 패치 · /etc 는 GitLab 이 아니라 **각 서버 안**에 있어 SSH 로만 읽힌다. ControlTower 서버에는 다른 서버로 들어갈 **키를 두지 않으므로** 지난 값 그대로 — 필요하면 키를 가진 PC 의 러너(아래)로 채우고, 나중에는 IdP 의 단명 SSH 인증서로 읽는다.
+- 화면 · API · DB 는 서버 안(127.0.0.1)에만 열리고, 밖에서는 로그인을 거쳐야만 닿는다(→ [docs/DEPLOY.md](docs/DEPLOY.md) 의 ⚠ BIND_ADDR).
+- 코드 반영: GitHub `main` → 서버가 새 코드를 받아 다시 띄움.
+
+### 서버 안의 정보를 읽을 때 — 러너(키를 가진 PC)
+
 ```
                        ssh                nested ssh
   ┌──────────────┐   (local 키)  ┌─────────┐ (gw 보유 키) ┌──────────┐
   │ local PC(러너) │ ───────────▶ │ GW(점프) │ ──────────▶ │ 대상 서버  │
   └──────┬───────┘              └─────────┘             └──────────┘
-         │ HTTPS (결과↑ · 기준본↓)
+         │ 결과만 올림
   ┌──────▼───────┐
-  │ 사내 VM(중앙)  │  웹·API·DB (Docker) · 키 0 · public IP 불필요 · 사내망 전용
+  │ 중앙(CT 서버)  │  화면·API·DB·수집기 (Docker) · 키 0
   └──────────────┘
 ```
 
-- **중앙(사내 VM)**: 웹 UI + API + DB. Docker 컨테이너. **SSH 키를 저장하지 않음**.
-- **러너(local)**: 키를 가진 로컬에서 실행. gw를 nested ssh로 통과해 수집·배포, 결과만 중앙에 업로드.
-- **코드**: GitHub [`jijungon/ControlTower`](https://github.com/jijungon/ControlTower). 주 개발은 로컬(SQLite).
-
-> **단일 머신은 지금(test·개발) 단계뿐** — 현재는 **로컬 1대가 dev·stg·prod를 겸한다**(`docker compose up -d` = 로컬 상시 운영, `make dev` = 코딩용). 다만 **실제 운영 목표는 중앙(사내 VM) + 러너 분리**이고, 거기서 "중앙 무키"가 진짜 보안이 된다. 그래서 중앙 무키·중앙/러너 split을 **처음부터 지켜** test와 real 구조를 일치시킨다 — 지금 구조 그대로 VM에 이관하면 끝.
+- **중앙(ControlTower 서버)**: 화면 + API + DB + 수집기. Docker 컨테이너. **SSH 키를 저장하지 않음**. 사내 IdP 로그인 뒤.
+- **러너(local)**: 키를 가진 PC 에서 실행. gw를 nested ssh로 통과해 수집·배포, 결과만 중앙에 업로드.
+- **코드**: GitHub [`jijungon/ControlTower`](https://github.com/jijungon/ControlTower). 주 개발은 로컬(SQLite, `make dev`).
 
 ## 어떻게 (How)
 
