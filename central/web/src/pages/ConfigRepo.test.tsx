@@ -322,7 +322,11 @@ test('repo 보기 — 서비스마다 repo 프로젝트 · 빌드(CI 이미지) 
   expect(within(was).getByText('지난 값')).toHaveAttribute('title', expect.stringContaining('repo GitLab 에 접속이 안 됨'))
   expect(within(web).queryByText('지난 값')).toBeNull()
   // repo CI 를 못 읽은 서비스 · repo 를 안 적은 서비스 · GitHub 서비스
-  expect(within(table.getByTitle('repo 프로젝트: team/pay (GitLab)').closest('tr')!).getByText('못 읽음')).toBeInTheDocument()
+  const pay = table.getByTitle('repo 프로젝트: team/pay (GitLab)').closest('tr')!
+  expect(within(pay).getByText('못 읽음')).toBeInTheDocument()
+  // 못 읽은 repo 는 '확인할 것' 도 '없음(괜찮음)' 이 아니라 '모름'
+  expect(within(pay).getByText('모름')).toHaveAttribute('title', expect.stringContaining('repo CI 를 못 읽어'))
+  expect(pay.querySelector('.badge--ok')).toBeNull()
   expect(screen.getByText(/repo 프로젝트를 안 적은 서비스 — sync/)).toBeInTheDocument()
   const gone = table.getByText('repo 없음').closest('tr')!
   expect([...gone.querySelectorAll(':scope > td')].slice(-5).map((td) => td.textContent)).toEqual(['was', '—', '—', 'node 18', '—'])

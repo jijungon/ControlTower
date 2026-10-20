@@ -150,6 +150,13 @@ function runCell(r: ShapeRow) {
 function checkCell(r: ShapeRow) {
   if (r.repo?.missing) return NONE
   const checks = repoChecks(r)
+  // 못 본 것(repo CI 를 못 읽음)을 '없음(괜찮음)' 으로 보이지 않게 — 빌드를 못 봤으면 '모름'
+  if (checks.length === 0 && r.repo?.read === false)
+    return (
+      <span className="muted empty-why" title="repo CI 를 못 읽어 빌드 버전을 못 봄 — 다른 것이 있는지 알 수 없음">
+        모름
+      </span>
+    )
   if (checks.length === 0) return <span className="badge badge--ok">없음</span>
   return (
     <span className="exec-lines">

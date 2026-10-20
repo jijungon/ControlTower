@@ -30,7 +30,9 @@ services:
       CT_SECRET: ${CT_SECRET:?set CT_SECRET in .env}
       CT_API_TOKEN: ${CT_API_TOKEN:?set CT_API_TOKEN in .env}
     ports:
-      # 기본 127.0.0.1(로컬 전용). VM 배포 시 .env 에 BIND_ADDR=0.0.0.0 → 사내망의 러너가 접근.
+      # 기본 127.0.0.1(로컬 전용). 로그인 없이 VM 에 그대로 둘 때만 .env 에 BIND_ADDR=0.0.0.0 → 사내망의 러너가 접근.
+      # ⚠ 로그인(IdP·리버스 프록시) 뒤에 세운 배포에서는 0.0.0.0 으로 바꾸지 말 것 — 열면 로그인을 건너뛰고 바로 닿음.
+      #   프록시는 포트가 아니라 같은 docker 망으로 web 에 붙인다(서버의 docker-compose.override.yml).
       - "${BIND_ADDR:-127.0.0.1}:${API_PORT:-8000}:8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
@@ -65,5 +67,5 @@ services:
       api:
         condition: service_healthy
     ports:
-      - "${BIND_ADDR:-127.0.0.1}:${WEB_PORT:-8090}:80"   # 기본 8090(로컬 127.0.0.1). VM 은 BIND_ADDR=0.0.0.0
+      - "${BIND_ADDR:-127.0.0.1}:${WEB_PORT:-8090}:80"   # 기본 8090(로컬 127.0.0.1). BIND_ADDR 는 api 위 주석 참고(로그인 뒤면 0.0.0.0 금지)
     restart: unless-stopped
