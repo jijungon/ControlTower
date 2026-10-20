@@ -81,15 +81,54 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with: { python-version: "3.12" }
+      # 두 검사 모두 실패는 안 시킨다(비차단). 대신 건수·목록을 실행 요약(Summary)에 적고,
+      # 1건 이상이거나 검사 자체가 못 돌면 ::warning:: 으로 띄운다 — `|| true` 로 묻히지 않게.
       - name: pip-audit (API 의존성)
         run: |
           python -m pip install -U pip pip-audit
-          pip-audit -r central/api/requirements.txt || true   # 초기엔 경보만(비차단)
+          pip-audit -r central/api/requirements.txt -f json -o pip-audit.json || true
+          if ! n=$(jq -e '[.dependencies[] | (.vulns // []) | length] | add // 0' pip-audit.json 2>/dev/null); then
+            echo "### pip-audit (API 의존성): 검사 실패 — 로그 확인" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "::warning title=pip-audit::검사가 끝까지 못 돌았음 — 로그 확인"
+            exit 0
+          fi
+          {
+            echo "### pip-audit (API 의존성): ${n}건"
+            if [ "$n" -gt 0 ]; then
+              echo "| 패키지 | 버전 | ID | 수정판 |"
+              echo "|---|---|---|---|"
+              jq -r '.dependencies[] | .name as $p | .version as $v | (.vulns // [])[]
+                     | "| \($p) | \($v) | \(.id) | \(.fix_versions | join(", ")) |"' pip-audit.json
+            fi
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$n" -gt 0 ]; then
+            echo "::warning title=pip-audit::API 의존성 취약점 ${n}건 — 실행 요약(Summary) 확인"
+          fi
       - uses: actions/setup-node@v7
         with: { node-version: "20" }
       - name: npm audit (web)
         working-directory: central/web
-        run: npm audit --omit=dev || true                     # 초기엔 경보만(비차단)
+        run: |
+          npm audit --omit=dev --json > npm-audit.json || true
+          if ! n=$(jq -e '.metadata.vulnerabilities.total' npm-audit.json 2>/dev/null); then
+            echo "### npm audit (web): 검사 실패 — 로그 확인" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "::warning title=npm audit::검사가 끝까지 못 돌았음 — 로그 확인"
+            exit 0
+          fi
+          {
+            echo "### npm audit (web): ${n}건"
+            if [ "$n" -gt 0 ]; then
+              echo "| 패키지 | 심각도 | 영향 범위 | 고치는 법 |"
+              echo "|---|---|---|---|"
+              jq -r '.vulnerabilities | to_entries[]
+                     | "| \(.key) | \(.value.severity) | \(.value.range | gsub("\\|"; "\\|")) | \(.value.fixAvailable
+                        | if type == "object" then "\(.name)@\(.version)" + (if .isSemVerMajor then " (메이저 변경)" else "" end)
+                          elif . then "npm audit fix" else "아직 없음" end) |"' npm-audit.json
+            fi
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$n" -gt 0 ]; then
+            echo "::warning title=npm audit::web 의존성 취약점 ${n}건 — 실행 요약(Summary) 확인"
+          fi
 
   image:
     if: github.event_name != 'pull_request'
