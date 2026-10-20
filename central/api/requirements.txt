@@ -1,4 +1,5 @@
-fastapi>=0.115,<0.116     # starlette TestClient/httpx 호환 안정선
+fastapi>=0.137,<0.142     # starlette 1.3.1 뒤에 나온 첫 판 ~ opentelemetry 필수 의존 붙기 전(0.142)
+starlette>=1.3.1          # 보안 수정판 바닥선 — 0.46.2 는 pip-audit 취약점 14건
 uvicorn[standard]>=0.30
 sqlalchemy>=2.0
 psycopg[binary]>=3.2
