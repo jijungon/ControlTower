@@ -14,6 +14,12 @@ class CentralAPI:
             timeout=30,
         )
 
+    def upload_host_status(self, source: str, reader: str, snap: dict[str, Any]) -> dict[str, Any]:
+        """서버가 스스로 적는 상태 파일을 읽은 결과(read_status) — 못 읽었으면 그 이유를 그대로 올린다."""
+        r = self._client.post("/api/host-status", json={"source": source, "reader": reader, **snap})
+        r.raise_for_status()
+        return r.json()
+
     def list_servers(self) -> list[dict[str, Any]]:
         r = self._client.get("/api/servers")
         r.raise_for_status()

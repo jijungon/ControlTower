@@ -4,7 +4,7 @@
 """
 from __future__ import annotations
 
-from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
@@ -239,6 +239,28 @@ class Collector(Base):
     mode: Mapped[str | None] = mapped_column(String, nullable=True)       # gitlab | gitlab+ssh (무엇을 읽나)
     schedule: Mapped[str | None] = mapped_column(String, nullable=True)   # 자동 수집 시각(예: '09:00 Asia/Seoul'), 없으면 버튼만
     last_seen_at: Mapped[str | None] = mapped_column(String, nullable=True)
+
+
+class HostStatus(Base):
+    """서버가 스스로 적는 상태 파일(예: IdP 서버 status.json)을 수집기가 읽어 올린 마지막 모습 — source 마다 한 줄.
+
+    못 읽었으면(read_ok=False) 이유만 바꾸고, 마지막으로 읽은 내용(written_at · problems …)은 남겨 둔다(화면에 '마지막 기록').
+    정상/경보/낡음/모름 판정은 조회할 때 지금 시각으로 한다 — 저장된 값이 낡아 가는 것 자체를 경보로 보려고.
+    """
+    __tablename__ = "host_status"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source: Mapped[str] = mapped_column(String, unique=True)                  # idp(IdP 서버) …
+    reader: Mapped[str | None] = mapped_column(String, nullable=True)         # 올린 수집기 이름
+    received_at: Mapped[str | None] = mapped_column(String, nullable=True)    # 중앙이 마지막으로 받은 시각
+    read_ok: Mapped[bool] = mapped_column(Boolean, default=False)             # 수집기가 파일을 읽었나
+    read_error: Mapped[str | None] = mapped_column(Text, nullable=True)       # 못 읽은 이유(파일 없음 · JSON 깨짐 …)
+    written_at: Mapped[str | None] = mapped_column(String, nullable=True)     # 적는 쪽이 파일에 적은 시각
+    host: Mapped[str | None] = mapped_column(String, nullable=True)           # 파일의 host(서버 이름은 런타임에만)
+    interval_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ok: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    problems: Mapped[str | None] = mapped_column(Text, nullable=True)         # JSON 목록 — 확인된 문제
+    unread: Mapped[str | None] = mapped_column(Text, nullable=True)           # JSON 목록 — 보려 했는데 못 본 것
+    signals: Mapped[str | None] = mapped_column(Text, nullable=True)          # JSON — 신호별 원본(화면 펼침용)
 
 
 # ── 작업이력 / 감사 로그 ─────────────────────────────────────────────

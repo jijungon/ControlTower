@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import AuthExpiredBanner from './components/AuthExpiredBanner'
+import HostStatusBar from './components/HostStatusBar'
 import Dashboard from './pages/Dashboard'
 import Servers from './pages/Servers'
 import BuildDeploy from './pages/BuildDeploy'
@@ -32,6 +33,7 @@ export default function App() {
         <span className="meta">사내망 전용 · 단일 머신(test)</span>
       </header>
       <AuthExpiredBanner />
+      <HostStatusBar />
 
       <nav className="sub-nav">
         {TABS.map((t) => (
