@@ -1,6 +1,7 @@
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import HostStatusBar from './HostStatusBar'
+import { installAuthExpiryWatch, resetAuthExpiryForTest } from '../authExpiry'
 import type { HostStatus } from '../api'
 
 const base: HostStatus = { source: 'idp', state: 'ok', reasons: [], host: 'test-host', problems: [], unread: [], written_age_seconds: 20 }
@@ -15,10 +16,14 @@ function serve(...replies: (HostStatus[] | 'fail')[]) {
   return fetchMock
 }
 
+const realFetch = globalThis.fetch
+
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
   vi.useRealTimers()
+  window.fetch = realFetch
+  resetAuthExpiryForTest()
 })
 
 test('아무도 안 올렸으면(기능 꺼짐) 아무것도 안 보임', async () => {
@@ -75,4 +80,17 @@ test('처음부터 못 불러오면(아직 한 번도 못 봄) 아무것도 안 
   const { container } = render(<HostStatusBar />)
   await vi.waitFor(() => expect(f).toHaveBeenCalled())
   expect(container).toBeEmptyDOMElement()
+})
+
+test('로그인이 만료되면 서버 상태 줄은 내리고(초록을 남기지 않음) — 이유는 맨 위 로그인 만료 한 줄이 말함', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  const loginRedirect = { type: 'opaqueredirect', ok: false, status: 0, headers: new Headers() } as unknown as Response
+  let n = 0
+  vi.stubGlobal('fetch', vi.fn(async () => (n++ === 0 ? new Response(JSON.stringify([base]), { status: 200 }) : loginRedirect)))
+  installAuthExpiryWatch(window)
+  render(<HostStatusBar />)
+  expect(await screen.findByRole('status')).toHaveTextContent('정상')
+  await act(() => vi.advanceTimersByTimeAsync(30_000))
+  await vi.waitFor(() => expect(screen.queryByRole('status')).toBeNull())
+  expect(screen.queryByText(/서버 상태 모름/)).toBeNull() // 두 줄로 겹치지 않게
 })

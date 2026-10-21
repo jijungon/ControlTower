@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { fetchHostStatus, type HostStatus } from '../api'
+import { useAuthExpired } from '../authExpiry'
 
 // 화면 맨 위 한 줄 — 서버가 스스로 적는 상태(IdP 서버 status.json). 초록 = 정상 · 빨강 = 경보 · 회색 = 모름
 // 서버가 상태를 적고 있어도 보는 사람이 없으면 장애를 오래 모른다 → 모든 탭에서 보이는 자리에 둔다.
@@ -52,6 +53,7 @@ export default function HostStatusBar() {
   const [rows, setRows] = useState<HostStatus[] | null>(null)
   const [err, setErr] = useState(false)
   const had = useRef(false) // 한 번이라도 상태가 있었나 — 있었는데 못 불러오면 '모름'(기능이 꺼진 것과 구분)
+  const expired = useAuthExpired()
 
   useEffect(() => {
     let alive = true
@@ -72,6 +74,7 @@ export default function HostStatusBar() {
     }
   }, [])
 
+  if (expired) return null // 로그인 만료 — 맨 위 '로그인이 만료됐어요' 한 줄이 이유를 말함(초록은 그대로 두지 않음)
   if (err && had.current)
     return (
       <div className="host-status host-status--unknown" role="alert">
