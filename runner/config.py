@@ -22,6 +22,8 @@ class RunnerConfig:
     gitlab_center_token: str = ""  # center PRIVATE-TOKEN (러너 로컬에만)
     shape_targets: str = "shape-targets.yml"  # 비교표 대상 목록(로컬 파일, 커밋 안 함)
     apply_sudo: bool = False    # conf 적용 시 sudo 사용(root 소유 파일). CT_APPLY_SUDO=1
+    # 서버가 스스로 적는 상태 파일(IdP 서버 status.json) — 수집기가 읽어 화면 맨 위에. 빈 값이면 이 기능을 끔
+    idp_status_file: str = "/idp-status/status.json"
 
     @classmethod
     def load(cls) -> "RunnerConfig":
@@ -41,4 +43,5 @@ class RunnerConfig:
             gitlab_center_token=os.environ.get("CT_GITLAB_CENTER_TOKEN", ""),
             shape_targets=os.path.expanduser(os.environ.get("CT_SHAPE_TARGETS", "shape-targets.yml")),
             apply_sudo=os.environ.get("CT_APPLY_SUDO", "") not in ("", "0", "false", "False"),
+            idp_status_file=os.environ.get("CT_IDP_STATUS_FILE", "/idp-status/status.json").strip(),
         )

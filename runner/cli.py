@@ -65,6 +65,7 @@ from .gitlab import (
     is_down,
     reset_down,
 )
+from .hoststatus import read_status, summary
 from .probe import probe_ssh
 from .repoversions import extract_versions
 from .sshconf import parse_ssh_config
@@ -1017,6 +1018,9 @@ def _daily_since(now: datetime, at: str, tz: str) -> str | None:
     return due.astimezone(timezone.utc).isoformat(timespec="seconds") if local >= due else None
 
 
+STATUS_RESEND_SECONDS = 60  # 서버 상태가 그대로여도 이만큼마다 다시 올림
+
+
 def cmd_agent(
     cfg: RunnerConfig, targets_path: str | None = None, interval: float = 5.0, once: bool = False, ssh: bool = False,
     name: str | None = None, daily_at: str | None = None, tz: str = "Asia/Seoul",
@@ -1031,11 +1035,31 @@ def cmd_agent(
     name = name or cfg.runner_name
     mode = "gitlab+ssh" if ssh else "gitlab"
     schedule = f"{daily_at} {tz}" if daily_at else None
-    print(f"수집기 시작: {name} ({mode}) — {interval:g}초마다 요청 확인" + (f" · 자동 매일 {schedule}" if schedule else " · 자동 없음(버튼만)"))
+    status_file = (getattr(cfg, "idp_status_file", "") or "").strip()  # 빈 값이면 서버 상태 읽기를 끔
+    print(
+        f"수집기 시작: {name} ({mode}) — {interval:g}초마다 요청 확인" + (f" · 자동 매일 {schedule}" if schedule else " · 자동 없음(버튼만)")
+        + (f" · 서버 상태 파일 {status_file}" if status_file else " · 서버 상태 읽기 꺼짐")
+    )
     asked: str | None = None  # 오늘 자동 요청을 이미 물어봤나(같은 날 반복 호출 줄이기)
+    sent: tuple | None = None  # 서버 상태 — 마지막으로 올린 (읽음?, 이유, 기록 시각)
+    sent_at, sent_summary, sent_error = 0.0, "", ""
     while True:
         api = CentralAPI(cfg.central_url, cfg.api_token)
         try:
+            if status_file:  # 서버 상태 파일 — 바뀌었으면 바로, 아니어도 1분마다(중앙이 '수집기가 살아 있음' 을 알게)
+                snap = read_status(status_file)
+                key = (snap["read_ok"], snap.get("read_error"), snap.get("written_at"))
+                if key != sent or time.monotonic() - sent_at >= STATUS_RESEND_SECONDS:
+                    try:  # 올리기 실패가 수집 요청 확인까지 막지 않게 따로
+                        api.upload_host_status("idp", name, snap)
+                    except httpx.HTTPError as e:
+                        if str(e) != sent_error:
+                            print(f"[{time.strftime('%H:%M:%S')}] 서버 상태를 못 올림: {e}")
+                        sent_error = str(e)
+                    else:
+                        if summary(snap) != sent_summary:  # 로그는 상태가 바뀔 때만
+                            print(f"[{time.strftime('%H:%M:%S')}] 서버 상태: {summary(snap)}")
+                        sent, sent_at, sent_summary, sent_error = key, time.monotonic(), summary(snap), ""
             since = _daily_since(datetime.now(timezone.utc), daily_at, tz) if daily_at else None
             if since and since != asked:
                 res = api.request_auto("shape", since)

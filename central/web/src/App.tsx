@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import HostStatusBar from './components/HostStatusBar'
 import Dashboard from './pages/Dashboard'
 import Servers from './pages/Servers'
 import BuildDeploy from './pages/BuildDeploy'
@@ -30,6 +31,7 @@ export default function App() {
         <span className="spacer" />
         <span className="meta">사내망 전용 · 단일 머신(test)</span>
       </header>
+      <HostStatusBar />
 
       <nav className="sub-nav">
         {TABS.map((t) => (

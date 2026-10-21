@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     ct_oidc_issuer: str = ""                            # CT_OIDC_ISSUER
     ct_oidc_audience: str = ""                          # CT_OIDC_AUDIENCE
 
+    # 서버 상태 파일이 '낡음' 인 기준 — 파일의 갱신 주기(interval_seconds)의 몇 배가 지나도록 안 바뀌면 경보
+    ct_host_status_stale_factor: float = 5.0           # CT_HOST_STATUS_STALE_FACTOR
+
 
 # vault 모드면 OpenBao KV → env 주입(Settings 읽기 전). env 모드(기본)면 no-op.
 hydrate_from_vault()

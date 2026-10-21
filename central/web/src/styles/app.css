@@ -329,3 +329,13 @@ table.grid tbody tr.row-detail > td { background: var(--canvas-parchment); paddi
 .collect-state--ok { color: var(--ok); }
 .collect-state--warn { color: var(--warn); }
 .collect-state--fail { color: var(--danger); }
+
+/* 서버 상태 — 화면 맨 위 한 줄(초록 정상 · 빨강 경보 · 회색 모름). 모름도 눈에 띄게: '못 봤다' 는 정상이 아님 */
+.host-status {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px;
+  padding: 7px 16px; font-size: 13px; line-height: 1.5;
+}
+.host-status--ok { background: var(--ok-bg); color: var(--ok); }
+.host-status--alert { background: var(--danger-bg); color: var(--danger); font-weight: 600; }
+.host-status--unknown { background: var(--hairline); color: var(--ink-muted-80); font-weight: 600; }
+.host-status__meta { color: var(--ink-muted-48); font-weight: 400; }

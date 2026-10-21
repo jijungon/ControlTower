@@ -309,3 +309,23 @@ export async function fetchShapes(): Promise<ShapeRow[]> {
   return res.json()
 }
 
+// 서버 상태 — 서버가 스스로 적는 상태 파일(IdP 서버 status.json)을 수집기가 읽어 올린 것. 판정은 중앙이 지금 시각으로
+// ok = 정상(초록) · alert = 경보(빨강: 문제 · 못 본 것 · 기록 멈춤) · unknown = 모름(회색: 못 읽음 · 수집기 멈춤)
+export type HostStatus = {
+  source: string // idp …
+  state: 'ok' | 'alert' | 'unknown'
+  reasons: string[] // 판정 이유(기록 멈춤 · 못 읽음 · 수집기 멈춤 …)
+  host?: string | null
+  problems: string[] // 확인된 문제
+  unread: string[] // 보려고 했는데 못 본 것 — 비어 있어야 정상
+  written_at?: string | null
+  written_age_seconds?: number | null
+  received_at?: string | null
+  read_error?: string | null
+}
+
+export async function fetchHostStatus(): Promise<HostStatus[]> {
+  const res = await fetch('/api/host-status')
+  if (!res.ok) throw new Error(`GET /api/host-status ${res.status}`)
+  return res.json()
+}
