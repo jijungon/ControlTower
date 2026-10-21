@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { fetchCollectStatus, requestCollect, type CollectStatus } from '../api'
+import { useAuthExpired } from '../authExpiry'
 import { fmtTime } from './SectionHead'
 
 // [다시 수집] — GitLab 을 다시 읽어 오라고 수집기에 요청한다(수동). 끝나면 표를 새로 불러온다(따로 ↻ 없음).
@@ -14,6 +15,7 @@ const RECENT_MS = 5 * 60 * 1000 // 끝난 지 5분 안이면 '방금 갱신'
 export default function CollectButton({ onDone, asOf, kind = 'shape' }: { onDone: () => void; asOf?: string | null; kind?: string }) {
   const [st, setSt] = useState<CollectStatus | null>(null)
   const [err, setErr] = useState(false)
+  const expired = useAuthExpired()
   const seenDone = useRef<number | null | undefined>(undefined) // 마지막으로 본 '완료' 요청 — 새 완료(버튼·자동)가 보이면 한 번 onDone
   const req = st?.request ?? null
   const alive = st?.collector?.alive ?? false
@@ -60,7 +62,8 @@ export default function CollectButton({ onDone, asOf, kind = 'shape' }: { onDone
   let text: string = daily ? `${dataAt} · ${daily}` : dataAt
   let tone = ''
   let title: string | undefined
-  if (err) [text, tone] = [`ControlTower 에 못 닿음 · ${dataAt}`, 'fail']
+  if (err && expired) [text, tone] = ['로그인 만료 — 새로고침해 주세요', 'fail']
+  else if (err) [text, tone] = [`ControlTower 에 못 닿음${asOf ? ` · ${dataAt}` : ''}`, 'fail'] // 못 불러온 것을 '아직 수집 없음' 으로 말하지 않게
   else if (st && !alive)
     [text, tone, title] = [req?.status === 'pending' ? '요청됨 — 수집기가 꺼져 있어요(켜면 바로 처리)' : `수집기 꺼짐 · ${dataAt}`, 'warn', HOW_TO_START]
   else if (req?.status === 'pending') text = auto ? '자동 수집 — 곧 시작' : '요청됨 — 곧 시작'
