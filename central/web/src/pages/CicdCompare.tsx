@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import { fetchShapes, type DeployCell, type ExecutorCell, type ShapeRow, type VersionCell } from '../api'
 import GroupFilter from '../components/GroupFilter'
 import Legend, { type LegendRow } from '../components/Legend'
+import { useAuthExpired } from '../authExpiry'
 import CollectButton from '../components/CollectButton'
 import SectionHead, { latestTime } from '../components/SectionHead'
 import { cmpVer, verParts } from '../vercmp'
@@ -429,6 +430,7 @@ function RunnerTable({ rows }: { rows: ShapeRow[] }) {
 }
 
 export default function CicdCompare() {
+  const expired = useAuthExpired()
   const [rows, setRows] = useState<ShapeRow[] | null>(null)
   const [err, setErr] = useState(false)
   const [groupSel, setGroupSel] = useState('')
@@ -572,7 +574,7 @@ export default function CicdCompare() {
         )}
         {err && (
           <div className="placeholder" style={{ padding: '28px 16px' }}>
-            비교표를 불러오지 못했습니다 — 중앙 API 상태를 확인하세요.
+            {expired ? '로그인이 만료돼 비교표를 불러오지 못했어요 — 새로고침해 주세요.' : '비교표를 불러오지 못했습니다 — 중앙 API 상태를 확인하세요.'}
           </div>
         )}
       </div>

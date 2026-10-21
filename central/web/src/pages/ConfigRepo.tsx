@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState } from 'react'
 import { fetchConfig, fetchShapes, type ComposeSrc, type ConfigRow, type ShapeRow } from '../api'
+import { useAuthExpired } from '../authExpiry'
 import CollectButton from '../components/CollectButton'
 import GroupFilter from '../components/GroupFilter'
 import Legend, { type LegendRow } from '../components/Legend'
@@ -384,6 +385,8 @@ export default function ConfigRepo() {
     })
 
   const [shapes, setShapes] = useState<ShapeRow[] | null>(null) // repo 보기 + GitHub 서비스 안내
+  const [shapesErr, setShapesErr] = useState(false)
+  const expired = useAuthExpired()
   const [side, setSideState] = useState<Side>(readSide)
   const setSide = (v: Side) => {
     setSideState(v)
@@ -403,8 +406,11 @@ export default function ConfigRepo() {
         })
         .catch(() => setErr(true)),
       fetchShapes()
-        .then((d) => setShapes(Array.isArray(d) ? d : []))
-        .catch(() => setShapes([])),
+        .then((d) => {
+          setShapes(Array.isArray(d) ? d : [])
+          setShapesErr(false)
+        })
+        .catch(() => setShapesErr(true)), // 못 불러온 것을 '아직 repo 를 읽지 않았다' 로 보이지 않게
     ])
 
   useEffect(() => {
@@ -488,8 +494,13 @@ export default function ConfigRepo() {
           </div>
           <div className="card" style={{ overflowX: 'auto' }}>
             <RepoTable rows={repoShown} />
-            {!shapes && <div className="placeholder" style={{ padding: '28px 16px' }}>불러오는 중…</div>}
-            {shapes && repoRows.length === 0 && (
+            {!shapes && !shapesErr && <div className="placeholder" style={{ padding: '28px 16px' }}>불러오는 중…</div>}
+            {shapesErr && (
+              <div className="placeholder" style={{ padding: '28px 16px' }}>
+                {expired ? '로그인이 만료돼 repo 표를 불러오지 못했어요 — 새로고침해 주세요.' : 'repo 표를 불러오지 못했습니다 — 중앙 API 상태를 확인하세요.'}
+              </div>
+            )}
+            {shapes && !shapesErr && repoRows.length === 0 && (
               <div className="placeholder" style={{ padding: '28px 16px' }}>
                 아직 repo 를 읽지 않았습니다 — <span className="mono">shape-targets.yml</span> 서비스에{' '}
                 <span className="mono">repo:</span> 프로젝트를 적고 <span className="mono">python -m runner.cli shape</span>
@@ -682,7 +693,7 @@ export default function ConfigRepo() {
             )}
             {err && (
               <div className="placeholder" style={{ padding: '28px 16px' }}>
-                config 를 불러오지 못했습니다 — 중앙 API 상태를 확인하세요.
+                {expired ? '로그인이 만료돼 config 를 불러오지 못했어요 — 새로고침해 주세요.' : 'config 를 불러오지 못했습니다 — 중앙 API 상태를 확인하세요.'}
               </div>
             )}
           </div>
