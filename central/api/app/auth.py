@@ -11,6 +11,7 @@
                 검사: RS256 만 · 만료(exp) 필수 · issuer 필수(CT_OIDC_ISSUER — 같은 키로 서명하는 다른 앱 토큰을 거름)
                       · audience 는 CT_OIDC_AUDIENCE 를 넣으면. 키는 oidc 와 같이 CT_OIDC_JWKS_URL(또는 PUBLIC_KEY).
                 토큰이 없거나 검사에 떨어지면 익명(= 누군지 모름 → 서버 탭은 막힘). 401 로 막지는 않는다.
+                GET /api/me 가 검사 결과(토큰이 왔나 · 통과했나 · 까닭 · 적힌 iss · aud · 클레임 이름)를 같이 보여 준다.
 
 기본이 none 이라 IdP 없이도 그대로 동작. 플랫폼이 서면 CT_AUTH_MODE=oidc 로 스위치만.
 """
@@ -69,22 +70,41 @@ def _groups(claims: dict) -> list[str]:
 
 
 def _from_proxy(token: str) -> Principal:
+    return proxy_check(token)[0]
+
+
+def proxy_check(token: str) -> tuple[Principal, dict]:
+    """X-authentik-jwt 검사 → (사용자, 확인 내용). 확인 내용은 /api/me 가 그대로 보여 준다 — 운영에서 한 번 열어
+    토큰이 오는지 · 그룹 클레임 이름 · aud 를 본다. iss · aud · claims 는 토큰에 적힌 값(검사 전)이고, 토큰 자체는 안 보인다."""
     if not token:
-        return ANON
+        return ANON, {"token": False, "ok": False, "reason": "X-authentik-jwt 없음 — 앞단 Authentik 을 안 거쳤거나 붙이지 않음"}
     if not settings.ct_oidc_issuer:
         raise HTTPException(
             status.HTTP_500_INTERNAL_SERVER_ERROR,
             "proxy 모드엔 CT_OIDC_ISSUER 가 필요(같은 키로 서명하는 다른 앱 토큰을 거름)",
         )
+    seen = {"token": True, **_written(token)}
     try:
         claims = _verify_oidc(token, require=("exp", "iss"))
     except HTTPException as e:
         if e.status_code != status.HTTP_401_UNAUTHORIZED:
             raise  # 키 설정 오류는 숨기지 않는다
-        return ANON
+        return ANON, {**seen, "ok": False, "reason": e.detail}
     if not claims.get("email"):
-        return ANON
-    return Principal(authenticated=True, email=claims["email"], groups=_groups(claims))
+        return ANON, {**seen, "ok": False, "reason": "토큰에 email 이 없음"}
+    user = Principal(authenticated=True, email=claims["email"], groups=_groups(claims))
+    return user, {**seen, "ok": True, "reason": None}
+
+
+def _written(token: str) -> dict:
+    import jwt
+
+    try:
+        head = jwt.get_unverified_header(token)
+        body = jwt.decode(token, options={"verify_signature": False})
+    except Exception:
+        return {}
+    return {"alg": head.get("alg"), "iss": body.get("iss"), "aud": body.get("aud"), "claims": sorted(body)}
 
 
 @functools.lru_cache(maxsize=4)

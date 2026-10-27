@@ -112,6 +112,7 @@ ControlTower는 **혼자서도 그대로 돌고**, 나중에 사내 IdP/Secrets 
 - `CT_AUTH_MODE=proxy` — 앞단 Authentik(프록시)이 요청마다 붙이는 `X-authentik-jwt` 의 **서명을 검사**해서 그 안의 이메일 · 그룹을 쓴다. 서버 탭 '누가 · 어디로' 가 이 그룹으로 거른다(server-admin=전부, developer=dev · stg).
   글자 헤더(`X-authentik-email` · `-groups`)는 믿지 않는다 — 누가 흉내 내 보내도 서명이 안 맞는다. 토큰이 없거나 검사에 떨어지면 '누군지 모름' 으로 막는다.
   필요한 값: `CT_OIDC_JWKS_URL`(프록시 provider 의 jwks — RS256 서명 키가 있어야 함) · `CT_OIDC_ISSUER`(필수 — 같은 키로 서명하는 다른 앱 토큰을 거름) · `CT_OIDC_AUDIENCE`(넣으면 검사). RS256 만 · 만료 필수.
+  켜는 순서: 금고 연결은 끈 채(`CT_INVENTORY_MODE` 없음 — 화면은 그대로) `CT_AUTH_MODE=proxy` 만 켜고, 로그인해서 `/api/me` 를 연다 → `proxy` 칸에 토큰이 왔나 · 통과했나 · 떨어진 까닭 · 토큰에 적힌 `aud` · 클레임 이름(`groups` 가 있나)이 보인다. `aud` 를 `CT_OIDC_AUDIENCE` 에 넣고 통과를 본 뒤 금고 연결을 켠다.
 - 플랫폼 자체(Authentik/OpenBao)는 **별도 프로젝트** — 설계·계획은 로컬 전용 `~/Downloads/parameta-idp-secrets/`.
 
 ### 운영에서 OpenBao에 붙일 때 (TLS·mTLS)

@@ -90,8 +90,9 @@ def test_me_proxy_reads_signed_authentik_jwt(client, monkeypatch):
     # 앞단 Authentik 이 붙이는 X-authentik-jwt — 서명이 맞으면 그 안의 이메일 · 그룹
     priv, pub = _rsa_pair()
     _proxy(monkeypatch, pub)
-    r = client.get("/api/me", headers={"X-authentik-jwt": _proxy_jwt(priv)})
-    assert r.json() == {"authenticated": True, "email": "who@example.com", "groups": ["developer", "viewer"]}
+    r = client.get("/api/me", headers={"X-authentik-jwt": _proxy_jwt(priv)}).json()
+    assert {k: r[k] for k in ("authenticated", "email", "groups")} == {
+        "authenticated": True, "email": "who@example.com", "groups": ["developer", "viewer"]}
 
 
 def test_me_proxy_does_not_trust_plain_headers(client, monkeypatch):
@@ -99,9 +100,10 @@ def test_me_proxy_does_not_trust_plain_headers(client, monkeypatch):
     _, pub = _rsa_pair()
     _proxy(monkeypatch, pub)
     anon = {"authenticated": False, "email": None, "groups": []}
-    assert client.get("/api/me").json() == anon
+    no_token = {"token": False, "ok": False, "reason": "X-authentik-jwt 없음 — 앞단 Authentik 을 안 거쳤거나 붙이지 않음"}
+    assert client.get("/api/me").json() == {**anon, "proxy": no_token}
     h = {"X-authentik-email": "who@example.com", "X-authentik-groups": "server-admin"}
-    assert client.get("/api/me", headers=h).json() == anon
+    assert client.get("/api/me", headers=h).json() == {**anon, "proxy": no_token}
 
 
 def test_me_proxy_rejects_bad_tokens(client, monkeypatch):
@@ -168,3 +170,26 @@ def test_proxy_uses_jwks_like_production(client, monkeypatch):
         assert client.get("/api/me", headers={"X-authentik-jwt": unknown_kid}).json()["authenticated"] is False
     finally:
         auth._jwks_client.cache_clear()
+
+
+def test_me_proxy_shows_check_result_for_first_look(client, monkeypatch):
+    # 켜기 전 운영에서 한 번 열어 본다 — 토큰이 오는지 · 그룹 클레임 이름 · aud. 토큰 자체는 안 돌려준다
+    priv, pub = _rsa_pair()
+    other_priv, _ = _rsa_pair()
+    _proxy(monkeypatch, pub)
+    t = _proxy_jwt(priv, aud="client-abc", ak_groups=["x"])
+    r = client.get("/api/me", headers={"X-authentik-jwt": t}).json()
+    assert r["proxy"] == {"token": True, "ok": True, "reason": None, "alg": "RS256", "iss": ISS, "aud": "client-abc",
+                          "claims": ["ak_groups", "aud", "email", "exp", "groups", "iss"]}
+    assert t not in str(r)
+    # aud 를 잘못 넣었으면 — 떨어진 까닭과 토큰에 적힌 aud 가 보여 고칠 값을 안다
+    monkeypatch.setattr(settings, "ct_oidc_audience", "wrong")
+    p = client.get("/api/me", headers={"X-authentik-jwt": t}).json()["proxy"]
+    assert p["ok"] is False and "audience" in p["reason"].lower() and p["aud"] == "client-abc"
+    monkeypatch.setattr(settings, "ct_oidc_audience", "")
+    p = client.get("/api/me", headers={"X-authentik-jwt": _proxy_jwt(other_priv)}).json()
+    assert p["authenticated"] is False and p["proxy"]["ok"] is False and "signature" in p["proxy"]["reason"].lower()
+    p = client.get("/api/me", headers={"X-authentik-jwt": _proxy_jwt(priv, email=None)}).json()["proxy"]
+    assert p["ok"] is False and p["reason"] == "토큰에 email 이 없음"
+    p = client.get("/api/me", headers={"X-authentik-jwt": "not.a.jwt"}).json()["proxy"]
+    assert p["token"] is True and p["ok"] is False
