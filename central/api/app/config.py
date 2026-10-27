@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     ct_inventory_addr: str = ""                         # CT_INVENTORY_ADDR (비면 CT_VAULT_ADDR)
     ct_inventory_mount: str = "inventory"               # CT_INVENTORY_MOUNT
     ct_inventory_role_id: str = ""                      # CT_INVENTORY_ROLE_ID (비밀 아님 — 누구인가)
+    ct_inventory_role_id_file: str = ""                 # CT_INVENTORY_ROLE_ID_FILE (위가 비면 이 파일에서)
     ct_inventory_secret_id_file: str = ""               # CT_INVENTORY_SECRET_ID_FILE (비밀 — 0600 파일)
     ct_inventory_cache_seconds: int = 60                # CT_INVENTORY_CACHE_SECONDS
 

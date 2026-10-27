@@ -98,3 +98,21 @@ def test_금고_읽기는_목록만_보고_잠깐만_기억한다(monkeypatch):
     inventory_source.fetch_inventory()
     assert len(calls) == n, "60초 안에 또 물었다"
     inventory_source.clear_cache()
+
+
+def test_role_id_는_파일에서도_읽고_비밀은_파일로만(tmp_path, monkeypatch):
+    rid, sid = tmp_path / "rid", tmp_path / "sid"
+    rid.write_text("role-1\n")
+    sid.write_text("secret-1\n")
+    seen = {}
+
+    def fake_call(method, path, token=None, body=None):
+        seen.update(body or {})
+        return {"auth": {"client_token": "t"}}
+    monkeypatch.setattr(settings, "ct_inventory_addr", "https://vault.test")
+    monkeypatch.setattr(settings, "ct_inventory_role_id", "")
+    monkeypatch.setattr(settings, "ct_inventory_role_id_file", str(rid))
+    monkeypatch.setattr(settings, "ct_inventory_secret_id_file", str(sid))
+    monkeypatch.setattr(inventory_source, "_call", fake_call)
+    assert inventory_source._login() == "t"
+    assert seen == {"role_id": "role-1", "secret_id": "secret-1"}

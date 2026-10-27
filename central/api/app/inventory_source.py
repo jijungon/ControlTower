@@ -10,7 +10,7 @@
 CT_INVENTORY_MODE:
   off  (기본) — 아무것도 안 읽는다. 화면은 "금고에 연결 전" 을 보여 준다.
   vault        — AppRole 로 로그인해 목록을 읽는다.
-환경변수(vault 모드): CT_INVENTORY_ADDR(비면 CT_VAULT_ADDR) · CT_INVENTORY_ROLE_ID ·
+환경변수(vault 모드): CT_INVENTORY_ADDR(비면 CT_VAULT_ADDR) · CT_INVENTORY_ROLE_ID(또는 _FILE) ·
   CT_INVENTORY_SECRET_ID_FILE(0600 파일 — 비밀을 환경변수에 두지 않는다) · TLS 는 CT_VAULT_CACERT 등 그대로.
 """
 from __future__ import annotations
@@ -59,6 +59,11 @@ def _call(method: str, path: str, token: str | None = None, body: dict | None = 
 
 def _login() -> str:
     role_id = settings.ct_inventory_role_id
+    if not role_id and settings.ct_inventory_role_id_file:
+        try:
+            role_id = open(settings.ct_inventory_role_id_file).read().strip()
+        except OSError as exc:
+            raise InventoryError(f"role_id 파일을 못 읽는다: {settings.ct_inventory_role_id_file}") from exc
     sid_file = settings.ct_inventory_secret_id_file
     if not (_addr() and role_id and sid_file):
         raise InventoryError("CT_INVENTORY_ADDR(또는 CT_VAULT_ADDR) · ROLE_ID · SECRET_ID_FILE 가 비었다")
