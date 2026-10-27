@@ -6,7 +6,10 @@
 
 누가 무엇을 보나 — Authentik 그룹으로 거른다 (금고 정책과 같은 선):
   server-admin → dev · stg · prod 전부 / developer → dev · stg 만 / 둘 다 아니면 아무것도.
-  로그인 없는 모드(CT_AUTH_MODE=none, 로컬 개발)는 전부.
+  그룹을 모르면(CT_AUTH_MODE=none) 막는다 — '모른다' 를 '다 볼 수 있다' 로 보지 않는다.
+    운영은 앞단 Authentik 만 로그인하고 ControlTower 는 사용자를 모른다 → 그대로 '전부' 를 주면
+    developer · viewer 에게도 운영(prod) gw · 서버 주소가 간다. 로컬 미리보기만 CT_ACCESS_LOCAL_PREVIEW=1 로 연다.
+  금고 연결이 꺼져 있으면(off) 사용자와 상관없이 '연결 전' — 금고는 읽지도 않는다.
 운영자 이름은 아직 금고에 없다(Authentik 그룹이 원본) — "server-admin 그룹 전원" 한 줄로 보인다.
 """
 from __future__ import annotations
@@ -14,6 +17,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from ..auth import Principal, auth_mode, current_user
+from ..config import settings
 from ..inventory_source import ENVS, InventoryError, fetch_inventory
 
 router = APIRouter(prefix="/api", tags=["access"])
@@ -21,9 +25,16 @@ router = APIRouter(prefix="/api", tags=["access"])
 AUDIENCE = {"dev": "개발자 · 운영자", "stg": "개발자 · 운영자", "prod": "운영자만"}
 
 
-def _scope(user: Principal) -> tuple[list[str], str]:
+def _inventory_on() -> bool:
+    return (settings.ct_inventory_mode or "off").strip().lower() == "vault"
+
+
+def _scope(user: Principal) -> tuple[list[str] | None, str]:
+    """(볼 수 있는 환경, 보는 사람 역할). 환경이 None 이면 '누군지 모름' — 막는다."""
     if auth_mode() != "oidc":
-        return list(ENVS), "로그인 없음(로컬)"
+        if settings.ct_access_local_preview:
+            return list(ENVS), "로그인 없음(로컬 미리보기)"
+        return None, "모름"
     if "server-admin" in user.groups:
         return list(ENVS), "운영자"
     if "developer" in user.groups:
@@ -46,6 +57,10 @@ def _user_row(acct: str, x) -> dict:
 def access(user: Principal = Depends(current_user)) -> dict:
     envs, viewer_role = _scope(user)
     base = {"viewer": {"email": user.email, "role": viewer_role}, "envs": [], "people": []}
+    if not _inventory_on():
+        return {**base, "state": "off"}
+    if envs is None:  # 그룹을 모름 → 금고를 읽지도 않고 막는다
+        return {**base, "state": "no_identity"}
     if not envs:
         return {**base, "state": "denied"}
     try:

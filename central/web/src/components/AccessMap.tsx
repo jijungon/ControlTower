@@ -40,6 +40,12 @@ export default function AccessMap() {
         금고 목록에 아직 연결하지 않았어요 (CT_INVENTORY_MODE=off). 목록은 gw 에서 <span className="mono">idp-login service add · server add</span> 로 적어요.
       </div>
     )
+  if (data.state === 'no_identity')
+    return (
+      <div className="card placeholder access-msg access-msg--warn">
+        로그인 정보(그룹)를 몰라 목록을 보여 줄 수 없어요 — 운영 목록이 아무에게나 보이지 않게 막아 두었어요. ControlTower 가 Authentik 그룹을 받도록 연결하면 보여요.
+      </div>
+    )
   if (data.state === 'denied')
     return <div className="card placeholder access-msg">볼 수 있는 목록이 없어요 — Authentik 그룹(server-admin · developer)을 관리자에게 물어보세요.</div>
   if (data.state === 'error')

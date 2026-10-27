@@ -13,7 +13,7 @@ INV = {
                                           "gw_account": "devtest", "server_account": "appuser"}}},
     },
     "stg": {},
-    "prod": {"supercycl": {"gw": {"host": "198.51.100.9"}, "servers": {"api": "192.0.2.90"}}},
+    "prod": {"shop": {"gw": {"host": "198.51.100.9"}, "servers": {"api": "192.0.2.90"}}},
 }
 
 
@@ -29,6 +29,7 @@ def _oidc(monkeypatch, groups):
 
 
 def _inv(monkeypatch, data=INV):
+    monkeypatch.setattr(settings, "ct_inventory_mode", "vault")
     monkeypatch.setattr(access_router, "fetch_inventory", lambda: data)
 
 
@@ -40,13 +41,44 @@ def test_꺼져_있으면_off_로_빈_목록이_아니라고_알린다(client, m
 
 
 def test_못_읽으면_error_와_까닭을_보여준다(client, monkeypatch):
-    monkeypatch.setattr(settings, "ct_auth_mode", "none")
+    monkeypatch.setattr(settings, "ct_inventory_mode", "vault")
 
     def boom():
         raise inventory_source.InventoryError("AppRole 로그인 실패")
     monkeypatch.setattr(access_router, "fetch_inventory", boom)
-    r = client.get("/api/access").json()
+    r = client.get("/api/access", headers=_oidc(monkeypatch, ["server-admin"])).json()
     assert r["state"] == "error" and "AppRole" in r["error"]
+
+
+def test_그룹을_모르면_전부가_아니라_막고_금고도_안_읽는다(client, monkeypatch):
+    """운영 모양: 앞단 Authentik 만 로그인, ControlTower 는 사용자를 모름(CT_AUTH_MODE=none) + 금고 연결 켬.
+    '모른다' 를 '다 볼 수 있다' 로 보면 developer · viewer 에게도 운영 gw · 서버 주소가 간다."""
+    monkeypatch.setattr(settings, "ct_auth_mode", "none")
+    monkeypatch.setattr(settings, "ct_inventory_mode", "vault")
+    monkeypatch.setattr(settings, "ct_access_local_preview", False)
+    read: list = []
+    monkeypatch.setattr(access_router, "fetch_inventory", lambda: read.append(1) or INV)
+    r = client.get("/api/access").json()
+    assert r["state"] == "no_identity" and r["envs"] == [] and r["people"] == []
+    assert read == [], "누군지 모르는데 금고를 읽었다"
+    assert "198.51.100" not in str(r) and "192.0.2" not in str(r)
+
+
+def test_로컬_미리보기만_로그인_없이_전부_본다(client, monkeypatch):
+    monkeypatch.setattr(settings, "ct_auth_mode", "none")
+    monkeypatch.setattr(settings, "ct_access_local_preview", True)
+    _inv(monkeypatch)
+    r = client.get("/api/access").json()
+    assert r["state"] == "ok" and [e["env"] for e in r["envs"]] == ["dev", "stg", "prod"]
+    assert r["viewer"]["role"] == "로그인 없음(로컬 미리보기)"
+
+
+def test_연결이_꺼져_있으면_누구든_off_금고는_안_읽는다(client, monkeypatch):
+    monkeypatch.setattr(settings, "ct_auth_mode", "none")
+    monkeypatch.setattr(settings, "ct_inventory_mode", "off")
+    read: list = []
+    monkeypatch.setattr(access_router, "fetch_inventory", lambda: read.append(1) or INV)
+    assert client.get("/api/access").json()["state"] == "off" and read == []
 
 
 def test_운영자는_전부_보고_사람은_운영자와_개발자를_나눈다(client, monkeypatch):
@@ -66,7 +98,7 @@ def test_개발자에게는_운영이_아예_안_보인다(client, monkeypatch):
     _inv(monkeypatch)
     r = client.get("/api/access", headers=_oidc(monkeypatch, ["developer"])).json()
     assert [e["env"] for e in r["envs"]] == ["dev", "stg"]
-    assert "198.51.100.9" not in str(r) and "supercycl" not in str(r), "개발자 응답에 운영 목록이 섞였다"
+    assert "198.51.100.9" not in str(r) and "shop" not in str(r), "개발자 응답에 운영 목록이 섞였다"
 
 
 def test_그룹이_없으면_아무것도_안_준다(client, monkeypatch):

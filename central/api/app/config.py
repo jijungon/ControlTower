@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     ct_inventory_role_id_file: str = ""                 # CT_INVENTORY_ROLE_ID_FILE (위가 비면 이 파일에서)
     ct_inventory_secret_id_file: str = ""               # CT_INVENTORY_SECRET_ID_FILE (비밀 — 0600 파일)
     ct_inventory_cache_seconds: int = 60                # CT_INVENTORY_CACHE_SECONDS
+    # 로그인 없는 모드(CT_AUTH_MODE=none)에서 '누가 · 어디로' 목록을 전부 보여 줄까 — 로컬 미리보기에서만 켠다.
+    # 운영은 앞단(Authentik)만 로그인하고 ControlTower 는 사용자 그룹을 몰라서, 끈 채로 두면 목록을 막는다(전부 X)
+    ct_access_local_preview: bool = False               # CT_ACCESS_LOCAL_PREVIEW
 
     # 서버 상태 파일이 '낡음' 인 기준 — 파일의 갱신 주기(interval_seconds)의 몇 배가 지나도록 안 바뀌면 경보
     ct_host_status_stale_factor: float = 5.0           # CT_HOST_STATUS_STALE_FACTOR

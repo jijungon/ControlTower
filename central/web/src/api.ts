@@ -347,7 +347,7 @@ export type AccessService = {
 }
 export type AccessEnv = { env: string; audience: string; services: AccessService[] }
 export type Access = {
-  state: 'ok' | 'off' | 'error' | 'denied'
+  state: 'ok' | 'off' | 'error' | 'denied' | 'no_identity' // no_identity = 로그인 정보(그룹)를 몰라 막음
   error?: string
   viewer: { email: string | null; role: string }
   envs: AccessEnv[]
