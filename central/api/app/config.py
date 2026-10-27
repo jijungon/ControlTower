@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     ct_api_token: str = "dev-runner-token"              # CT_API_TOKEN — 러너↔중앙 공유 토큰
 
     # 사용자 로그인 어댑터 (IdP-옵셔널). none=로그인 없음(기본), oidc=Authentik JWT 검증,
-    # proxy=앞단 Authentik 이 붙인 X-authentik-email/groups 헤더(켜기 전 조건은 auth.py 맨 위).
+    # proxy=앞단 Authentik 이 붙인 X-authentik-jwt 의 서명 검사(아래 JWKS · ISSUER 를 같이 씀).
     ct_auth_mode: str = "none"                          # CT_AUTH_MODE
     ct_oidc_jwks_url: str = ""                          # CT_OIDC_JWKS_URL (운영: Authentik JWKS)
     ct_oidc_public_key: str = ""                        # CT_OIDC_PUBLIC_KEY (PEM; JWKS 대신 정적 키)

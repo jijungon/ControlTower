@@ -6,15 +6,17 @@
   none (기본) — 로그인 없음. 익명 principal, 화면 열림(기존 동작).
   oidc        — Authentik OIDC 토큰(Bearer JWT) 검증 → 이메일·그룹. 미검증이면 401.
                 검증 키: CT_OIDC_JWKS_URL(운영) 또는 CT_OIDC_PUBLIC_KEY(PEM).
-  proxy       — 앞단 로그인 프록시(Authentik)가 붙여 주는 X-authentik-email · X-authentik-groups(| 로 구분)를 믿는다.
-                헤더가 없으면 익명(= 누군지 모름 → 서버 탭은 막힘). 401 로 막지는 않는다.
-                ⚠ 켜기 전에 둘 다 확인: ① 프록시가 사용자가 보낸 같은 이름 헤더를 덮어쓴다(위조 불가)
-                  ② api · web 은 프록시를 거쳐서만 닿는다(포트는 127.0.0.1 뿐). 아니면 누구나 헤더로 운영자가 된다.
+  proxy       — 앞단 Authentik(프록시)이 요청마다 붙이는 X-authentik-jwt 의 서명을 검사 → 그 안의 이메일·그룹.
+                글자 헤더(X-authentik-email · -groups)는 믿지 않는다 — 흉내 낸 값은 서명이 안 맞는다.
+                검사: RS256 만 · 만료(exp) 필수 · issuer 필수(CT_OIDC_ISSUER — 같은 키로 서명하는 다른 앱 토큰을 거름)
+                      · audience 는 CT_OIDC_AUDIENCE 를 넣으면. 키는 oidc 와 같이 CT_OIDC_JWKS_URL(또는 PUBLIC_KEY).
+                토큰이 없거나 검사에 떨어지면 익명(= 누군지 모름 → 서버 탭은 막힘). 401 로 막지는 않는다.
 
 기본이 none 이라 IdP 없이도 그대로 동작. 플랫폼이 서면 CT_AUTH_MODE=oidc 로 스위치만.
 """
 from __future__ import annotations
 
+import functools
 from dataclasses import dataclass, field
 
 from fastapi import Header, HTTPException, status
@@ -46,52 +48,66 @@ def auth_mode() -> str:
 
 def current_user(
     authorization: str = Header(default=""),
-    x_authentik_email: str = Header(default=""),
-    x_authentik_groups: str = Header(default=""),
+    x_authentik_jwt: str = Header(default=""),
 ) -> Principal:
-    """현재 사용자 의존성. none=익명(열림), oidc=검증된 사용자(실패 401), proxy=프록시 헤더(없으면 익명)."""
+    """현재 사용자 의존성. none=익명(열림), oidc=검증된 사용자(실패 401), proxy=서명 맞는 프록시 토큰(아니면 익명)."""
     mode = auth_mode()
     if mode == "proxy":
-        return _from_proxy(x_authentik_email, x_authentik_groups)
+        return _from_proxy(x_authentik_jwt.strip())
     if mode != "oidc":
         return ANON
     token = authorization.removeprefix("Bearer ").strip()
     if not token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "login required")
     claims = _verify_oidc(token)
-    return Principal(
-        authenticated=True,
-        email=claims.get("email"),
-        groups=list(claims.get("groups") or []),
-    )
+    return Principal(authenticated=True, email=claims.get("email"), groups=_groups(claims))
 
 
-def _from_proxy(email: str, groups: str) -> Principal:
-    email = email.strip()
-    if not email:
+def _groups(claims: dict) -> list[str]:
+    g = claims.get("groups")
+    return [x for x in g if isinstance(x, str)] if isinstance(g, list) else []
+
+
+def _from_proxy(token: str) -> Principal:
+    if not token:
         return ANON
-    return Principal(
-        authenticated=True,
-        email=email,
-        groups=[g.strip() for g in groups.split("|") if g.strip()],
-    )
+    if not settings.ct_oidc_issuer:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "proxy 모드엔 CT_OIDC_ISSUER 가 필요(같은 키로 서명하는 다른 앱 토큰을 거름)",
+        )
+    try:
+        claims = _verify_oidc(token, require=("exp", "iss"))
+    except HTTPException as e:
+        if e.status_code != status.HTTP_401_UNAUTHORIZED:
+            raise  # 키 설정 오류는 숨기지 않는다
+        return ANON
+    if not claims.get("email"):
+        return ANON
+    return Principal(authenticated=True, email=claims["email"], groups=_groups(claims))
+
+
+@functools.lru_cache(maxsize=4)
+def _jwks_client(url: str):
+    """JWKS 는 한 번 받아 5분 기억(PyJWKClient 기본) — proxy 는 요청마다 검사하므로 매번 받지 않게."""
+    import jwt
+
+    return jwt.PyJWKClient(url, timeout=5)
 
 
 def _signing_key(token: str):
     """검증 키: JWKS URL 우선, 없으면 정적 공개키(PEM). 둘 다 없으면 설정 오류(500)."""
-    import jwt
-
     if settings.ct_oidc_jwks_url:
-        return jwt.PyJWKClient(settings.ct_oidc_jwks_url).get_signing_key_from_jwt(token).key
+        return _jwks_client(settings.ct_oidc_jwks_url).get_signing_key_from_jwt(token).key
     if settings.ct_oidc_public_key:
         return settings.ct_oidc_public_key
     raise HTTPException(
         status.HTTP_500_INTERNAL_SERVER_ERROR,
-        "oidc 모드엔 CT_OIDC_JWKS_URL 또는 CT_OIDC_PUBLIC_KEY 가 필요",
+        "oidc · proxy 모드엔 CT_OIDC_JWKS_URL 또는 CT_OIDC_PUBLIC_KEY 가 필요",
     )
 
 
-def _verify_oidc(token: str) -> dict:
+def _verify_oidc(token: str, require: tuple[str, ...] = ()) -> dict:
     import jwt
 
     try:
@@ -104,6 +120,7 @@ def _verify_oidc(token: str) -> dict:
             options={
                 "verify_aud": bool(settings.ct_oidc_audience),
                 "verify_iss": bool(settings.ct_oidc_issuer),
+                "require": list(require),
             },
         )
     except HTTPException:

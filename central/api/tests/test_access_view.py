@@ -3,7 +3,8 @@ import jwt
 from app import inventory_source
 from app.config import settings
 from app.routers import access as access_router
-from tests.test_auth import _rsa_pair
+from tests.test_auth import _proxy as _proxy_on
+from tests.test_auth import _proxy_jwt, _rsa_pair
 
 INV = {
     "dev": {
@@ -108,8 +109,10 @@ def test_그룹이_없으면_아무것도_안_준다(client, monkeypatch):
 
 
 def _proxy(monkeypatch, groups):
-    monkeypatch.setattr(settings, "ct_auth_mode", "proxy")
-    return {"X-authentik-email": "who@example.com", "X-authentik-groups": "|".join(groups)}
+    # 앞단 Authentik 이 붙이는 서명된 토큰(X-authentik-jwt)
+    priv, pub = _rsa_pair()
+    _proxy_on(monkeypatch, pub)
+    return {"X-authentik-jwt": _proxy_jwt(priv, groups=groups)}
 
 
 def test_proxy_모드도_그룹대로_거른다(client, monkeypatch):
@@ -125,13 +128,16 @@ def test_proxy_모드도_그룹대로_거른다(client, monkeypatch):
 
 
 def test_proxy_모드인데_헤더가_없으면_모름으로_막고_금고도_안_읽는다(client, monkeypatch):
-    # 프록시를 안 거친 요청 — '그룹 없음(권한 없음)' 이 아니라 '누군지 모름'
-    monkeypatch.setattr(settings, "ct_auth_mode", "proxy")
+    # 프록시를 안 거친 요청 · 흉내 낸 값 — '그룹 없음(권한 없음)' 이 아니라 '누군지 모름'
+    _, pub = _rsa_pair()
+    forged, _ = _rsa_pair()
+    _proxy_on(monkeypatch, pub)
     monkeypatch.setattr(settings, "ct_inventory_mode", "vault")
     monkeypatch.setattr(settings, "ct_access_local_preview", True)  # 미리보기 켜도 proxy 에선 안 열림
     read: list = []
     monkeypatch.setattr(access_router, "fetch_inventory", lambda: read.append(1) or INV)
-    for h in ({}, {"X-authentik-groups": "server-admin"}):
+    for h in ({}, {"X-authentik-email": "who@example.com", "X-authentik-groups": "server-admin"},
+              {"X-authentik-jwt": _proxy_jwt(forged, groups=["server-admin"])}):
         r = client.get("/api/access", headers=h).json()
         assert r["state"] == "no_identity" and r["envs"] == [] and r["people"] == []
     assert read == [], "누군지 모르는데 금고를 읽었다"
