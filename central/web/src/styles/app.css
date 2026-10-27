@@ -24,6 +24,8 @@ button { font-family: inherit; cursor: pointer; }
 .global-nav .brand { font-weight: 600; }
 .global-nav .spacer { flex: 1; }
 .global-nav .meta { color: var(--on-dark-muted); font-size: 12px; }
+.global-nav .version-link { color: inherit; text-decoration: none; font-family: var(--font-mono, ui-monospace, monospace); }
+.global-nav .version-link:hover { text-decoration: underline; }
 
 /* sub-nav — parchment + frosted, 탭 */
 .sub-nav {

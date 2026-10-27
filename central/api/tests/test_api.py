@@ -12,6 +12,15 @@ def test_health(client):
     assert "version" in body and "build" in body
 
 
+def test_version_for_screen(client):
+    # 화면 맨 위 버전 — 화면(nginx)은 /api 만 넘기므로 /api/version 으로 닿아야 한다. 안 넣었으면 'dev'(지어내지 않음)
+    r = client.get("/api/version")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["version"] == "dev" and body["build"] == "dev"
+    assert body["started_at"].endswith("+00:00")  # 이 API 가 뜬 시각(UTC)
+
+
 def test_list_servers_empty(client):
     r = client.get("/api/servers")
     assert r.status_code == 200

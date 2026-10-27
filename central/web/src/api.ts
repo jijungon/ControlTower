@@ -359,3 +359,12 @@ export async function fetchAccess(): Promise<Access> {
   if (!res.ok) throw new Error(`GET /api/access ${res.status}`)
   return res.json()
 }
+
+// 지금 도는 ControlTower 버전 — 반영할 때 CT_VERSION/CT_BUILD 를 넣는다. 안 넣으면 'dev'(화면은 '버전 모름')
+export type AppVersion = { version: string; build: string; started_at?: string | null }
+
+export async function fetchVersion(): Promise<AppVersion> {
+  const res = await fetch('/api/version')
+  if (!res.ok) throw new Error(`GET /api/version ${res.status}`)
+  return res.json()
+}

@@ -8,15 +8,18 @@ from __future__ import annotations
 
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from fastapi import FastAPI
 
 from .db import Base, engine
 from .routers import access, audit, cicd, collect, conf, connection_tests, host_status, me, servers, updates, versions
 
-# 배포 확인은 이 값으로 한다(프론트 번들 grep 아님). 이미지 빌드 시 CT_VERSION/CT_BUILD 주입.
+# 배포 확인은 이 값으로 한다(프론트 번들 grep 아님). 반영할 때 CT_VERSION/CT_BUILD 를 넣는다(compose 가 api 에 넘김).
+# 아무도 안 넣으면 'dev' — 화면은 버전을 지어내지 않고 '버전 모름' 으로 보인다.
 APP_VERSION = os.getenv("CT_VERSION", "dev")
 APP_BUILD = os.getenv("CT_BUILD", "dev")
+APP_STARTED = datetime.now(timezone.utc).isoformat(timespec="seconds")  # 이 API 가 뜬 시각 ≈ 반영 시각
 
 
 @asynccontextmanager
@@ -45,3 +48,9 @@ app.include_router(access.router)
 def health() -> dict:
     """상태 + 배포 버전. version=제품 버전(태그), build=빌드 식별자(커밋·런번호)."""
     return {"status": "ok", "version": APP_VERSION, "build": APP_BUILD}
+
+
+@app.get("/api/version")
+def version() -> dict:
+    """화면 맨 위 버전 표시용 — /health 는 화면(nginx)이 /api 만 넘겨서 못 닿는다. started_at = 이 API 가 뜬 시각."""
+    return {"version": APP_VERSION, "build": APP_BUILD, "started_at": APP_STARTED}

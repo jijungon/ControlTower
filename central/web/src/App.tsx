@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import AuthExpiredBanner from './components/AuthExpiredBanner'
 import HostStatusBar from './components/HostStatusBar'
+import VersionTag from './components/VersionTag'
 import Dashboard from './pages/Dashboard'
 import Servers from './pages/Servers'
 import BuildDeploy from './pages/BuildDeploy'
@@ -30,7 +31,7 @@ export default function App() {
       <header className="global-nav">
         <span className="brand">Control Tower</span>
         <span className="spacer" />
-        <span className="meta">사내망 전용 · 단일 머신(test)</span>
+        <VersionTag />
       </header>
       <AuthExpiredBanner />
       <HostStatusBar />
