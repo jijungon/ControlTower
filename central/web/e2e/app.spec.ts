@@ -129,11 +129,11 @@ test.beforeAll(async () => {
   await api.dispose()
 })
 
-test('서버 탭 = IdP 연동 후 서버 ↔ 항목 연결 자리 — 서버 목록(IP·접속키)은 안 보임', async ({ page }) => {
+test('서버 탭 = 누가 · 어디로 — 금고 연결 전이면 빈 목록이 아니라 "연결하지 않았어요", 예전 서버 목록(IP·접속키)은 안 보임', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: '서버' }).click()
-  await expect(page.getByRole('heading', { name: '서버 ↔ 항목 연결' })).toBeVisible()
-  await expect(page.locator('.placeholder').first()).toContainText('IdP 연동 후')
+  await expect(page.getByRole('heading', { name: '누가 · 어디로' })).toBeVisible()
+  await expect(page.getByText(/금고 목록에 아직 연결하지 않았어요/)).toBeVisible() // CT_INVENTORY_MODE 기본 off
   await expect(page.getByPlaceholder('서버 · IP · user 검색')).toHaveCount(0)
 })
 
