@@ -26,6 +26,11 @@ services:
       db:
         condition: service_healthy
     environment:
+      # 로그인 사용자 — 기본 none(모름). proxy 는 앞단 Authentik 이 붙인 서명된 토큰을 검사: README 'IdP-옵셔널'
+      CT_AUTH_MODE: ${CT_AUTH_MODE:-none}
+      CT_OIDC_JWKS_URL: ${CT_OIDC_JWKS_URL:-}
+      CT_OIDC_ISSUER: ${CT_OIDC_ISSUER:-}
+      CT_OIDC_AUDIENCE: ${CT_OIDC_AUDIENCE:-}
       DATABASE_URL: postgresql+psycopg://${DB_USER:-ctower}:${DB_PASSWORD}@db:5432/${DB_NAME:-controltower}
       CT_SECRET: ${CT_SECRET:?set CT_SECRET in .env}
       CT_API_TOKEN: ${CT_API_TOKEN:?set CT_API_TOKEN in .env}
