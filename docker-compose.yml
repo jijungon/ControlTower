@@ -29,6 +29,9 @@ services:
       DATABASE_URL: postgresql+psycopg://${DB_USER:-ctower}:${DB_PASSWORD}@db:5432/${DB_NAME:-controltower}
       CT_SECRET: ${CT_SECRET:?set CT_SECRET in .env}
       CT_API_TOKEN: ${CT_API_TOKEN:?set CT_API_TOKEN in .env}
+      # 지금 도는 버전 — 화면 맨 위에 보인다. 반영할 때 넣는다(예: CT_BUILD=$(git rev-parse --short HEAD)). 안 넣으면 '버전 모름(dev)'
+      CT_VERSION: ${CT_VERSION:-dev}
+      CT_BUILD: ${CT_BUILD:-dev}
     ports:
       # 기본 127.0.0.1(로컬 전용). 로그인 없이 VM 에 그대로 둘 때만 .env 에 BIND_ADDR=0.0.0.0 → 사내망의 러너가 접근.
       # ⚠ 로그인(IdP·리버스 프록시) 뒤에 세운 배포에서는 0.0.0.0 으로 바꾸지 말 것 — 열면 로그인을 건너뛰고 바로 닿음.

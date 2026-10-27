@@ -161,6 +161,11 @@ test('대시보드가 실집계를 보여준다 — 탭 순서 서버 → config
   await expect(page.getByText('수집 현황')).toBeVisible()
 })
 
+test('맨 위 버전 — 화면 프록시(/api)로 닿고, 반영할 때 안 넣었으면 "버전 모름(dev)"', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.locator('.global-nav .meta')).toHaveText(/^버전 모름\(dev\) · \d\d\/\d\d \d\d:\d\d 시작$/)
+})
+
 test('OS 패치·작업이력 탭 오른쪽에 작업이력이 쌓인다', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'OS 패치·작업이력' }).click()
