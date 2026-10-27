@@ -329,3 +329,33 @@ export async function fetchHostStatus(): Promise<HostStatus[]> {
   if (!res.ok) throw new Error(`GET /api/host-status ${res.status}`)
   return res.json()
 }
+
+// ── 서버 탭 '누가 · 어디로' — 금고의 gw · 서버 목록 (보기 전용) ──
+export type AccessPerson = {
+  email: string
+  role: 'admin' | 'developer'
+  gw_account: string
+  server_account: string
+  note?: string
+  where: { env: string; service: string }[]
+}
+export type AccessService = {
+  name: string
+  gw: { host: string; port: number } | null
+  servers: { name: string; addr: string }[]
+  developers: string[]
+}
+export type AccessEnv = { env: string; audience: string; services: AccessService[] }
+export type Access = {
+  state: 'ok' | 'off' | 'error' | 'denied' | 'no_identity' // no_identity = 로그인 정보(그룹)를 몰라 막음
+  error?: string
+  viewer: { email: string | null; role: string }
+  envs: AccessEnv[]
+  people: AccessPerson[]
+}
+
+export async function fetchAccess(): Promise<Access> {
+  const res = await fetch('/api/access')
+  if (!res.ok) throw new Error(`GET /api/access ${res.status}`)
+  return res.json()
+}

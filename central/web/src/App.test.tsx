@@ -21,7 +21,7 @@ test('탭 5개 — 서버 → config → 빌드·배포 → OS 패치·작업이
     '대시보드', '서버', 'config', '빌드·배포', 'OS 패치·작업이력',
   ]) // 서버(IdP 연동 후 연결 자리) → 무엇으로 만드나(config) → 어떻게 배포하나(빌드·배포)
   await userEvent.click(screen.getByRole('button', { name: '서버' }))
-  expect(screen.getByRole('heading', { name: '서버 ↔ 항목 연결' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: '누가 · 어디로' })).toBeInTheDocument()
   await userEvent.click(screen.getByRole('button', { name: '빌드·배포' }))
   expect(screen.getByRole('heading', { name: '빌드 · 배포' })).toBeInTheDocument()
   expect(screen.getByRole('heading', { name: '서비스 비교' })).toBeInTheDocument()

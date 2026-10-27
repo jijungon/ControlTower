@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from .db import Base, engine
-from .routers import audit, cicd, collect, conf, connection_tests, host_status, me, servers, updates, versions
+from .routers import access, audit, cicd, collect, conf, connection_tests, host_status, me, servers, updates, versions
 
 # 배포 확인은 이 값으로 한다(프론트 번들 grep 아님). 이미지 빌드 시 CT_VERSION/CT_BUILD 주입.
 APP_VERSION = os.getenv("CT_VERSION", "dev")
@@ -38,6 +38,7 @@ app.include_router(collect.router)
 app.include_router(host_status.router)
 app.include_router(audit.router)
 app.include_router(me.router)
+app.include_router(access.router)
 
 
 @app.get("/health")
