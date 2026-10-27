@@ -26,6 +26,14 @@ class Settings(BaseSettings):
     ct_oidc_issuer: str = ""                            # CT_OIDC_ISSUER
     ct_oidc_audience: str = ""                          # CT_OIDC_AUDIENCE
 
+    # gw · 서버 목록 — 금고에서 읽기만 (서버 탭 '누가 · 어디로'). off=안 읽음(기본), vault=AppRole 로 읽음
+    ct_inventory_mode: str = "off"                      # CT_INVENTORY_MODE
+    ct_inventory_addr: str = ""                         # CT_INVENTORY_ADDR (비면 CT_VAULT_ADDR)
+    ct_inventory_mount: str = "inventory"               # CT_INVENTORY_MOUNT
+    ct_inventory_role_id: str = ""                      # CT_INVENTORY_ROLE_ID (비밀 아님 — 누구인가)
+    ct_inventory_secret_id_file: str = ""               # CT_INVENTORY_SECRET_ID_FILE (비밀 — 0600 파일)
+    ct_inventory_cache_seconds: int = 60                # CT_INVENTORY_CACHE_SECONDS
+
     # 서버 상태 파일이 '낡음' 인 기준 — 파일의 갱신 주기(interval_seconds)의 몇 배가 지나도록 안 바뀌면 경보
     ct_host_status_stale_factor: float = 5.0           # CT_HOST_STATUS_STALE_FACTOR
 

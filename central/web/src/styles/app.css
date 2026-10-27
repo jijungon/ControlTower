@@ -347,3 +347,30 @@ table.grid tbody tr.row-detail > td { background: var(--canvas-parchment); paddi
 .host-status--alert { background: var(--danger-bg); color: var(--danger); font-weight: 600; }
 .host-status--unknown { background: var(--hairline); color: var(--ink-muted-80); font-weight: 600; }
 .host-status__meta { color: var(--ink-muted-48); font-weight: 400; }
+
+/* 서버 탭 '누가 · 어디로' — 2 : 8 */
+.access { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 8fr); gap: 16px; margin-bottom: 24px; align-items: start; }
+.access-people { padding: 12px; }
+.access-colhead { font-size: 13px; color: var(--ink-muted-48); margin-bottom: 8px; }
+.access-person { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; width: 100%; text-align: left; background: none; border: 0; border-top: 1px solid var(--divider-soft); padding: 10px 6px; cursor: pointer; border-radius: var(--radius-sm); }
+.access-person:first-of-type { border-top: 0; }
+.access-person--on { background: var(--surface-pearl); outline: 1px solid var(--hairline); }
+.access-person__who { font-size: 13px; color: var(--ink); word-break: break-all; }
+.access-person__acct { font-size: 12px; color: var(--ink-muted-48); }
+.access-badge--admin { background: var(--deploy-image-bg); color: var(--deploy-image); }
+.access-badge--dev { background: var(--exec-docker-bg); color: var(--exec-docker); }
+.access-foot { font-size: 12px; color: var(--ink-muted-48); margin: 10px 0 0; }
+.access-places { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.access-env { padding: 12px 16px; }
+.access-env__head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+.access-env__name { font-weight: 600; font-size: 15px; }
+.access-empty { font-size: 13px; padding: 6px 0; }
+.access-gw { background: var(--surface-pearl); border-radius: var(--radius-sm); padding: 8px 12px; margin-top: 8px; }
+.access-gw--dim { opacity: 0.35; }
+.access-gw__row, .access-srv { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 2.4fr); gap: 8px; align-items: baseline; font-size: 13px; }
+.access-gw__name { font-weight: 600; }
+.access-srv { padding: 5px 0 5px 16px; border-top: 1px solid var(--divider-soft); margin-top: 4px; }
+.access-cmd { font-size: 12px; color: var(--ink-muted-80); overflow-wrap: anywhere; }
+.access-msg { padding: 24px 16px; margin-bottom: 24px; }
+.access-msg--warn { color: var(--warn); }
+@media (max-width: 800px) { .access { grid-template-columns: minmax(0, 1fr); } }

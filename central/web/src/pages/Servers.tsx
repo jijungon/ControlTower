@@ -1,26 +1,23 @@
+import AccessMap from '../components/AccessMap'
 import Conf from './Conf'
 
-// 서버 탭 = IdP 연동 뒤, 서버 정보(목록·접속)를 IdP 에서 받아 config · 빌드·배포 항목(서비스 · dev·stg·prod)과 잇는 곳.
-// 지금은 서버 정보를 보여주지 않는다 — 예전 ~/.ssh/config 임포트 목록(IP · 접속키 · 깔린 도구)은 뺐음(API·runner 는 남김).
+// 서버 탭 = IdP 연동 뒤, 서버 정보(목록·접속)를 IdP(금고 목록)에서 받아 보여 주는 곳.
+// 예전 ~/.ssh/config 임포트 목록(IP · 접속키 · 깔린 도구)은 계속 안 쓴다(API·runner 는 남김) — 원본은 금고 목록 하나.
+// '누가 · 어디로' 는 보기 전용 (2026-10-27). config · 빌드·배포 항목과의 연결은 다음.
 // /etc 설정 파일(드리프트·적용)은 그대로.
 export default function Servers() {
   return (
     <div>
       <div className="page-head">
         <h1 className="page-title">서버</h1>
-        <p className="page-sub">IdP 연동 후 — 서버 정보를 IdP 에서 받아 config · 빌드·배포 항목과 연결하는 곳</p>
+        <p className="page-sub">누가 어느 gw · 서버에 어떤 계정으로 들어가는지 — 금고 목록에서</p>
       </div>
 
       <div className="section-head">
-        <h2 className="section-title">서버 ↔ 항목 연결</h2>
-        <span className="section-sub">IdP 연동 후</span>
+        <h2 className="section-title">누가 · 어디로</h2>
+        <span className="section-sub">금고 목록 — 보기 전용 · 고치기는 gw 에서 idp-login service add · server add · user add</span>
       </div>
-      <div className="card" style={{ marginBottom: 24 }}>
-        <div className="placeholder" style={{ padding: '24px 16px' }}>
-          서버 목록은 <b>IdP 연동 후</b> IdP 에서 가져와요. 그때 서버마다 <b>config · 빌드·배포 항목(서비스 · dev·stg·prod)</b>과 연결해요.
-          <div style={{ marginTop: 6, fontSize: 13 }}>예전 ~/.ssh/config 로 모은 서버 목록(IP · 접속키 · 깔린 도구)은 뺐어요.</div>
-        </div>
-      </div>
+      <AccessMap />
 
       <Conf />
     </div>
