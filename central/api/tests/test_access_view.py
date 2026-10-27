@@ -107,6 +107,36 @@ def test_그룹이_없으면_아무것도_안_준다(client, monkeypatch):
     assert r["state"] == "denied" and r["envs"] == [] and r["people"] == []
 
 
+def _proxy(monkeypatch, groups):
+    monkeypatch.setattr(settings, "ct_auth_mode", "proxy")
+    return {"X-authentik-email": "who@example.com", "X-authentik-groups": "|".join(groups)}
+
+
+def test_proxy_모드도_그룹대로_거른다(client, monkeypatch):
+    # 운영 모양: 앞단 Authentik 이 붙인 헤더로 그룹을 안다(CT_AUTH_MODE=proxy)
+    _inv(monkeypatch)
+    r = client.get("/api/access", headers=_proxy(monkeypatch, ["authentik Admins", "server-admin"])).json()
+    assert r["viewer"] == {"email": "who@example.com", "role": "운영자"}
+    assert [e["env"] for e in r["envs"]] == ["dev", "stg", "prod"]
+    r = client.get("/api/access", headers=_proxy(monkeypatch, ["developer"])).json()
+    assert [e["env"] for e in r["envs"]] == ["dev", "stg"] and "198.51.100.9" not in str(r)
+    r = client.get("/api/access", headers=_proxy(monkeypatch, ["viewer"])).json()
+    assert r["state"] == "denied" and r["envs"] == []
+
+
+def test_proxy_모드인데_헤더가_없으면_모름으로_막고_금고도_안_읽는다(client, monkeypatch):
+    # 프록시를 안 거친 요청 — '그룹 없음(권한 없음)' 이 아니라 '누군지 모름'
+    monkeypatch.setattr(settings, "ct_auth_mode", "proxy")
+    monkeypatch.setattr(settings, "ct_inventory_mode", "vault")
+    monkeypatch.setattr(settings, "ct_access_local_preview", True)  # 미리보기 켜도 proxy 에선 안 열림
+    read: list = []
+    monkeypatch.setattr(access_router, "fetch_inventory", lambda: read.append(1) or INV)
+    for h in ({}, {"X-authentik-groups": "server-admin"}):
+        r = client.get("/api/access", headers=h).json()
+        assert r["state"] == "no_identity" and r["envs"] == [] and r["people"] == []
+    assert read == [], "누군지 모르는데 금고를 읽었다"
+
+
 def test_금고_읽기는_목록만_보고_잠깐만_기억한다(monkeypatch):
     calls = []
 

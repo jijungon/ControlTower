@@ -6,6 +6,10 @@
   none (기본) — 로그인 없음. 익명 principal, 화면 열림(기존 동작).
   oidc        — Authentik OIDC 토큰(Bearer JWT) 검증 → 이메일·그룹. 미검증이면 401.
                 검증 키: CT_OIDC_JWKS_URL(운영) 또는 CT_OIDC_PUBLIC_KEY(PEM).
+  proxy       — 앞단 로그인 프록시(Authentik)가 붙여 주는 X-authentik-email · X-authentik-groups(| 로 구분)를 믿는다.
+                헤더가 없으면 익명(= 누군지 모름 → 서버 탭은 막힘). 401 로 막지는 않는다.
+                ⚠ 켜기 전에 둘 다 확인: ① 프록시가 사용자가 보낸 같은 이름 헤더를 덮어쓴다(위조 불가)
+                  ② api · web 은 프록시를 거쳐서만 닿는다(포트는 127.0.0.1 뿐). 아니면 누구나 헤더로 운영자가 된다.
 
 기본이 none 이라 IdP 없이도 그대로 동작. 플랫폼이 서면 CT_AUTH_MODE=oidc 로 스위치만.
 """
@@ -40,9 +44,16 @@ def auth_mode() -> str:
     return (settings.ct_auth_mode or "none").strip().lower() or "none"
 
 
-def current_user(authorization: str = Header(default="")) -> Principal:
-    """현재 사용자 의존성. none=익명(열림), oidc=검증된 사용자(실패 401)."""
-    if auth_mode() != "oidc":
+def current_user(
+    authorization: str = Header(default=""),
+    x_authentik_email: str = Header(default=""),
+    x_authentik_groups: str = Header(default=""),
+) -> Principal:
+    """현재 사용자 의존성. none=익명(열림), oidc=검증된 사용자(실패 401), proxy=프록시 헤더(없으면 익명)."""
+    mode = auth_mode()
+    if mode == "proxy":
+        return _from_proxy(x_authentik_email, x_authentik_groups)
+    if mode != "oidc":
         return ANON
     token = authorization.removeprefix("Bearer ").strip()
     if not token:
@@ -52,6 +63,17 @@ def current_user(authorization: str = Header(default="")) -> Principal:
         authenticated=True,
         email=claims.get("email"),
         groups=list(claims.get("groups") or []),
+    )
+
+
+def _from_proxy(email: str, groups: str) -> Principal:
+    email = email.strip()
+    if not email:
+        return ANON
+    return Principal(
+        authenticated=True,
+        email=email,
+        groups=[g.strip() for g in groups.split("|") if g.strip()],
     )
 
 

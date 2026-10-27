@@ -63,3 +63,29 @@ def test_me_oidc_invalid_token_401(client, monkeypatch):
     monkeypatch.setattr(settings, "ct_oidc_public_key", pub)
     r = client.get("/api/me", headers={"Authorization": "Bearer not.a.jwt"})
     assert r.status_code == 401
+
+
+def test_me_proxy_reads_authentik_headers(client, monkeypatch):
+    # 앞단 Authentik 이 붙이는 헤더 — 그룹은 | 로 구분
+    monkeypatch.setattr(settings, "ct_auth_mode", "proxy")
+    r = client.get("/api/me", headers={"X-authentik-email": "who@example.com",
+                                       "X-authentik-groups": "developer| viewer||"})
+    assert r.json() == {"authenticated": True, "email": "who@example.com", "groups": ["developer", "viewer"]}
+
+
+def test_me_proxy_without_headers_is_anonymous_not_401(client, monkeypatch):
+    # 헤더 없음 = 프록시를 안 거침 → 누군지 모름(익명). 이메일 없이 그룹만 와도 믿지 않는다
+    monkeypatch.setattr(settings, "ct_auth_mode", "proxy")
+    assert client.get("/api/me").json() == {"authenticated": False, "email": None, "groups": []}
+    r = client.get("/api/me", headers={"X-authentik-groups": "server-admin"})
+    assert r.json() == {"authenticated": False, "email": None, "groups": []}
+
+
+def test_proxy_headers_ignored_in_other_modes(client, monkeypatch):
+    # none · oidc 에서는 같은 헤더를 보내도 사용자로 보지 않는다(켜지 않은 곳에서 위조 통로가 안 생김)
+    h = {"X-authentik-email": "who@example.com", "X-authentik-groups": "server-admin"}
+    monkeypatch.setattr(settings, "ct_auth_mode", "none")
+    assert client.get("/api/me", headers=h).json()["authenticated"] is False
+    monkeypatch.setattr(settings, "ct_auth_mode", "oidc")
+    monkeypatch.setattr(settings, "ct_oidc_public_key", "unused")
+    assert client.get("/api/me", headers=h).status_code == 401

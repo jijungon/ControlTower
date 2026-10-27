@@ -6,7 +6,7 @@
 
 누가 무엇을 보나 — Authentik 그룹으로 거른다 (금고 정책과 같은 선):
   server-admin → dev · stg · prod 전부 / developer → dev · stg 만 / 둘 다 아니면 아무것도.
-  그룹을 모르면(CT_AUTH_MODE=none) 막는다 — '모른다' 를 '다 볼 수 있다' 로 보지 않는다.
+  그룹을 모르면(CT_AUTH_MODE=none, 또는 proxy 인데 프록시 헤더가 없음) 막는다 — '모른다' 를 '다 볼 수 있다' 로 보지 않는다.
     운영은 앞단 Authentik 만 로그인하고 ControlTower 는 사용자를 모른다 → 그대로 '전부' 를 주면
     developer · viewer 에게도 운영(prod) gw · 서버 주소가 간다. 로컬 미리보기만 CT_ACCESS_LOCAL_PREVIEW=1 로 연다.
   금고 연결이 꺼져 있으면(off) 사용자와 상관없이 '연결 전' — 금고는 읽지도 않는다.
@@ -31,9 +31,11 @@ def _inventory_on() -> bool:
 
 def _scope(user: Principal) -> tuple[list[str] | None, str]:
     """(볼 수 있는 환경, 보는 사람 역할). 환경이 None 이면 '누군지 모름' — 막는다."""
-    if auth_mode() != "oidc":
+    if auth_mode() not in ("oidc", "proxy"):
         if settings.ct_access_local_preview:
             return list(ENVS), "로그인 없음(로컬 미리보기)"
+        return None, "모름"
+    if not user.authenticated:  # proxy 인데 헤더가 없음 — 그룹 없음(권한 없음)이 아니라 모름
         return None, "모름"
     if "server-admin" in user.groups:
         return list(ENVS), "운영자"

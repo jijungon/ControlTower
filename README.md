@@ -105,10 +105,12 @@ ControlTower는 **혼자서도 그대로 돌고**, 나중에 사내 IdP/Secrets 
 | 어댑터 | 스위치 | 기본(지금) | 플랫폼 모드 |
 |---|---|---|---|
 | 접속(러너) | `CT_SSH_MODE` | `key` — `~/.ssh/config` 상주 키 | `cert` — OpenBao 단명 SSH 인증서 |
-| 로그인(웹) | `CT_AUTH_MODE` | `none` — 로그인 없음 | `oidc` — Authentik OIDC (`GET /api/me`) |
+| 로그인(웹) | `CT_AUTH_MODE` | `none` — 로그인 없음 | `oidc` — Authentik OIDC (`GET /api/me`) · `proxy` — 앞단 Authentik 이 붙인 헤더 |
 | 비밀(중앙) | `CT_SECRET_MODE` | `env` — `.env`/환경변수 | `vault` — OpenBao KV |
 
 - 각 모드는 **미설정·실패 시 기본으로 폴백**한다(안전). 기본값만 쓰면 예전과 100% 동일하게 동작.
+- `CT_AUTH_MODE=proxy` — 앞단 Authentik(프록시)이 요청마다 붙이는 `X-authentik-email` · `X-authentik-groups`(`|` 구분)로 사용자 · 그룹을 안다. 서버 탭 '누가 · 어디로' 가 이 그룹으로 거른다(server-admin=전부, developer=dev · stg). 헤더가 없으면 '누군지 모름' 으로 막는다.
+  **켜기 전 확인 두 가지**: ① 프록시가 사용자가 보낸 같은 이름 헤더를 덮어쓴다(위조 불가) ② api · web 은 프록시를 거쳐서만 닿는다(포트는 127.0.0.1 뿐, ⚠ BIND_ADDR). 하나라도 아니면 누구나 헤더 한 줄로 운영자가 된다.
 - 플랫폼 자체(Authentik/OpenBao)는 **별도 프로젝트** — 설계·계획은 로컬 전용 `~/Downloads/parameta-idp-secrets/`.
 
 ### 운영에서 OpenBao에 붙일 때 (TLS·mTLS)
