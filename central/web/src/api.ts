@@ -331,12 +331,19 @@ export async function fetchHostStatus(): Promise<HostStatus[]> {
 }
 
 // ── 서버 탭 '누가 · 어디로' — 금고의 gw · 서버 목록 (보기 전용) ──
+// 이름표(Authentik 의 server-admin · developer 목록 — IdP 서버가 5분마다 적음) 상태. ok 가 아니면 이름을 안 붙임(이메일만)
+export type NamesState = 'ok' | 'off' | 'unknown'
+export type AccessMember = { name: string | null; email: string | null; active: boolean }
 export type AccessPerson = {
-  email: string
+  email: string // 운영자 줄은 'server-admin 그룹 전원'(줄 이름) — 실제 사람은 members
   role: 'admin' | 'developer'
   gw_account: string
   server_account: string
   note?: string
+  name?: string | null // 개발자 — 이름표에서 찾은 이름(못 찾으면 null)
+  active?: boolean | null // 개발자 — false = Authentik 에서 막힌 계정
+  members?: AccessMember[] // 운영자 줄 — 이름표가 ok 일 때만 차고(활성 먼저), 모르면 빈 목록
+  names_note?: string | null // 운영자 줄 — '이름 모름(이름표를 못 읽음)' 같은 짧은 알림
   where: { env: string; service: string }[]
 }
 export type AccessService = {
@@ -353,6 +360,7 @@ export type Access = {
   envs: AccessEnv[]
   people: AccessPerson[]
   can_edit?: boolean // 목록 고치기를 보일까 — CT_INVENTORY_EDIT 가 켜졌고 운영자일 때만 true
+  names?: { state: NamesState; reasons: string[] }
 }
 
 // 지금 로그인한 사람 — 그룹을 아는 모드(oidc · proxy)에서만 authenticated · groups 가 찬다
@@ -398,8 +406,9 @@ export type InventoryEdit = { version: number; gw: { host: string; port: number 
 export type InventorySaved = { saved: true; version: number; updated_at: string | null; changes: InventoryChange[]; history_error?: string }
 
 // 상태 코드를 같이 — 409(다른 곳에서 먼저 고침) · 502(금고 거절 · 저장됐는지 모름)를 화면이 나눠 보인다
+// why = 서버가 할 일(message)과 따로 준 원래 까닭(예: 금고 답 'permission denied') — 작은 줄로
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(public status: number, message: string, public why?: string) {
     super(message)
   }
 }
@@ -408,7 +417,10 @@ async function inventoryCall<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init)
   if (!res.ok) {
     const detail = ((await res.json().catch(() => null)) as { detail?: unknown } | null)?.detail
-    throw new ApiError(res.status, typeof detail === 'string' ? detail : `${init?.method ?? 'GET'} ${url} ${res.status}`)
+    if (typeof detail === 'string') throw new ApiError(res.status, detail)
+    const d = detail as { message?: unknown; why?: unknown } | null | undefined
+    if (d && typeof d.message === 'string') throw new ApiError(res.status, d.message, typeof d.why === 'string' ? d.why : undefined)
+    throw new ApiError(res.status, `${init?.method ?? 'GET'} ${url} ${res.status}`)
   }
   return res.json()
 }
@@ -450,6 +462,8 @@ export type AccessLog = {
   written_age_seconds: number | null
   stale_after_seconds: number | null
   events: AccessEvent[]
+  // '누가' 칸 이메일 옆 이름 — 키는 이메일(소문자). 이름표를 모르면 people 이 비어 이메일만
+  names?: { state: NamesState; reasons: string[]; notes: string[]; people: Record<string, { name: string | null; active: boolean }> }
 }
 
 // gw 접속 기록(2단계) — 그 인증서로 gw 에 실제로 들어간 기록(gw 보고 → IdP 요약 파일 → 수집기 → 중앙). 운영자만
@@ -478,7 +492,7 @@ export type GwReport = {
   // 금고 목록과: 있음 · 보낸 키가 목록에 없음 · env · service 를 안 보내 못 이음 · 목록을 못 읽음
   link: 'listed' | 'not_listed' | 'unlinked' | 'unknown'
 }
-export type GwLogins = Omit<AccessLog, 'events'> & {
+export type GwLogins = Omit<AccessLog, 'events' | 'names'> & {
   events: GwLogin[]
   reports: number | null
   gws: GwReport[]

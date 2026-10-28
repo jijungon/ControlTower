@@ -328,15 +328,27 @@ def test_읽고_쓰는_그_틈에_끼어들면_금고의_cas_가_막고_409(clie
 
 # ── 금고가 거절 · 답이 없음 ──
 
-def test_정책에_쓰기가_없으면_금고가_거절_까닭을_그대로_아무것도_안_바뀜(client, monkeypatch, vault):
-    vault.caps = {"read", "list"}  # 7단계(IdP 쪽 정책) 전 모습
+def test_정책에_쓰기가_없으면_금고가_거절_할_일을_앞에_금고_답은_작은_줄로_아무것도_안_바뀜(client, monkeypatch, vault):
+    """prod · 새 항목처럼 정책이 update 를 허락하지 않으면 금고가 403 — 'permission denied' 만으론 할 일을 모른다."""
+    vault.caps = {"read", "list"}  # 정책에 쓰기가 없는 곳(prod 등)
     h = _as(monkeypatch, ["server-admin"])
     r = client.put(URL, json=_body(servers={"api": "192.0.2.10"}), headers=h)
     assert r.status_code == 502
     d = r.json()["detail"]
-    assert "거절했어요(아무것도 안 바뀜)" in d and "HTTP 403" in d and "permission denied" in d
+    assert d["message"] == "금고가 거절했어요 — prod 나 새 서비스는 gw 에서 idp-login 으로(service add 등) 고쳐요"
+    assert "permission denied" not in d["message"]
+    assert "아무것도 안 바뀌었어요" in d["why"] and "HTTP 403" in d["why"] and "permission denied" in d["why"]
     assert vault.now("dev/shop")[0] == 1
     assert client.get("/api/audit", headers=h).json() == []
+
+
+def test_403_이_아닌_거절은_예전처럼_까닭_그대로(client, monkeypatch, vault):
+    vault.write_fail = 400  # 금고가 다른 까닭으로 거절(4xx) — 아무것도 안 씀
+    h = _as(monkeypatch, ["server-admin"])
+    r = client.put(URL, json=_body(servers={"api": "192.0.2.10"}), headers=h)
+    d = r.json()["detail"]
+    assert r.status_code == 502 and isinstance(d, str)
+    assert "거절했어요(아무것도 안 바뀜)" in d and "HTTP 400" in d
 
 
 @pytest.mark.parametrize("fail", [504, "drop"])

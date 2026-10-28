@@ -127,7 +127,7 @@ test('그 사이 idp-login 이 먼저 고쳤으면(409) 저장했다고 하지 �
 test.each([
   ['금고가 답을 못 줌(502)', () => json({ detail: '저장됐는지 모름 — 다시 불러와 확인해 주세요: HTTP 504' }, 502), '저장됐는지 모름 — 다시 불러와 확인해 주세요'],
   ['네트워크가 끊김', () => Promise.reject(new TypeError('Failed to fetch')), '저장됐는지 모름 — 답을 못 받았어요'],
-  ['금고가 거절(정책 없음)', () => json({ detail: '금고가 저장을 거절했어요(아무것도 안 바뀜): HTTP 403 — permission denied' }, 502), '저장 못 했어요 — 금고가 저장을 거절했어요(아무것도 안 바뀜)'],
+  ['금고가 거절(403 말고 다른 까닭)', () => json({ detail: '금고가 저장을 거절했어요(아무것도 안 바뀜): HTTP 400 — invalid' }, 502), '저장 못 했어요 — 금고가 저장을 거절했어요(아무것도 안 바뀜)'],
 ])('저장이 %s → 됐다고 보이지 않는다', async (_, put, text) => {
   mockFetch({
     'GET /api/inventory/dev/shop': () => json(ENTRY),
@@ -166,4 +166,28 @@ test('이름이 겹치거나 반만 적으면 보내지 않고 화면에서 막�
   fireEvent.click(within(ed).getByRole('button', { name: '바뀐 것 보기' }))
   expect(await within(ed).findByRole('alert')).toHaveTextContent('서버 이름과 주소를 둘 다 적어 주세요 (worker)')
   expect(m.mock.calls.some(([, i]) => i?.method === 'POST' || i?.method === 'PUT')).toBe(false)
+})
+
+test('금고가 403 으로 거절하면(prod · 새 항목) "permission denied" 대신 할 일을 — 금고 답은 작은 줄로', async () => {
+  mockFetch({
+    'GET /api/inventory/dev/shop': () => json(ENTRY),
+    'POST /api/inventory/dev/shop/preview': () => json({ version: 3, changes: [{ kind: 'gw_port', from: 22, to: 2222 }] }),
+    'PUT /api/inventory/dev/shop': () =>
+      json({ detail: {
+        message: '금고가 거절했어요 — prod 나 새 서비스는 gw 에서 idp-login 으로(service add 등) 고쳐요',
+        why: '아무것도 안 바뀌었어요 · 금고 답: 금고 POST inventory/data/dev/shop: HTTP 403 — 1 error occurred:\n\t* permission denied\n\n',
+      } }, 502),
+  })
+  render(<Servers />)
+  const ed = await openEditor()
+  await within(ed).findByText('금고 v3')
+  fireEvent.change(within(ed).getByLabelText('gw 포트'), { target: { value: '2222' } })
+  fireEvent.click(within(ed).getByRole('button', { name: '바뀐 것 보기' }))
+  fireEvent.click(await within(ed).findByRole('button', { name: '저장' }))
+  const alert = await within(ed).findByRole('alert')
+  expect(alert).toHaveTextContent(/^금고가 거절했어요 — prod 나 새 서비스는 gw 에서 idp-login 으로\(service add 등\) 고쳐요/)
+  const why = within(alert).getByText(/permission denied/)
+  expect(why).toHaveClass('inv-edit__why') // 원래 까닭은 작은 줄에만
+  expect(why).toHaveTextContent('아무것도 안 바뀌었어요')
+  expect(ed).not.toHaveTextContent('저장했어요')
 })

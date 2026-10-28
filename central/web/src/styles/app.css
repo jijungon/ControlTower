@@ -364,6 +364,14 @@ table.grid tbody tr.row-detail > td { background: var(--canvas-parchment); paddi
 .access-badge--admin { background: var(--access-admin-bg); color: var(--access-admin-ink); }
 .access-badge--dev { background: var(--access-dev-bg); color: var(--access-dev-ink); }
 .access-foot { font-size: 12px; color: var(--ink-muted-48); margin: 10px 0 0; }
+/* 이름표 이름 — 이메일 옆에 작게, 비활성(막힌 계정)은 흐리게 */
+.person-name { font-size: 12px; color: var(--ink-muted-80); margin-left: 6px; }
+.person-name--inactive { color: var(--ink-muted-48); opacity: 0.7; }
+.access-members { display: flex; flex-direction: column; gap: 4px; }
+.access-member { font-size: 13px; color: var(--ink); }
+.access-member__email { display: block; font-size: 11px; color: var(--ink-muted-48); word-break: break-all; }
+.access-member--inactive { opacity: 0.55; }
+.access-names-note { font-size: 12px; color: var(--warn); }
 .access-places { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .access-env { position: relative; padding: 12px 16px; transition: opacity 0.15s; }
 .access-env--dim { opacity: 0.12; }
@@ -426,6 +434,7 @@ table.grid tbody tr.row-detail > td { background: var(--canvas-parchment); paddi
 .inv-edit__msg--ok { background: var(--ok-bg); color: var(--ok); }
 .inv-edit__msg--warn { background: var(--warn-bg); color: var(--warn); }
 .inv-edit__msg--fail { background: var(--danger-bg); color: var(--danger); }
+.inv-edit__why { flex-basis: 100%; font-size: 11px; opacity: 0.8; word-break: break-all; }
 
 /* 연결선 — 사람 상자 오른쪽 가운데 → (가로 → 세로 → 가로) → 환경 상자 왼쪽 · 제목 높이. 점선이 흐른다 */
 .access-links { position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible; }

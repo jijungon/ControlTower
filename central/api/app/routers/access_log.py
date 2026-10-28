@@ -32,6 +32,7 @@ from ..config import settings
 from ..db import get_db
 from ..inventory_source import InventoryError, fetch_inventory
 from ..models import AccessLogSnapshot
+from . import idp_people
 from .host_status import COLLECTOR_SILENCE_MIN_SECONDS, DEFAULT_INTERVAL, _ago, _now, _parse
 
 router = APIRouter(prefix="/api/access-log", tags=["access-log"])
@@ -251,7 +252,8 @@ def get_access_log(user: Principal = Depends(current_user), db: Session = Depend
         return {**judge(None, now, settings.ct_host_status_stale_factor), "state": "no_identity",
                 "reasons": ["로그인 정보(그룹)를 몰라 보여 줄 수 없어요 — 운영자만 보는 기록이에요"]}
     r = db.query(AccessLogSnapshot).filter(AccessLogSnapshot.source == "idp").first()
-    return judge(r, now, settings.ct_host_status_stale_factor)
+    # 이름표(이메일 → 이름)는 따로 붙인다 — '누가' 칸 이메일 옆에. 이름표를 모르면 people 이 비어 이메일만 보인다
+    return {**judge(r, now, settings.ct_host_status_stale_factor), "names": idp_people.for_log(db)}
 
 
 @router.get("/gw-logins")

@@ -1,7 +1,7 @@
 """access_log 에 gw 접속 기록 칸 — gw-logins.jsonl 을 같은 표의 source 'idp-gw' 줄로(칸 셋 더하기만, 모두 비어도 됨)
 
 Revision ID: b8f2d6a4c1e9
-Revises: a3c9e5f1b7d2
+Revises: c1f7a3e9d5b2
 Create Date: 2026-10-28 17:00:00.000000
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'b8f2d6a4c1e9'
-down_revision: Union[str, Sequence[str], None] = 'a3c9e5f1b7d2'
+down_revision: Union[str, Sequence[str], None] = 'c1f7a3e9d5b2'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

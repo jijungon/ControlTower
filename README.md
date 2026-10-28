@@ -275,13 +275,30 @@ CI/CD 파이프라인 상태와 repo 선언본 버전(node/nest/java)은 GitLab 
 - 수집기: `CT_IDP_GW_LOGINS_FILE`(기본 `/idp-status/gw-logins.jsonl`, 빈 값이면 끔) · 중앙은 같은 `access_log` 표의 `idp-gw` 줄(칸 3개 추가, 마이그레이션 `b8f2d6a4c1e9`)
 - API: `POST /api/access-log/gw-logins`(수집기) · `GET /api/access-log/gw-logins`(운영자 — 발급 기록과 같은 선)
 
+### 사람 이름표 — 서버 탭 · 접속 기록 탭의 이름 (Authentik)
+
+사내 IdP 서버가 5분마다 Authentik 의 server-admin · developer 사람 목록을 `people.jsonl` 로 적고, 수집기가 읽어 올린다. 서버 상태 · 접속 기록 파일과 같은 길(같은 폴더).
+키는 **이메일(소문자)** — 금고 목록의 이메일 · 접속 기록의 `who` 도 소문자로 바꿔 찾는다.
+
+| 화면 | 이름표 정상 | 이름표 모름 · 멈춤 · 연결 전 |
+|---|---|---|
+| 서버 탭 운영자 줄 | 실제 운영자 이름 · 이메일(활성 먼저, 막힌 계정은 흐리게 "(비활성)") | "server-admin 그룹 전원" 그대로 + "이름 모름(…)" — **"운영자 없음" 으로 보이지 않음** |
+| 서버 탭 개발자 줄 | 이메일 옆에 이름(못 찾으면 이메일만) | 이메일만 |
+| 접속 기록 '누가' 칸 | 이메일 옆에 이름(못 찾으면 이메일만 — 두 그룹 밖 사람은 파일에 없음) | 이메일만 + 표 아래 작은 알림 |
+
+- 모름: 파일 없음 · 못 읽음 · IdP 가 Authentik 을 못 읽음(머리 `read_ok=false` — 이때 IdP 는 사람 줄을 0줄로 적음) · 기록이 주기(300초) × `CT_HOST_STATUS_STALE_FACTOR` 넘게 그대로 · 수집기가 한동안 안 올림
+- 누가 보나: 서버 탭은 운영자 · 개발자(이미 열린 `/api/access` 에 이름을 붙임), 접속 기록 탭은 운영자만(`/api/access-log`). 이름표만 보는 API 는 따로 없다
+- 수집기: `CT_IDP_PEOPLE_FILE`(기본 `/idp-status/people.jsonl`, 빈 값이면 끔) · 내용이 바뀌면 바로, 아니어도 1분마다 올림 · 중앙은 올 때마다 통째로 바꿈(못 읽으면 지난 이름도 비움)
+- API: `POST /api/idp-people`(수집기, 러너 토큰) · 표 `idp_people`(마이그레이션 `c1f7a3e9d5b2`) · `routers/idp_people.py`
+
 ### 서버 탭 '목록 고치기' — 운영자가 gw · 서버를 금고에 고침 (기본 끔)
 
 서버 탭 '누가 · 어디로' 의 목록(금고 `inventory/<환경>/<서비스>`)은 원래 gw 의 `idp-login service add · server add · user add` 로만 적는다.
 스위치를 켜면 운영자가 화면에서 **gw 주소 · 포트와 서버(이름 · 주소)** 를 고칠 수 있다.
 
 - 켜기: 서버 `.env` 에 `CT_INVENTORY_EDIT=1`(compose 가 api 에 넘김 — compose 의 `environment` 가 `env_file` 보다 앞서므로 env_file 에 넣으면 안 먹음)
-  + 금고 `ct-inventory` 정책에 `inventory/data/*` 의 `update` 를 더해야 저장된다. 정책이 없으면 금고가 거절하고 화면에 그 까닭(`permission denied`)을 그대로 보인다.
+  + 금고 `ct-inventory` 정책에 `inventory/data/*` 의 `update` 를 더해야 저장된다(dev · stg 에 이미 있는 항목만). 금고가 403 으로 거절하면(prod · 새 항목)
+  "금고가 거절했어요 — prod 나 새 서비스는 gw 에서 idp-login 으로(service add 등) 고쳐요" 를 보이고, 금고 답(`permission denied`)은 그 아래 작은 줄에.
 - 누가: 운영자(server-admin)만. 개발자는 '서버 탭만' 문지기가 403, viewer 는 403, 그룹을 모르면 403(로컬 미리보기만 열림).
 - 못 고치는 것: **사람(users)** — `idp-login user add` 가 gw 에 OS 계정도 만들어서 목록만 바꾸면 어긋난다. 새 서비스 · 서비스 지우기도 gw 에서.
 - 안전하게: 열 때 금고에서 새로 읽어 판 번호(v)를 쥐고 → [바뀐 것 보기](금고 지금 판과 비교) → [저장] = 읽은 통째에서 gw · servers 만 바꿔 `cas=그 판` 으로 씀.

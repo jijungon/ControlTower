@@ -229,6 +229,13 @@ test('발급 기록 없는 접속은 따로 — 기계 접속은 접어 두고, 
   expect(gwCell(6)).toMatch(/^gw-shop-dev · .* · appuser$/)
 })
 
+test('발급 기록 없는 접속의 "누가" 에도 이름표 이름', async () => {
+  serve({ ...ISSUED_OK, names: { state: 'ok', reasons: [], notes: [], people: { 'ops@example.com': { name: 'Ops Person', active: true } } } }, GW)
+  render(<AccessLog />)
+  await screen.findAllByTestId('gw-orphan-row')
+  expect(orphanRows()[0][3]).toBe('ops@example.comOps Person')
+})
+
 const reportRows = () =>
   screen.getAllByTestId('gw-report-row').map((r) => within(r).getAllByRole('cell').map((c) => c.textContent)).map((c) => [c[0], c[1], c[3]])
 
@@ -317,4 +324,39 @@ test('gw 접속 기록만 못 불러오면 그 까닭 — 칸은 "못 봄"', asy
   expect(await screen.findByText(/gw 접속 기록을 불러오지 못했어요 — Failed to fetch/)).toBeInTheDocument()
   await screen.findAllByTestId('access-log-row')
   expect(rows().every((r) => r[6] === '못 봄')).toBe(true)
+})
+
+// '누가' 칸 — 이름표(Authentik)에서 찾으면 이메일 옆에 이름. 키는 이메일 소문자. 못 찾거나 이름표를 모르면 이메일만
+const NAMED_EVENTS = [
+  { at: iso(5), kind: 'person', who: 'Dev@Example.com', env: 'dev', account: 'ubuntu', role: 'dev-ubuntu', serial: 'a1', result: 'issued', reason: null },
+  { at: iso(6), kind: 'person', who: 'gone@example.com', env: 'dev', account: 'ubuntu', role: 'dev-ubuntu', serial: 'a2', result: 'issued', reason: null },
+  { at: iso(7), kind: 'person', who: 'nobody@example.com', env: 'dev', account: 'ubuntu', role: 'dev-ubuntu', serial: 'a3', result: 'issued', reason: null },
+]
+const NAMES = {
+  state: 'ok', reasons: [], notes: [],
+  people: { 'dev@example.com': { name: 'Dev Person', active: true }, 'gone@example.com': { name: 'Left Company', active: false } },
+}
+
+test('이름표가 있으면 이메일 옆에 이름(대소문자 달라도) · 비활성 표시 · 못 찾으면 이메일만', async () => {
+  serve({ ...OK, events: NAMED_EVENTS, names: NAMES })
+  render(<AccessLog />)
+  await screen.findAllByTestId('access-log-row')
+  expect(rows().map((r) => r[1])).toEqual(['Dev@Example.comDev Person', 'gone@example.comLeft Company (비활성)', 'nobody@example.com'])
+  expect(screen.getByText('Dev Person')).toHaveClass('person-name')
+  expect(screen.getByText(/Left Company/)).toHaveClass('person-name--inactive')
+  expect(screen.queryByTestId('names-note')).toBeNull()
+  // 사람 거르기는 그대로 이메일로
+  expect(screen.getByRole('radiogroup', { name: '사람 필터' })).toHaveTextContent('Dev@Example.com')
+})
+
+test.each([
+  ['모름', { state: 'unknown', reasons: ['IdP 가 Authentik 을 못 읽음: group missing'], notes: [], people: {} }, '이름표를 못 읽어 이메일만 보여요 — IdP 가 Authentik 을 못 읽음: group missing'],
+  ['연결 전', { state: 'off', reasons: [], notes: [], people: {} }, '이름표 연결 전이라 이메일만 보여요'],
+])('이름표가 %s 이면 이메일만 + 작은 알림(오류 띠 없음)', async (_, names, note) => {
+  serve({ ...OK, events: NAMED_EVENTS, names })
+  render(<AccessLog />)
+  await screen.findAllByTestId('access-log-row')
+  expect(rows().map((r) => r[1])).toEqual(['Dev@Example.com', 'gone@example.com', 'nobody@example.com'])
+  expect(screen.getByTestId('names-note')).toHaveTextContent(note)
+  expect(screen.queryByRole('alert')).toBeNull()
 })

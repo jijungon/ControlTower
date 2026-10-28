@@ -90,7 +90,8 @@ def test_운영자는_전부_보고_사람은_운영자와_개발자를_나눈�
     admin, dev = r["people"][0], r["people"][1]
     assert admin["role"] == "admin" and admin["gw_account"] == "ubuntu" and admin["server_account"] == "ubuntu"
     assert dev == {"email": "devtest@example.local", "role": "developer", "gw_account": "devtest",
-                   "server_account": "appuser", "where": [{"env": "dev", "service": "oci-idp"}]}
+                   "server_account": "appuser", "name": None, "active": None,  # 이름표 연결 전 — 이메일만
+                   "where": [{"env": "dev", "service": "oci-idp"}]}
     oci = r["envs"][0]["services"][0]
     assert oci["gw"]["host"] == "198.51.100.7" and oci["servers"] == [{"name": "idp-test", "addr": "192.0.2.16"}]
 

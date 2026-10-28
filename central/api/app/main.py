@@ -25,6 +25,7 @@ from .routers import (
     conf,
     connection_tests,
     host_status,
+    idp_people,
     inventory_edit,
     me,
     servers,
@@ -56,6 +57,7 @@ app.include_router(versions.router)
 app.include_router(cicd.router)
 app.include_router(collect.router)
 app.include_router(host_status.router)
+app.include_router(idp_people.router)  # 이름표 올리기(수집기만) — 보는 API 는 없고 /api/access · /api/access-log 에 이름을 붙임
 app.include_router(audit.router)
 app.include_router(me.router)
 app.include_router(access.router)

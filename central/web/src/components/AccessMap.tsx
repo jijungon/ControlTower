@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { fetchAccess, type Access, type AccessPerson } from '../api'
 import InventoryEditor from './InventoryEditor'
+import PersonName from './PersonName'
 
 // 서버 탭 '누가 · 어디로' — 사람 | 선 | 환경
 //   왼쪽(사람): Gmail 마다 운영자 · 개발자 + 들어가는 계정 (운영자: gw · 서버 ubuntu / 개발자: gw 개인 계정 · 서버 appuser)
@@ -9,6 +10,8 @@ import InventoryEditor from './InventoryEditor'
 // 목록은 금고에만 있다(idp-login 이 적는다). 기본은 **보기만** — 고치기는 gw 에서 idp-login 으로.
 //   CT_INVENTORY_EDIT 가 켜졌고 운영자면(can_edit) [목록 고치기] → gw 마다 gw · 서버를 고침(사람은 못 고침). InventoryEditor
 // 사람에 마우스를 올리거나 누르면 그 사람 선과 갈 수 있는 환경만 남고 나머지는 흐리게.
+// 이름은 이름표(Authentik — IdP 서버가 5분마다 적음)에서: 운영자 줄은 실제 운영자들(활성 먼저 · 비활성은 흐리게),
+//   개발자 줄은 이메일 옆 이름. 이름표를 모르면 운영자 줄은 'server-admin 그룹 전원' + '이름 모름' — '운영자 없음' 이 아니다.
 
 const ROLE_LABEL: Record<AccessPerson['role'], string> = { admin: '운영자', developer: '개발자' }
 const BUS = { admin: 0.35, developer: 0.65 } // 선이 세로로 지나는 자리(가운데 칸 너비의 몇 %) — 운영자 · 개발자가 안 겹치게
@@ -177,12 +180,34 @@ function AccessView({ data, onSaved }: { data: Access; onSaved: () => void }) {
               onMouseLeave={() => setHovered(null)}
             >
               <span className={'badge ' + (p.role === 'admin' ? 'access-badge--admin' : 'access-badge--dev')}>{ROLE_LABEL[p.role]}</span>
-              <span className="access-person__who">{p.email}</span>
+              {p.role === 'admin' && p.members && p.members.length > 0 ? (
+                <span className="access-members" data-testid="admin-members">
+                  {p.members.map((m, i) => (
+                    <span key={m.email ?? `${m.name}-${i}`} className={'access-member' + (m.active ? '' : ' access-member--inactive')}>
+                      {m.name ?? m.email}
+                      {!m.active && ' (비활성)'}
+                      {m.name && m.email && <span className="access-member__email">{m.email}</span>}
+                    </span>
+                  ))}
+                </span>
+              ) : (
+                <span className="access-person__who">
+                  {p.email}
+                  {p.role === 'developer' && <PersonName name={p.name} active={p.active} />}
+                </span>
+              )}
+              {p.role === 'admin' && p.names_note && <span className="access-names-note">{p.names_note}</span>}
               <span className="access-person__acct">gw {p.gw_account}{p.role === 'developer' ? ' (개인)' : ''} · 서버 {p.server_account}</span>
               {p.note && <span className="access-person__acct">{p.note}</span>}
             </button>
           ))}
-          <p className="access-foot">운영자 이름은 나중에 Authentik 에서 가져와요.</p>
+          <p className="access-foot" title={data.names?.reasons.join(' · ') || undefined}>
+            {data.names?.state === 'ok'
+              ? '이름은 Authentik 이름표에서 가져와요(5분마다).'
+              : data.names?.state === 'unknown'
+                ? `이름 모름 — ${data.names.reasons.join(' · ') || '이름표를 못 읽음'}`
+                : '이름표 연결 전 — 이메일만 보여요.'}
+          </p>
         </aside>
 
         <div className="access-mid" ref={midRef} aria-hidden="true" />
