@@ -79,12 +79,35 @@ def test_developer_not_in_the_people_file_shows_email_only(client, admin):
     assert (devs["devtest@example.local"]["name"], devs["devtest@example.local"]["active"]) == (None, None)
 
 
-def test_developers_see_names_too_in_the_server_tab(client, monkeypatch):
+OPERATOR_TRACES = ("ops@example.com", "root@example.com", "gone@example.com", "Ops Person", "akadmin", "Left Company")
+
+
+def test_developers_get_no_operator_names_or_emails_only_developer_names(client, monkeypatch):
+    """운영자는 개발자에게 아예 안 보인다(10-28) — 이름표가 있어도 운영자 이름 · 이메일은 응답 어디에도 없다."""
     _inv(monkeypatch)
     _up(client)
-    r, ops, devs = _rows(client, _oidc(monkeypatch, ["developer"]))
+    r = client.get("/api/access", headers=_oidc(monkeypatch, ["developer"])).json()
+    assert r["state"] == "ok" and [(p["role"], p["name"]) for p in r["people"]] == [("developer", "Dev Test")]
+    body = json.dumps(r, ensure_ascii=False)
+    for trace in OPERATOR_TRACES + ("server-admin 그룹 전원", "names_note", "members"):
+        assert trace not in body, trace
+    # 운영자는 그대로 — 같은 이름표로 운영자 줄 · 이름이 온다
+    _, ops, _ = _rows(client, _oidc(monkeypatch, ["server-admin"]))
     assert [m["name"] for m in ops["members"]] == ["Ops Person", "akadmin", "Left Company"]
-    assert devs["devtest@example.local"]["name"] == "Dev Test"
+
+
+def test_developer_me_and_version_carry_no_operator_or_prod_data(client, monkeypatch):
+    """개발자에게 열린 나머지 둘(/api/me · /api/version)도 운영자 · 운영(prod) 값을 싣지 않는다."""
+    _inv(monkeypatch)
+    _up(client)
+    h = _oidc(monkeypatch, ["developer"])
+    me = client.get("/api/me", headers=h).json()
+    assert me == {"authenticated": True, "email": "who@example.com", "groups": ["developer"]}  # 자기 것만
+    ver = client.get("/api/version", headers=h).json()
+    assert sorted(ver) == ["build", "started_at", "version"]
+    body = json.dumps([me, ver], ensure_ascii=False)
+    for trace in OPERATOR_TRACES + ("198.51.100.9", "192.0.2.90", "shop", "prod"):
+        assert trace not in body, trace
 
 
 @pytest.mark.parametrize("kw,why", [

@@ -49,6 +49,8 @@ function serveMe(me: object | 'fail') {
     }
     if (u.includes('/api/access'))
       return new Response(JSON.stringify({ state: 'off', viewer: { email: null, role: '' }, envs: [], people: [] }), { status: 200 })
+    if (u.includes('/api/host-status'))
+      return new Response(JSON.stringify([{ source: 'idp', state: 'ok', reasons: [], host: 'idp-host', problems: [], unread: [], written_age_seconds: 20 }]), { status: 200 })
     return new Response('[]', { status: 200 })
   })
   vi.stubGlobal('fetch', fetchMock)
@@ -66,6 +68,26 @@ test('개발자(server-admin 아님)는 서버 탭 하나만, 바로 열리고 /
   expect(screen.queryByRole('heading', { name: '서버 설정 파일 (/etc)' })).toBeNull()
   const called = f.mock.calls.map(([u]) => String(u))
   expect(called.some((u) => u.includes('/api/conf') || u.includes('/api/cicd') || u.includes('/api/servers') || u.includes('/api/access-log'))).toBe(false)
+})
+
+test('IdP 서버 상태줄은 운영자만 — 개발자에겐 그리지도 부르지도 않음(API 도 403)', async () => {
+  const f = serveMe({ authenticated: true, email: 'dev@example.com', groups: ['developer'] })
+  const { unmount } = render(<App />)
+  expect(await screen.findByRole('heading', { name: '누가 · 어디로' })).toBeInTheDocument()
+  expect(screen.queryByText(/IdP 서버/)).toBeNull()
+  expect(f.mock.calls.some(([u]) => String(u).includes('/api/host-status'))).toBe(false)
+  unmount()
+  for (const me of [
+    { authenticated: true, email: 'a@example.com', groups: ['server-admin'] },
+    { authenticated: true, email: 'b@example.com', groups: ['developer', 'server-admin'] },
+    { authenticated: false, email: null, groups: [] },
+    'fail' as const,
+  ]) {
+    serveMe(me)
+    const { unmount } = render(<App />)
+    expect(await screen.findByText(/IdP 서버 정상 · idp-host/)).toBeInTheDocument()
+    unmount()
+  }
 })
 
 test('운영자 · 둘 다 · 로그인 없음(none) · /api/me 실패는 탭 6개 그대로', async () => {

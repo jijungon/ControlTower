@@ -96,11 +96,40 @@ def test_운영자는_전부_보고_사람은_운영자와_개발자를_나눈�
     assert oci["gw"]["host"] == "198.51.100.7" and oci["servers"] == [{"name": "idp-test", "addr": "192.0.2.16"}]
 
 
+def _no_prod(r):
+    assert [e["env"] for e in r["envs"]] == ["dev", "stg"]
+    body = str(r)
+    assert "prod" not in body and "198.51.100.9" not in body and "192.0.2.90" not in body and "shop" not in body, \
+        "개발자 응답에 운영 목록이 섞였다"
+
+
+def _no_operator_row(r):
+    """운영자 줄은 개발자 응답에 아예 없다 — 화면에서 숨기는 게 아니라 API 가 안 준다(10-28)."""
+    assert r["state"] == "ok" and r["people"], "개발자 줄은 그대로 와야 한다"
+    assert all(p["role"] == "developer" for p in r["people"]), "개발자 응답에 운영자 줄이 섞였다"
+    body = str(r)
+    for word in ("server-admin 그룹 전원", "members", "names_note", "ubuntu", "'admin'"):
+        assert word not in body, word
+
+
 def test_개발자에게는_운영이_아예_안_보인다(client, monkeypatch):
     _inv(monkeypatch)
     r = client.get("/api/access", headers=_oidc(monkeypatch, ["developer"])).json()
-    assert [e["env"] for e in r["envs"]] == ["dev", "stg"]
-    assert "198.51.100.9" not in str(r) and "shop" not in str(r), "개발자 응답에 운영 목록이 섞였다"
+    _no_prod(r)
+    _no_operator_row(r)
+    assert r["people"] == [{"email": "devtest@example.local", "role": "developer", "gw_account": "devtest",
+                            "server_account": "appuser", "name": None, "active": None,
+                            "where": [{"env": "dev", "service": "oci-idp"}]}]
+
+
+def test_운영자와_둘_다인_사람은_운영자_줄을_그대로_받는다(client, monkeypatch):
+    _inv(monkeypatch)
+    for groups in (["server-admin"], ["developer", "server-admin"]):
+        r = client.get("/api/access", headers=_oidc(monkeypatch, groups)).json()
+        admin = r["people"][0]
+        assert admin["role"] == "admin" and admin["email"] == "server-admin 그룹 전원", groups
+        assert admin["where"] == [{"env": "dev", "service": "oci-idp"}, {"env": "prod", "service": "shop"}], groups
+        assert [p["role"] for p in r["people"]] == ["admin", "developer"], groups
 
 
 def test_그룹이_없으면_아무것도_안_준다(client, monkeypatch):
@@ -122,8 +151,10 @@ def test_proxy_모드도_그룹대로_거른다(client, monkeypatch):
     r = client.get("/api/access", headers=_proxy(monkeypatch, ["authentik Admins", "server-admin"])).json()
     assert r["viewer"] == {"email": "who@example.com", "role": "운영자"}
     assert [e["env"] for e in r["envs"]] == ["dev", "stg", "prod"]
+    assert r["people"][0]["role"] == "admin"
     r = client.get("/api/access", headers=_proxy(monkeypatch, ["developer"])).json()
-    assert [e["env"] for e in r["envs"]] == ["dev", "stg"] and "198.51.100.9" not in str(r)
+    _no_prod(r)
+    _no_operator_row(r)
     r = client.get("/api/access", headers=_proxy(monkeypatch, ["viewer"])).json()
     assert r["state"] == "denied" and r["envs"] == []
 

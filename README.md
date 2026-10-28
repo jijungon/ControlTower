@@ -109,7 +109,7 @@ ControlTower는 **혼자서도 그대로 돌고**, 나중에 사내 IdP/Secrets 
 | 비밀(중앙) | `CT_SECRET_MODE` | `env` — `.env`/환경변수 | `vault` — OpenBao KV |
 
 - 각 모드는 **미설정·실패 시 기본으로 폴백**한다(안전). 기본값만 쓰면 예전과 100% 동일하게 동작.
-- `CT_AUTH_MODE=proxy` — 앞단 Authentik(프록시)이 요청마다 붙이는 `X-authentik-jwt` 의 **서명을 검사**해서 그 안의 이메일 · 그룹을 쓴다. 서버 탭 '누가 · 어디로' 가 이 그룹으로 거른다(server-admin=전부, developer=dev · stg).
+- `CT_AUTH_MODE=proxy` — 앞단 Authentik(프록시)이 요청마다 붙이는 `X-authentik-jwt` 의 **서명을 검사**해서 그 안의 이메일 · 그룹을 쓴다. 서버 탭 '누가 · 어디로' 가 이 그룹으로 거른다(server-admin=전부, developer=dev · stg — 운영자 줄 · 이름 · 이메일은 개발자 응답에 아예 없음).
   글자 헤더(`X-authentik-email` · `-groups`)는 믿지 않는다 — 누가 흉내 내 보내도 서명이 안 맞는다. 토큰이 없거나 검사에 떨어지면 '누군지 모름' 으로 막는다.
   필요한 값: `CT_OIDC_ISSUER`(필수 — 같은 키로 서명하는 다른 앱 토큰을 거름) · `CT_OIDC_AUDIENCE`(넣으면 검사) · 서명 방식마다 키 하나:
   - **HS256** — Authentik 프록시 provider 는 저장할 때마다 서명 키를 지워 설계상 HS256(공유 비밀 = provider 의 client_secret)이다. 그 비밀을 서버 안 파일로 두고 `CT_OIDC_HS256_SECRET_FILE` 로 가리킨다(파일이 없거나 비면 통과시키지 않고 `/api/me` 에 까닭).
@@ -239,6 +239,7 @@ CI/CD 파이프라인 상태와 repo 선언본 버전(node/nest/java)은 GitLab 
 
 - 수집기: `CT_IDP_STATUS_FILE`(기본 `/idp-status/status.json`, 빈 값이면 끔) · 바뀌면 바로, 아니어도 1분마다 올림 · 올리기 실패가 [다시 수집] 을 막지 않음
 - 아무도 올린 적 없으면(기능을 안 씀) 화면에 아무것도 안 뜸 · API: `POST /api/host-status`(수집기, 러너 토큰) · `GET /api/host-status`
+- 누가 보나: 운영자만 — 개발자(server-admin 아님)에겐 줄을 그리지도 않고 `GET /api/host-status` 도 403(서버 이름 · 문제를 안 줌)
 
 ### 접속 기록 탭 — 누가 · 언제 인증서를 받았고, 그걸로 어느 gw 에 들어갔나 (운영자만)
 
@@ -289,7 +290,7 @@ CI/CD 파이프라인 상태와 repo 선언본 버전(node/nest/java)은 GitLab 
 | 접속 기록 '누가' 칸 | 이메일 옆에 이름(못 찾으면 이메일만 — 두 그룹 밖 사람은 파일에 없음) | 이메일만 + 표 아래 작은 알림 |
 
 - 모름: 파일 없음 · 못 읽음 · IdP 가 Authentik 을 못 읽음(머리 `read_ok=false` — 이때 IdP 는 사람 줄을 0줄로 적음) · 기록이 주기(300초) × `CT_HOST_STATUS_STALE_FACTOR` 넘게 그대로 · 수집기가 한동안 안 올림
-- 누가 보나: 서버 탭은 운영자 · 개발자(이미 열린 `/api/access` 에 이름을 붙임), 접속 기록 탭은 운영자만(`/api/access-log`). 이름표만 보는 API 는 따로 없다
+- 누가 보나: 서버 탭 운영자 줄은 운영자만 — 개발자의 `/api/access` 응답엔 운영자 줄 · 이름 · 이메일이 아예 없다(개발자 줄 이름은 운영자 · 개발자 둘 다). 접속 기록 탭은 운영자만(`/api/access-log`). 이름표만 보는 API 는 따로 없다
 - 수집기: `CT_IDP_PEOPLE_FILE`(기본 `/idp-status/people.jsonl`, 빈 값이면 끔) · 내용이 바뀌면 바로, 아니어도 1분마다 올림 · 중앙은 올 때마다 통째로 바꿈(못 읽으면 지난 이름도 비움)
 - API: `POST /api/idp-people`(수집기, 러너 토큰) · 표 `idp_people`(마이그레이션 `c1f7a3e9d5b2`) · `routers/idp_people.py`
 
