@@ -134,21 +134,8 @@ function AccessView({ data }: { data: Access }) {
 
   return (
     <>
-      <p className="access-legend">
-        <span className="access-legend__item">
-          <svg width="30" height="6" aria-hidden="true">
-            <line className="access-legend__admin" x1="0" y1="3" x2="30" y2="3" />
-          </svg>
-          운영자 — 주황 · 굵고 긴 점선
-        </span>
-        <span className="access-legend__item">
-          <svg width="30" height="6" aria-hidden="true">
-            <line className="access-legend__dev" x1="0" y1="3" x2="30" y2="3" />
-          </svg>
-          개발자 — 청록 · 가늘고 짧은 점선
-        </span>
-        <span className="muted">사람에 마우스를 올리거나 누르면 그 사람 길만 · gw · 서버 줄을 누르면 칠 명령</span>
-      </p>
+      {/* 선 색 범례는 뺌(10-28) — 배지 · 상자 테두리 색으로 충분 */}
+      <p className="access-legend muted">사람에 마우스를 올리거나 누르면 그 사람 길만 · gw · 서버 줄을 누르면 칠 명령</p>
       <div className="access" ref={wrapRef}>
         <aside className="card access-people" aria-label="사람">
           <div className="access-colhead">사람</div>
