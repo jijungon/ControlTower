@@ -193,3 +193,92 @@ def test_me_proxy_shows_check_result_for_first_look(client, monkeypatch):
     assert p["ok"] is False and p["reason"] == "토큰에 email 이 없음"
     p = client.get("/api/me", headers={"X-authentik-jwt": "not.a.jwt"}).json()["proxy"]
     assert p["token"] is True and p["ok"] is False
+
+
+def _b64(b: bytes) -> str:
+    import base64
+
+    return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
+
+
+def _raw_jwt(header: dict, claims: dict, sign) -> str:
+    # PyJWT 가 만들어 주지 않는 토큰(공개키로 HMAC · alg none)을 손으로 — 혼동 공격 시험용
+    import json
+
+    h = _b64(json.dumps(header).encode())
+    p = _b64(json.dumps(claims).encode())
+    return f"{h}.{p}.{sign(f'{h}.{p}'.encode())}"
+
+
+HS_SECRET = "s" * 64  # 프록시 provider 의 client_secret 자리
+
+
+def _hs256_on(monkeypatch, tmp_path, secret: str | None = HS_SECRET) -> str:
+    """proxy + HS256 비밀 파일. RS256 공개키도 함께 둔다(둘 다 받는 운영 모양)."""
+    priv, pub = _rsa_pair()
+    _proxy(monkeypatch, pub)
+    f = tmp_path / "ct-proxy-client-secret"
+    if secret is not None:
+        f.write_text(secret + "\n")
+    monkeypatch.setattr(settings, "ct_oidc_hs256_secret_file", str(f))
+    return priv
+
+
+def _hs_jwt(secret: str, **over) -> str:
+    claims = {"email": "who@example.com", "groups": ["server-admin"], "iss": ISS, "exp": int(time.time()) + 300}
+    claims.update(over)
+    return jwt.encode({k: v for k, v in claims.items() if v is not None}, secret, algorithm="HS256")
+
+
+def test_me_proxy_accepts_hs256_with_secret_file(client, monkeypatch, tmp_path):
+    # Authentik 프록시 provider 는 설계상 HS256(공유 비밀 = client_secret) — 파일에서 읽은 비밀로 검사
+    priv = _hs256_on(monkeypatch, tmp_path)
+    r = client.get("/api/me", headers={"X-authentik-jwt": _hs_jwt(HS_SECRET)}).json()
+    assert r["authenticated"] is True and r["groups"] == ["server-admin"]
+    assert r["proxy"]["ok"] is True and r["proxy"]["alg"] == "HS256"
+    # RS256(JWKS · 공개키)도 그대로 받는다
+    assert client.get("/api/me", headers={"X-authentik-jwt": _proxy_jwt(priv)}).json()["proxy"]["alg"] == "RS256"
+
+
+def test_me_proxy_hs256_failures_say_why(client, monkeypatch, tmp_path):
+    _hs256_on(monkeypatch, tmp_path)
+    p = client.get("/api/me", headers={"X-authentik-jwt": _hs_jwt("w" * 64)}).json()
+    assert p["authenticated"] is False and "signature" in p["proxy"]["reason"].lower()  # 틀린 비밀
+    p = client.get("/api/me", headers={"X-authentik-jwt": _hs_jwt(HS_SECRET, exp=None)}).json()["proxy"]
+    assert p["ok"] is False  # HS256 도 만료 필수
+    # 비밀 파일이 안 정해졌거나 · 없거나 · 비면 조용히 통과하지 않고 까닭을 보인다
+    for secret_file, why in (("", "HS256 비밀 파일 없음"), (str(tmp_path / "nope"), "HS256 비밀 파일 없음")):
+        monkeypatch.setattr(settings, "ct_oidc_hs256_secret_file", secret_file)
+        p = client.get("/api/me", headers={"X-authentik-jwt": _hs_jwt(HS_SECRET)}).json()
+        assert p["authenticated"] is False and p["proxy"]["reason"].startswith(why), p["proxy"]
+    empty = tmp_path / "empty"
+    empty.write_text("\n")
+    monkeypatch.setattr(settings, "ct_oidc_hs256_secret_file", str(empty))
+    p = client.get("/api/me", headers={"X-authentik-jwt": _hs_jwt(HS_SECRET)}).json()["proxy"]
+    assert p["ok"] is False and p["reason"].startswith("HS256 비밀 파일이 비어 있음")
+
+
+def test_me_proxy_rejects_algorithm_confusion_and_none(client, monkeypatch, tmp_path):
+    # alg=HS256 인데 공개키(누구나 아는 값)로 HMAC 서명 — 공개키를 비밀로 쓰지 않으니 떨어진다
+    import hashlib
+    import hmac
+
+    priv, pub = _rsa_pair()
+    _proxy(monkeypatch, pub)
+    f = tmp_path / "secret"
+    f.write_text(HS_SECRET)
+    monkeypatch.setattr(settings, "ct_oidc_hs256_secret_file", str(f))
+    claims = {"email": "evil@example.com", "groups": ["server-admin"], "iss": ISS, "exp": int(time.time()) + 300}
+    forged = _raw_jwt({"alg": "HS256", "typ": "JWT"}, claims, lambda m: _b64(hmac.new(pub.encode(), m, hashlib.sha256).digest()))
+    assert client.get("/api/me", headers={"X-authentik-jwt": forged}).json()["authenticated"] is False
+    unsigned = _raw_jwt({"alg": "none", "typ": "JWT"}, claims, lambda m: "")
+    p = client.get("/api/me", headers={"X-authentik-jwt": unsigned}).json()
+    assert p["authenticated"] is False and p["proxy"]["reason"] == "받지 않는 서명 방식: none"
+
+
+def test_oidc_mode_stays_rs256_only(client, monkeypatch, tmp_path):
+    # HS256 은 proxy(앞단 Authentik 이 붙인 토큰)에서만 — 로그인 Bearer(oidc)는 공개키 서명만
+    _hs256_on(monkeypatch, tmp_path)
+    monkeypatch.setattr(settings, "ct_auth_mode", "oidc")
+    r = client.get("/api/me", headers={"Authorization": f"Bearer {_hs_jwt(HS_SECRET)}"})
+    assert r.status_code == 401

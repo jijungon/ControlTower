@@ -31,6 +31,7 @@ services:
       CT_OIDC_JWKS_URL: ${CT_OIDC_JWKS_URL:-}
       CT_OIDC_ISSUER: ${CT_OIDC_ISSUER:-}
       CT_OIDC_AUDIENCE: ${CT_OIDC_AUDIENCE:-}
+      CT_OIDC_HS256_SECRET_FILE: ${CT_OIDC_HS256_SECRET_FILE:-}
       DATABASE_URL: postgresql+psycopg://${DB_USER:-ctower}:${DB_PASSWORD}@db:5432/${DB_NAME:-controltower}
       CT_SECRET: ${CT_SECRET:?set CT_SECRET in .env}
       CT_API_TOKEN: ${CT_API_TOKEN:?set CT_API_TOKEN in .env}

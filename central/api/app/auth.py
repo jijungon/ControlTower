@@ -8,8 +8,12 @@
                 검증 키: CT_OIDC_JWKS_URL(운영) 또는 CT_OIDC_PUBLIC_KEY(PEM).
   proxy       — 앞단 Authentik(프록시)이 요청마다 붙이는 X-authentik-jwt 의 서명을 검사 → 그 안의 이메일·그룹.
                 글자 헤더(X-authentik-email · -groups)는 믿지 않는다 — 흉내 낸 값은 서명이 안 맞는다.
-                검사: RS256 만 · 만료(exp) 필수 · issuer 필수(CT_OIDC_ISSUER — 같은 키로 서명하는 다른 앱 토큰을 거름)
-                      · audience 는 CT_OIDC_AUDIENCE 를 넣으면. 키는 oidc 와 같이 CT_OIDC_JWKS_URL(또는 PUBLIC_KEY).
+                서명 방식은 둘 — 토큰의 alg 마다 키와 허용 방식을 하나로 고정(공개키를 HMAC 비밀로 쓰는 혼동을 막음):
+                  HS256 = 프록시 provider 의 공유 비밀(client_secret) — CT_OIDC_HS256_SECRET_FILE 에서 읽음.
+                          Authentik 은 프록시 provider 를 저장할 때마다 서명 키를 지워(set_oauth_defaults) 설계상 HS256 이다.
+                  RS256 = CT_OIDC_JWKS_URL(또는 PUBLIC_KEY) 의 공개키. 그 밖(none 등)은 거부.
+                검사: 만료(exp) 필수 · issuer 필수(CT_OIDC_ISSUER — 같은 키로 서명하는 다른 앱 토큰을 거름)
+                      · audience 는 CT_OIDC_AUDIENCE 를 넣으면.
                 토큰이 없거나 검사에 떨어지면 익명(= 누군지 모름 → 서버 탭은 막힘). 401 로 막지는 않는다.
                 GET /api/me 가 검사 결과(토큰이 왔나 · 통과했나 · 까닭 · 적힌 iss · aud · 클레임 이름)를 같이 보여 준다.
 
@@ -19,6 +23,7 @@ from __future__ import annotations
 
 import functools
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from fastapi import Header, HTTPException, status
 
@@ -99,7 +104,7 @@ def proxy_check(token: str) -> tuple[Principal, dict]:
         )
     seen = {"token": True, **_written(token)}
     try:
-        claims = _verify_oidc(token, require=("exp", "iss"))
+        claims = _verify_oidc(token, require=("exp", "iss"), proxy=True)
     except HTTPException as e:
         if e.status_code != status.HTTP_401_UNAUTHORIZED:
             raise  # 키 설정 오류는 숨기지 않는다
@@ -141,14 +146,42 @@ def _signing_key(token: str):
     )
 
 
-def _verify_oidc(token: str, require: tuple[str, ...] = ()) -> dict:
+def _proxy_key(token: str) -> tuple[object, list[str]]:
+    """proxy 토큰의 alg 로 키를 고른다 — HS256 은 공유 비밀만, RS256 은 공개키만. 허용 방식도 그 하나로 고정."""
+    import jwt
+
+    alg = jwt.get_unverified_header(token).get("alg")
+    if alg == "HS256":
+        return _hs256_secret(), ["HS256"]
+    if alg == "RS256":
+        return _signing_key(token), ["RS256"]
+    raise HTTPException(status.HTTP_401_UNAUTHORIZED, f"받지 않는 서명 방식: {alg}")
+
+
+def _hs256_secret() -> str:
+    """프록시 provider 의 공유 비밀 — 없거나 비면 HS256 토큰은 통과시키지 않는다(까닭은 /api/me 의 reason 으로)."""
+    path = settings.ct_oidc_hs256_secret_file
+    if not path:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "HS256 비밀 파일 없음 — CT_OIDC_HS256_SECRET_FILE 이 비어 있음")
+    try:
+        secret = Path(path).read_text().strip()
+    except OSError as e:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, f"HS256 비밀 파일 없음 — {path} 를 못 읽음") from e
+    if not secret:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, f"HS256 비밀 파일이 비어 있음 — {path}")
+    return secret
+
+
+def _verify_oidc(token: str, require: tuple[str, ...] = (), proxy: bool = False) -> dict:
+    """oidc = RS256 만. proxy = 토큰의 alg 에 맞는 키 하나(HS256 공유 비밀 / RS256 공개키)."""
     import jwt
 
     try:
+        key, algorithms = _proxy_key(token) if proxy else (_signing_key(token), ["RS256"])
         return jwt.decode(
             token,
-            _signing_key(token),
-            algorithms=["RS256"],
+            key,
+            algorithms=algorithms,
             audience=settings.ct_oidc_audience or None,
             issuer=settings.ct_oidc_issuer or None,
             options={
