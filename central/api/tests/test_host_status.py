@@ -61,7 +61,8 @@ def test_stale_file_is_an_alert_not_green(client):
     client.post("/api/host-status", json=_snap(written_at=_ago(301)), headers=AUTH)  # 60초 × 5배 = 300초 넘김
     s = _state(client)
     assert s["state"] == "alert" and s["reasons"] == ["상태 기록이 5분째 멈춤 — 적는 쪽 타이머 확인"]
-    client.post("/api/host-status", json=_snap(written_at=_ago(299)), headers=AUTH)
+    # 경계 바로 안쪽 — _ago 가 초 단위로 잘라(최대 1초) 299 로는 가끔 300 을 넘어 실패했다(10-28 CI) → 10초 여유
+    client.post("/api/host-status", json=_snap(written_at=_ago(290)), headers=AUTH)
     assert _state(client)["state"] == "ok"
 
 
