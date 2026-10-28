@@ -9,7 +9,7 @@ Settings() 생성 전에 hydrate_from_vault() 를 부른다(config.py). 중앙�
 좁게 스코프된 vault 토큰만 쥔다 — 키 파킹이 아니다.
 
 환경변수(vault 모드):
-  CT_VAULT_ADDR      OpenBao 주소 (예: https://bao.parameta.local)
+  CT_VAULT_ADDR      OpenBao 주소 (예: https://bao.local)
   CT_VAULT_KV_PATH   KV 경로 (KV v2 면 <mount>/data/<name>)
   CT_VAULT_TOKEN     조회 토큰(좁은 read 권한)
 

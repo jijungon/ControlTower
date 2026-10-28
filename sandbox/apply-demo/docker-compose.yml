@@ -5,14 +5,14 @@
 # 올리는 법(서버에서):
 #   1) 이 폴더(Dockerfile · nginx.conf · authorized_keys · docker-compose.yml)를 서버에 복사
 #   2) authorized_keys 채우기(연습 접속 공개키). 기존 키 재사용이 제일 간단:
-#        ssh-keygen -y -f ~/.ssh/aws-key/loopvm.pem > authorized_keys
+#        ssh-keygen -y -f ~/.ssh/aws-key/demo.pem > authorized_keys
 #   3) docker compose up -d --build
 #   4) 러너 쪽 ~/.ssh/config 에 연습 호스트 추가:
 #        Host ct-apply-demo
-#          HostName 20.20.1.35
+#          HostName <서버IP>
 #          Port 2222
 #          User deploy
-#          IdentityFile ~/.ssh/aws-key/loopvm.pem
+#          IdentityFile ~/.ssh/aws-key/demo.pem
 #   5) 접속 확인:  ssh ct-apply-demo  (컨테이너 안으로 들어가지면 OK)
 services:
   ct-apply-demo:

@@ -10,17 +10,17 @@ def test_repo_snapshots_require_auth_targets_open(client):
 
 
 def test_repo_targets_upsert(client):
-    client.post("/api/versions/repo-targets", json={"repo": "aggregator_web", "project": "group/aggregator_web"}, headers=AUTH)
-    client.post("/api/versions/repo-targets", json={"repo": "aggregator_web", "project": "group/aggregator_web2"}, headers=AUTH)
-    assert client.get("/api/versions/repo-targets").json() == [{"repo": "aggregator_web", "project": "group/aggregator_web2"}]
+    client.post("/api/versions/repo-targets", json={"repo": "web_app", "project": "group/web_app"}, headers=AUTH)
+    client.post("/api/versions/repo-targets", json={"repo": "web_app", "project": "group/web_app2"}, headers=AUTH)
+    assert client.get("/api/versions/repo-targets").json() == [{"repo": "web_app", "project": "group/web_app2"}]
 
 
 def test_repo_versions_in_matrix(client):
     client.post(
         "/api/versions/repo-snapshots",
         json={"snapshots": [
-            {"repo": "aggregator_web", "tool": "node", "version": "20.11"},
-            {"repo": "aggregator_web", "tool": "nest", "version": "10.3"},
+            {"repo": "web_app", "tool": "node", "version": "20.11"},
+            {"repo": "web_app", "tool": "nest", "version": "10.3"},
         ]},
         headers=AUTH,
     )
@@ -28,7 +28,7 @@ def test_repo_versions_in_matrix(client):
     assert len(m) == 1
     row = m[0]
     assert row["kind"] == "repo"
-    assert row["name"] == "aggregator_web"
+    assert row["name"] == "web_app"
     assert row["tools"] == {"node": "20.11", "nest": "10.3"}
 
 
@@ -38,10 +38,10 @@ def test_server_and_repo_unified(client):
     sid = client.get("/api/servers").json()[0]["id"]
     client.post("/api/versions/snapshots", json={"snapshots": [{"server_id": sid, "tool": "docker", "version": "24.0.7"}]}, headers=AUTH)
     # repo 선언본 1건
-    client.post("/api/versions/repo-snapshots", json={"snapshots": [{"repo": "pnl_was", "tool": "java", "version": "17"}]}, headers=AUTH)
+    client.post("/api/versions/repo-snapshots", json={"snapshots": [{"repo": "api_was", "tool": "java", "version": "17"}]}, headers=AUTH)
 
     m = client.get("/api/versions").json()
     kinds = {r["name"]: r["kind"] for r in m}
-    assert kinds == {"build-01": "server", "pnl_was": "repo"}
+    assert kinds == {"build-01": "server", "api_was": "repo"}
     # server 가 repo 보다 먼저
     assert m[0]["kind"] == "server"

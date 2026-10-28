@@ -13,7 +13,7 @@ Host web-01
   HostName 10.0.0.1
   User deploy
   Port 2222
-  IdentityFile "~/.ssh/aws-key/loopvm.pem"
+  IdentityFile "~/.ssh/aws-key/demo.pem"
   ProxyJump bastion
 
 Host app-01
@@ -35,7 +35,7 @@ def _write(tmp_path, text):
 def test_dequote_identityfile(tmp_path):
     hosts = {h.alias: h for h in parse_ssh_config(_write(tmp_path, SAMPLE))}
     # 따옴표 감싼 IdentityFile → 따옴표 없이 파싱
-    assert hosts["web-01"].identity_file == "~/.ssh/aws-key/loopvm.pem"
+    assert hosts["web-01"].identity_file == "~/.ssh/aws-key/demo.pem"
     # 따옴표 없는 것도 그대로
     assert hosts["app-01"].identity_file == "~/.ssh/plain.pem"
 

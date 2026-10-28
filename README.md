@@ -116,7 +116,7 @@ ControlTower는 **혼자서도 그대로 돌고**, 나중에 사내 IdP/Secrets 
   - **RS256** — `CT_OIDC_JWKS_URL`(provider 의 jwks).
   - 토큰의 alg 마다 그 키 · 그 방식 하나만 쓴다(공개키를 HMAC 비밀로 쓰는 혼동을 막음). 그 밖(none 등)은 거부. 만료 필수.
   켜는 순서: 금고 연결은 끈 채(`CT_INVENTORY_MODE` 없음 — 화면은 그대로) `CT_AUTH_MODE=proxy` 만 켜고, 로그인해서 `/api/me` 를 연다 → `proxy` 칸에 토큰이 왔나 · 통과했나 · 떨어진 까닭 · 토큰에 적힌 `aud` · 클레임 이름(`groups` 가 있나)이 보인다. `aud` 를 `CT_OIDC_AUDIENCE` 에 넣고 통과를 본 뒤 금고 연결을 켠다.
-- 플랫폼 자체(Authentik/OpenBao)는 **별도 프로젝트** — 설계·계획은 로컬 전용 `~/Downloads/parameta-idp-secrets/`.
+- 플랫폼 자체(Authentik/OpenBao)는 **별도 프로젝트** — 설계·계획은 공개 repo 밖 로컬 전용 저장소(비공개)에 둔다.
 
 ### 운영에서 OpenBao에 붙일 때 (TLS·mTLS)
 
@@ -340,13 +340,12 @@ ControlTower/
 │   └── web/          React 프론트 (placeholder → 추후)
 ├── db/               schema.sql (데이터 모델 정본)
 ├── runner/           러너 CLI (로컬 네이티브, tests/)
-└── docs/             PLAN · DEV · 빌드환경 체크리스트 · CICD 현황 · 설정저장소(추후 트랙)
+└── docs/             PLAN · DEV · 빌드환경 체크리스트 · 설정저장소(추후 트랙)
 ```
 
 ## 문서
 
 - [docs/ControlTower-PLAN.md](docs/ControlTower-PLAN.md) — 전체 기획(기능·아키텍처·로드맵·열린 질문)
 - [docs/DEV.md](docs/DEV.md) — 로컬 개발 · worktree · 테스트 · PR
-- [docs/supercycl-CICD-현황.md](docs/supercycl-CICD-현황.md) — Phase 5 근거 조사
 - [docs/ControlTower-빌드환경-체크리스트.md](docs/ControlTower-빌드환경-체크리스트.md) — 열린 질문 5 확인용
 - [docs/관련과제-설정정책중앙화.md](docs/관련과제-설정정책중앙화.md) — 추후 트랙(런타임 설정저장소)

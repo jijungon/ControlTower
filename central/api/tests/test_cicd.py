@@ -10,7 +10,7 @@ def test_status_requires_auth_targets_open(client):
 
 
 def test_targets_upsert(client):
-    client.post("/api/cicd/targets", json={"service": "admin", "project": "group/aggregator-admin"}, headers=AUTH)
+    client.post("/api/cicd/targets", json={"service": "admin", "project": "group/admin-api"}, headers=AUTH)
     client.post("/api/cicd/targets", json={"service": "admin", "project": "group/admin-v2"}, headers=AUTH)  # 갱신
     assert client.get("/api/cicd/targets").json() == [{"service": "admin", "project": "group/admin-v2"}]
 
