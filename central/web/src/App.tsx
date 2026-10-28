@@ -49,7 +49,8 @@ export default function App() {
         <VersionTag />
       </header>
       <AuthExpiredBanner />
-      <HostStatusBar />
+      {/* IdP 서버 상태줄은 운영자만 — 개발자에겐 API 도 403 이라 부르지도 않는다(누군지 안 뒤에 그림) */}
+      {devOnly === false && <HostStatusBar />}
 
       <nav className="sub-nav">
         {devOnly !== null && tabs.map((t) => (

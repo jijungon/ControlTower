@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from app.config import settings
+from app.routers import access as access_router
 from tests.test_access_log import EV_NEW, EV_OLD
 from tests.test_access_log import _snap as _access_snap
 from tests.test_access_view import INV, _inv, _oidc
@@ -79,12 +80,35 @@ def test_developer_not_in_the_people_file_shows_email_only(client, admin):
     assert (devs["devtest@example.local"]["name"], devs["devtest@example.local"]["active"]) == (None, None)
 
 
-def test_developers_see_names_too_in_the_server_tab(client, monkeypatch):
+OPERATOR_TRACES = ("ops@example.com", "root@example.com", "gone@example.com", "Ops Person", "akadmin", "Left Company")
+
+
+def test_developers_get_no_operator_names_or_emails_only_developer_names(client, monkeypatch):
+    """운영자는 개발자에게 아예 안 보인다(10-28) — 이름표가 있어도 운영자 이름 · 이메일은 응답 어디에도 없다."""
     _inv(monkeypatch)
     _up(client)
-    r, ops, devs = _rows(client, _oidc(monkeypatch, ["developer"]))
+    r = client.get("/api/access", headers=_oidc(monkeypatch, ["developer"])).json()
+    assert r["state"] == "ok" and [(p["role"], p["name"]) for p in r["people"]] == [("developer", "Dev Test")]
+    body = json.dumps(r, ensure_ascii=False)
+    for trace in OPERATOR_TRACES + ("server-admin 그룹 전원", "names_note", "members"):
+        assert trace not in body, trace
+    # 운영자는 그대로 — 같은 이름표로 운영자 줄 · 이름이 온다
+    _, ops, _ = _rows(client, _oidc(monkeypatch, ["server-admin"]))
     assert [m["name"] for m in ops["members"]] == ["Ops Person", "akadmin", "Left Company"]
-    assert devs["devtest@example.local"]["name"] == "Dev Test"
+
+
+def test_developer_me_and_version_carry_no_operator_or_prod_data(client, monkeypatch):
+    """개발자에게 열린 나머지 둘(/api/me · /api/version)도 운영자 · 운영(prod) 값을 싣지 않는다."""
+    _inv(monkeypatch)
+    _up(client)
+    h = _oidc(monkeypatch, ["developer"])
+    me = client.get("/api/me", headers=h).json()
+    assert me == {"authenticated": True, "email": "who@example.com", "groups": ["developer"]}  # 자기 것만
+    ver = client.get("/api/version", headers=h).json()
+    assert sorted(ver) == ["build", "started_at", "version"]
+    body = json.dumps([me, ver], ensure_ascii=False)
+    for trace in OPERATOR_TRACES + ("198.51.100.9", "192.0.2.90", "shop", "prod"):
+        assert trace not in body, trace
 
 
 @pytest.mark.parametrize("kw,why", [
@@ -103,6 +127,34 @@ def test_unknown_keeps_the_group_line_never_no_operators(client, admin, kw, why)
     assert ops["names_note"] == "이름 모름(이름표를 못 읽음)"
     assert devs["devtest@example.local"]["name"] is None
     assert "운영자 없음" not in json.dumps(r, ensure_ascii=False)
+
+
+@pytest.mark.parametrize("kw", [
+    {"list_ok": False, "list_reason": "authentik api: 503", "groups": None, "header_people": 0, "person_lines": 0,
+     "people": []},
+    {"read_ok": False, "read_error": "첫 줄(머리)이 깨짐"},
+    {"written_at": _ago(1800)},
+])
+def test_developers_get_a_plain_reason_not_the_raw_one(client, monkeypatch, kw):
+    """이름표를 모를 때 개발자에겐 까닭 원문(IdP · Authentik 오류 등 운영 안쪽) 대신 일반 문구 한 줄 — state 는 그대로."""
+    _inv(monkeypatch)
+    _up(client, **kw)
+    raw = client.get("/api/access", headers=_oidc(monkeypatch, ["server-admin"])).json()["names"]
+    assert raw["state"] == "unknown" and raw["reasons"][0] != access_router.DEV_NAMES_REASON  # 운영자는 원문 그대로
+    r = client.get("/api/access", headers=_oidc(monkeypatch, ["developer"])).json()
+    assert r["names"] == {"state": "unknown", "reasons": [access_router.DEV_NAMES_REASON]}
+    body = json.dumps(r, ensure_ascii=False)
+    for reason in raw["reasons"]:
+        assert reason not in body, reason
+    for trace in ("authentik", "503", "IdP", "깨짐", "30분째", "타이머"):
+        assert trace not in body, trace
+
+
+def test_developers_get_no_reason_when_names_are_fine(client, monkeypatch):
+    _inv(monkeypatch)
+    _up(client)
+    r = client.get("/api/access", headers=_oidc(monkeypatch, ["developer"])).json()
+    assert r["names"] == {"state": "ok", "reasons": []}
 
 
 def test_before_any_upload_is_off_and_still_the_group_line(client, admin):

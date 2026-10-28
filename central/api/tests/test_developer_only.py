@@ -4,7 +4,7 @@ from app.config import settings
 from tests.test_auth import ISS, _proxy, _proxy_jwt, _rsa_pair
 
 RUNNER = {"Authorization": "Bearer dev-runner-token"}  # settings.ct_api_token 기본값
-OPEN = ["/api/me", "/api/access", "/api/version", "/api/host-status"]
+OPEN = ["/api/me", "/api/access", "/api/version"]
 IMPORT = {"servers": [{"hostname": "web-01", "ip": "10.0.0.1", "ssh_user": "deploy", "credential_alias": "id_rsa"}]}
 
 
@@ -28,6 +28,21 @@ def test_개발자도_서버_탭이_쓰는_넷은_열림(client, monkeypatch):
     h = _as(monkeypatch, ["developer"])
     for path in OPEN:
         assert client.get(path, headers=h).status_code == 200, path
+
+
+def test_IdP_서버_상태줄은_운영자만_개발자는_403(client, monkeypatch):
+    """맨 위 IdP 서버 상태줄(서버 이름 · 문제)은 운영자만(10-28) — 화면만 숨기지 않고 API 도 403."""
+    status = {"source": "idp", "read_ok": True, "written_at": "2026-10-28T00:00:00+00:00", "host": "idp-host.example.local",
+              "ok": False, "problems": ["openbao sealed"]}
+    dev = _as(monkeypatch, ["developer"])
+    # 수집기(러너 공유 토큰)는 개발자 문지기와 상관없이 그대로 올린다
+    assert client.post("/api/host-status", json=status, headers=RUNNER).json() == {"ok": True}
+    r = client.get("/api/host-status", headers=dev)
+    assert r.status_code == 403 and r.json() == {"detail": "개발자는 서버 탭만 볼 수 있어요"}
+    assert "idp-host" not in r.text and "openbao" not in r.text
+    for groups in (["server-admin"], ["developer", "server-admin"]):
+        r = client.get("/api/host-status", headers=_as(monkeypatch, groups))
+        assert r.status_code == 200 and r.json()[0]["host"] == "idp-host.example.local", groups
 
 
 def test_운영자_둘다_viewer_신분증없음은_지금처럼(client, monkeypatch):

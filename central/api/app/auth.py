@@ -74,9 +74,10 @@ def principal_of(authorization: str, x_authentik_jwt: str) -> Principal:
     return Principal(authenticated=True, email=claims.get("email"), groups=_groups(claims))
 
 
-# 개발자(server-admin 아님)는 서버 탭만 — 화면도 API 도. 서버 탭이 쓰는 이 넷 말고는(새로 생길 API 포함) 403.
+# 개발자(server-admin 아님)는 서버 탭만 — 화면도 API 도. 서버 탭이 쓰는 이 셋 말고는(새로 생길 API 포함) 403.
+# 맨 위 IdP 서버 상태줄(/api/host-status)도 운영자만(10-28) — 개발자에겐 서버 이름 · 문제를 안 준다.
 # 그룹을 아는 모드(oidc · proxy)에서만 따진다. 러너(공유 토큰) · 신분증 없음 · viewer · none 모드는 그대로.
-DEVELOPER_OPEN_API = frozenset({"/api/me", "/api/access", "/api/version", "/api/host-status"})
+DEVELOPER_OPEN_API = frozenset({"/api/me", "/api/access", "/api/version"})
 
 
 def developer_only(user: Principal) -> bool:

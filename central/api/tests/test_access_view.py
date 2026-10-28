@@ -51,6 +51,33 @@ def test_못_읽으면_error_와_까닭을_보여준다(client, monkeypatch):
     assert r["state"] == "error" and "AppRole" in r["error"]
 
 
+RAW_ERRORS = [
+    "AppRole 로그인 실패 — secret_id 만료가 가장 흔하다",
+    "secret_id 파일을 못 읽는다: /run/secrets/ct-inventory-secret-id",
+    "금고 LIST inventory/metadata/dev: HTTP 403 permission denied",
+]
+
+
+def test_개발자에겐_금고_오류_원문_대신_일반_문구_운영자는_원문(client, monkeypatch):
+    """금고 오류 원문(파일 · 금고 경로 · 예외 문장)은 운영 안쪽 정보 — 개발자에겐 state=error 와 일반 문구 한 줄만."""
+    monkeypatch.setattr(settings, "ct_inventory_mode", "vault")
+    for raw in RAW_ERRORS:
+        def boom(raw=raw):
+            raise inventory_source.InventoryError(raw)
+        monkeypatch.setattr(access_router, "fetch_inventory", boom)
+        r = client.get("/api/access", headers=_oidc(monkeypatch, ["developer"])).json()
+        assert r["state"] == "error" and r["error"] == access_router.DEV_INVENTORY_ERROR, raw
+        body = str(r)
+        for trace in (raw, "AppRole", "secret_id", "/run/secrets", "inventory/", "403"):
+            assert trace not in body, trace
+        for groups in (["server-admin"], ["developer", "server-admin"]):
+            r = client.get("/api/access", headers=_oidc(monkeypatch, groups)).json()
+            assert r == {**r, "state": "error", "error": raw}, groups
+        monkeypatch.setattr(settings, "ct_auth_mode", "none")
+        monkeypatch.setattr(settings, "ct_access_local_preview", True)
+        assert client.get("/api/access").json()["error"] == raw  # 로컬 미리보기도 원문
+
+
 def test_그룹을_모르면_전부가_아니라_막고_금고도_안_읽는다(client, monkeypatch):
     """운영 모양: 앞단 Authentik 만 로그인, ControlTower 는 사용자를 모름(CT_AUTH_MODE=none) + 금고 연결 켬.
     '모른다' 를 '다 볼 수 있다' 로 보면 developer · viewer 에게도 운영 gw · 서버 주소가 간다."""
@@ -96,11 +123,40 @@ def test_운영자는_전부_보고_사람은_운영자와_개발자를_나눈�
     assert oci["gw"]["host"] == "198.51.100.7" and oci["servers"] == [{"name": "idp-test", "addr": "192.0.2.16"}]
 
 
+def _no_prod(r):
+    assert [e["env"] for e in r["envs"]] == ["dev", "stg"]
+    body = str(r)
+    assert "prod" not in body and "198.51.100.9" not in body and "192.0.2.90" not in body and "shop" not in body, \
+        "개발자 응답에 운영 목록이 섞였다"
+
+
+def _no_operator_row(r):
+    """운영자 줄은 개발자 응답에 아예 없다 — 화면에서 숨기는 게 아니라 API 가 안 준다(10-28)."""
+    assert r["state"] == "ok" and r["people"], "개발자 줄은 그대로 와야 한다"
+    assert all(p["role"] == "developer" for p in r["people"]), "개발자 응답에 운영자 줄이 섞였다"
+    body = str(r)
+    for word in ("server-admin 그룹 전원", "members", "names_note", "ubuntu", "'admin'"):
+        assert word not in body, word
+
+
 def test_개발자에게는_운영이_아예_안_보인다(client, monkeypatch):
     _inv(monkeypatch)
     r = client.get("/api/access", headers=_oidc(monkeypatch, ["developer"])).json()
-    assert [e["env"] for e in r["envs"]] == ["dev", "stg"]
-    assert "198.51.100.9" not in str(r) and "shop" not in str(r), "개발자 응답에 운영 목록이 섞였다"
+    _no_prod(r)
+    _no_operator_row(r)
+    assert r["people"] == [{"email": "devtest@example.local", "role": "developer", "gw_account": "devtest",
+                            "server_account": "appuser", "name": None, "active": None,
+                            "where": [{"env": "dev", "service": "oci-idp"}]}]
+
+
+def test_운영자와_둘_다인_사람은_운영자_줄을_그대로_받는다(client, monkeypatch):
+    _inv(monkeypatch)
+    for groups in (["server-admin"], ["developer", "server-admin"]):
+        r = client.get("/api/access", headers=_oidc(monkeypatch, groups)).json()
+        admin = r["people"][0]
+        assert admin["role"] == "admin" and admin["email"] == "server-admin 그룹 전원", groups
+        assert admin["where"] == [{"env": "dev", "service": "oci-idp"}, {"env": "prod", "service": "shop"}], groups
+        assert [p["role"] for p in r["people"]] == ["admin", "developer"], groups
 
 
 def test_그룹이_없으면_아무것도_안_준다(client, monkeypatch):
@@ -122,8 +178,10 @@ def test_proxy_모드도_그룹대로_거른다(client, monkeypatch):
     r = client.get("/api/access", headers=_proxy(monkeypatch, ["authentik Admins", "server-admin"])).json()
     assert r["viewer"] == {"email": "who@example.com", "role": "운영자"}
     assert [e["env"] for e in r["envs"]] == ["dev", "stg", "prod"]
+    assert r["people"][0]["role"] == "admin"
     r = client.get("/api/access", headers=_proxy(monkeypatch, ["developer"])).json()
-    assert [e["env"] for e in r["envs"]] == ["dev", "stg"] and "198.51.100.9" not in str(r)
+    _no_prod(r)
+    _no_operator_row(r)
     r = client.get("/api/access", headers=_proxy(monkeypatch, ["viewer"])).json()
     assert r["state"] == "denied" and r["envs"] == []
 

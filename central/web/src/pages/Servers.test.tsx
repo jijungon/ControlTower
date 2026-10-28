@@ -116,8 +116,33 @@ test('개발자를 고르면 그 사람 계정으로(gw 개인 · 서버 appuser
   expect(screen.getByRole('region', { name: '환경 · gw · 서버' })).not.toHaveTextContent('idp-login ssh devtest prod')
 })
 
+// 개발자가 받는 모양 — API 가 운영(prod) 환경과 운영자 줄을 아예 빼고 준다(10-28)
+const AS_DEV = {
+  ...ACCESS,
+  viewer: { email: 'DevTest@example.local', role: '개발자' },
+  people: ACCESS.people.filter((p) => p.role === 'developer'),
+  envs: [ACCESS.envs[0]],
+}
+
+test('개발자 화면엔 운영자 상자 · 주황 선 · 운영자 점이 없다 — 개발자 줄과 그 선만', async () => {
+  mockFetch(AS_DEV)
+  render(<Servers />)
+  const people = await screen.findByRole('complementary', { name: '사람' })
+  expect(within(people).getAllByRole('button').map((b) => b.textContent)).toEqual([
+    expect.stringContaining('devtest@example.local'),
+  ])
+  expect(within(people).queryByText('운영자')).toBeNull()
+  expect(within(people).queryByText(/server-admin/)).toBeNull()
+  expect(document.querySelector('.access-person--admin')).toBeNull()
+  expect(document.querySelector('.access-link--admin')).toBeNull()
+  expect(screen.queryByTitle('운영자가 갈 수 있음')).toBeNull()
+  expect(screen.getByTestId('link-devtest@example.local-dev')).toHaveClass('access-link--developer')
+  expect(within(screen.getByTestId('env-dev')).getByTitle('개발자가 갈 수 있음')).toBeInTheDocument()
+  expect(screen.queryByTestId('env-prod')).toBeNull()
+})
+
 test('보는 사람이 개발자면 자기 계정으로, 금고 목록에 없으면 명령 대신 "내 계정이 목록에 없어요"', async () => {
-  const asDev = { ...ACCESS, viewer: { email: 'DevTest@example.local', role: '개발자' }, envs: [ACCESS.envs[0]] }
+  const asDev = AS_DEV
   mockFetch(asDev)
   const { unmount } = render(<Servers />)
   const gw = await screen.findByTestId('gw-dev-oci-idp')
