@@ -474,7 +474,7 @@ export type GwLogin = {
   kind: 'person' | 'machine' | 'other'
   who: string | null
   serial: string | null // 인증서 번호 — 발급 기록의 serial 과 같음(이어 붙임)
-  issued_at: string | null // 발급 기록에서 옮긴 값 — 못 찾았으면 null(14일 넘음 등)
+  issued_at: string | null // 발급 기록에서 옮긴 값 — 못 찾았으면 null(번호 기록 설정 전 발급 · 14일 넘음 등)
   env: string | null
   role: string | null
 }
