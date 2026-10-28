@@ -32,6 +32,9 @@ services:
       CT_OIDC_ISSUER: ${CT_OIDC_ISSUER:-}
       CT_OIDC_AUDIENCE: ${CT_OIDC_AUDIENCE:-}
       CT_OIDC_HS256_SECRET_FILE: ${CT_OIDC_HS256_SECRET_FILE:-}
+      # 서버 탭 '목록 고치기'(운영자가 gw · 서버를 금고에 고침) — 기본 끔(0). 켜려면 .env 에 CT_INVENTORY_EDIT=1
+      #   + 금고 ct-inventory 정책에 inventory/data/* update 가 있어야 저장된다. README '목록 고치기'
+      CT_INVENTORY_EDIT: ${CT_INVENTORY_EDIT:-0}
       DATABASE_URL: postgresql+psycopg://${DB_USER:-ctower}:${DB_PASSWORD}@db:5432/${DB_NAME:-controltower}
       CT_SECRET: ${CT_SECRET:?set CT_SECRET in .env}
       CT_API_TOKEN: ${CT_API_TOKEN:?set CT_API_TOKEN in .env}

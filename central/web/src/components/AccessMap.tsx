@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { fetchAccess, type Access, type AccessPerson } from '../api'
+import InventoryEditor from './InventoryEditor'
 
 // 서버 탭 '누가 · 어디로' — 사람 | 선 | 환경
 //   왼쪽(사람): Gmail 마다 운영자 · 개발자 + 들어가는 계정 (운영자: gw · 서버 ubuntu / 개발자: gw 개인 계정 · 서버 appuser)
 //   가운데(선): 사람이 실제로 갈 수 있는 환경까지 직각 선 — 운영자 주황 · 굵고 긴 점선 / 개발자 청록 · 가늘고 짧은 점선
 //   오른쪽(곳): 환경 → gw → 서버. 칠 명령은 gw · 서버 줄을 누르면 그 아래에(처음부터 다 늘어놓지 않음)
-// 목록은 금고에만 있다(idp-login 이 적는다). 이 화면은 **보기만** — 고치기는 gw 에서 idp-login 으로.
+// 목록은 금고에만 있다(idp-login 이 적는다). 기본은 **보기만** — 고치기는 gw 에서 idp-login 으로.
+//   CT_INVENTORY_EDIT 가 켜졌고 운영자면(can_edit) [목록 고치기] → gw 마다 gw · 서버를 고침(사람은 못 고침). InventoryEditor
 // 사람에 마우스를 올리거나 누르면 그 사람 선과 갈 수 있는 환경만 남고 나머지는 흐리게.
 
 const ROLE_LABEL: Record<AccessPerson['role'], string> = { admin: '운영자', developer: '개발자' }
@@ -77,8 +79,10 @@ function CmdBox({ who, env, service, server }: { who: Who; env: string; service:
 type Pt = { x: number; y: number }
 type Geo = { w: number; h: number; from: Record<string, Pt>; to: Record<string, Pt>; bus: Record<AccessPerson['role'], number> }
 
-function AccessView({ data }: { data: Access }) {
+function AccessView({ data, onSaved }: { data: Access; onSaved: () => void }) {
   const [picked, setPicked] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false) // 목록 고치기 모드(운영자 · 스위치 켜짐일 때만 버튼이 보임)
+  const [editTarget, setEditTarget] = useState<string | null>(null) // 고치는 항목 — 한 번에 하나
   const [hovered, setHovered] = useState<string | null>(null)
   const [open, setOpen] = useState<string | null>(null)
   const [geo, setGeo] = useState<Geo | null>(null)
@@ -135,7 +139,29 @@ function AccessView({ data }: { data: Access }) {
   return (
     <>
       {/* 선 색 범례는 뺌(10-28) — 배지 · 상자 테두리 색으로 충분 */}
-      <p className="access-legend muted">사람에 마우스를 올리거나 누르면 그 사람 길만 · gw · 서버 줄을 누르면 칠 명령</p>
+      <div className="access-tools">
+        <p className="access-legend muted">사람에 마우스를 올리거나 누르면 그 사람 길만 · gw · 서버 줄을 누르면 칠 명령</p>
+        {data.can_edit === true && (
+          <button
+            type="button"
+            className={'btn btn--sm' + (editing ? ' btn--primary' : '')}
+            aria-pressed={editing}
+            onClick={() => {
+              setEditing(!editing)
+              setEditTarget(null)
+            }}
+          >
+            {editing ? '고치기 끝' : '목록 고치기'}
+          </button>
+        )}
+      </div>
+      {editing && (
+        <p className="access-edit-note">
+          운영자만 · gw 마다 [고치기] — gw 주소 · 포트와 서버(이름 · 주소)만 고쳐요. 사람(누가)은 못 고쳐요 —{' '}
+          <span className="mono">idp-login user add</span> 가 gw 에 OS 계정도 만들어서 gw 에서만. 새 서비스도 gw 에서{' '}
+          <span className="mono">idp-login service add</span>.
+        </p>
+      )}
       <div className="access" ref={wrapRef}>
         <aside className="card access-people" aria-label="사람">
           <div className="access-colhead">사람</div>
@@ -183,6 +209,7 @@ function AccessView({ data }: { data: Access }) {
                 {e.services.length === 0 && <div className="muted access-empty">목록에 적힌 gw 가 없어요</div>}
                 {e.services.map((s) => {
                   const gwKey = `gw:${e.env}:${s.name}`
+                  const editKey = `${e.env}/${s.name}`
                   return (
                     <div key={s.name} className={'access-gw' + (canGo(focus, e.env, s.name) ? '' : ' access-gw--dim')} data-testid={`gw-${e.env}-${s.name}`}>
                       <button type="button" className="access-row" aria-expanded={open === gwKey} onClick={() => toggle(gwKey)}>
@@ -204,6 +231,16 @@ function AccessView({ data }: { data: Access }) {
                           </div>
                         )
                       })}
+                      {editing && editTarget !== editKey && (
+                        <div className="access-edit-open">
+                          <button type="button" className="btn btn--sm" onClick={() => setEditTarget(editKey)}>
+                            {s.name} 고치기
+                          </button>
+                        </div>
+                      )}
+                      {editing && editTarget === editKey && (
+                        <InventoryEditor env={e.env} service={s.name} onSaved={onSaved} onClose={() => setEditTarget(null)} />
+                      )}
                     </div>
                   )
                 })}
@@ -247,13 +284,18 @@ export default function AccessMap() {
   const [data, setData] = useState<Access | null>(null)
   const [err, setErr] = useState<string | null>(null)
 
-  useEffect(() => {
+  // 고친 뒤에도 다시 부른다(서버는 저장하면 목록 캐시를 비움)
+  const load = useCallback(() => {
     // 모양이 다른 답(예: 옛 API · 로그인 화면)을 그대로 그리면 화면이 통째로 죽는다 — '모름' 으로
     fetchAccess().then(
       (d) => (d && typeof d.state === 'string' && Array.isArray(d.envs) && Array.isArray(d.people) ? setData(d) : setErr('응답 모양이 이상해요')),
       (e: Error) => setErr(e.message),
     )
   }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
 
   if (err) return <div className="card placeholder access-msg">목록을 불러오지 못했어요 — {err}</div>
   if (!data) return <div className="card placeholder access-msg">불러오는 중…</div>
@@ -274,5 +316,5 @@ export default function AccessMap() {
   if (data.state === 'error')
     return <div className="card placeholder access-msg access-msg--warn">목록 모름 — 금고를 못 읽었어요: {data.error}</div>
 
-  return <AccessView data={data} />
+  return <AccessView data={data} onSaved={load} />
 }
