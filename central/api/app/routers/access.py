@@ -16,6 +16,7 @@
   개발자 줄: 이름표에서 찾으면 name · active, 못 찾으면 None(이메일만).
 운영자 줄은 운영자에게만 — 개발자(server-admin 아님) 응답엔 운영자 줄 · 이름 · 이메일 · 갈 곳 · 이름 알림이 아예 없다(10-28).
   화면에서 숨기는 게 아니라 응답에서 뺀다. 개발자는 dev · stg 의 개발자 줄만 받는다.
+  이름표 까닭(names.reasons)도 개발자에겐 원문 대신 일반 문구 한 줄 — state 는 그대로(이름 표시에 씀).
 can_edit = 화면에 '고치기' 를 보일까(CT_INVENTORY_EDIT 가 켜졌고 운영자일 때만) — 고치기 자체는 routers/inventory_edit.py.
 """
 from __future__ import annotations
@@ -33,6 +34,7 @@ from .inventory_edit import can_edit
 router = APIRouter(prefix="/api", tags=["access"])
 
 AUDIENCE = {"dev": "개발자 · 운영자", "stg": "개발자 · 운영자", "prod": "운영자만"}
+DEV_NAMES_REASON = "이름표를 못 읽어 이름 없이 이메일만 보여요"  # 개발자에게 보내는 이름표 까닭 — 원문 대신 이 한 줄
 
 
 def _inventory_on() -> bool:
@@ -141,7 +143,10 @@ def access(user: Principal = Depends(current_user), db: Session = Depends(get_db
         out_envs.append({"env": env, "audience": AUDIENCE[env], "services": services})
 
     rows = sorted(people.values(), key=lambda p: p["email"])
-    if not developer_only(user):  # 개발자에겐 운영자 줄을 아예 안 준다 — 이름 · 이메일 · 갈 곳 모두
+    reasons = names["reasons"]
+    if developer_only(user):  # 개발자에겐 운영자 줄을 아예 안 준다 — 이름 · 이메일 · 갈 곳 모두
+        reasons = [DEV_NAMES_REASON] if reasons else []  # 까닭 원문(IdP · Authentik 오류 등 운영 안쪽)도 안 준다
+    else:
         rows = [_admin_row(names, out_envs)] + rows
     return {**base, "state": "ok", "envs": out_envs, "people": rows, "can_edit": can_edit(user),
-            "names": {"state": names["state"], "reasons": names["reasons"]}}
+            "names": {"state": names["state"], "reasons": reasons}}
