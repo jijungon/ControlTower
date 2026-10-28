@@ -15,14 +15,16 @@ test('기본 탭은 대시보드, 탭 클릭 시 전환', async () => {
   expect(screen.getByRole('heading', { name: 'repo 프로젝트' })).toBeInTheDocument() // config 는 repo 보기부터
 })
 
-test('탭 5개 — 서버 → config → 빌드·배포 → OS 패치·작업이력', async () => {
+test('탭 6개 — 서버 → 접속 기록 → config → 빌드·배포 → OS 패치·작업이력', async () => {
   render(<App />)
   await screen.findByRole('heading', { name: '대시보드' })
   expect(screen.getAllByRole('button').filter((b) => b.classList.contains('tab')).map((b) => b.textContent)).toEqual([
-    '대시보드', '서버', 'config', '빌드·배포', 'OS 패치·작업이력',
-  ]) // 서버(IdP 연동 후 연결 자리) → 무엇으로 만드나(config) → 어떻게 배포하나(빌드·배포)
+    '대시보드', '서버', '접속 기록', 'config', '빌드·배포', 'OS 패치·작업이력',
+  ]) // 서버(IdP 연동 후 연결 자리) → 누가 언제 들어갔나 → 무엇으로 만드나(config) → 어떻게 배포하나(빌드·배포)
   await userEvent.click(screen.getByRole('button', { name: '서버' }))
   expect(screen.getByRole('heading', { name: '누가 · 어디로' })).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: '접속 기록' }))
+  expect(screen.getByRole('heading', { name: '접속 기록' })).toBeInTheDocument()
   await userEvent.click(screen.getByRole('button', { name: '빌드·배포' }))
   expect(screen.getByRole('heading', { name: '빌드 · 배포' })).toBeInTheDocument()
   expect(screen.getByRole('heading', { name: '서비스 비교' })).toBeInTheDocument()
@@ -63,10 +65,10 @@ test('개발자(server-admin 아님)는 서버 탭 하나만, 바로 열리고 /
   expect(screen.queryByRole('heading', { name: '대시보드' })).toBeNull()
   expect(screen.queryByRole('heading', { name: '서버 설정 파일 (/etc)' })).toBeNull()
   const called = f.mock.calls.map(([u]) => String(u))
-  expect(called.some((u) => u.includes('/api/conf') || u.includes('/api/cicd') || u.includes('/api/servers'))).toBe(false)
+  expect(called.some((u) => u.includes('/api/conf') || u.includes('/api/cicd') || u.includes('/api/servers') || u.includes('/api/access-log'))).toBe(false)
 })
 
-test('운영자 · 둘 다 · 로그인 없음(none) · /api/me 실패는 탭 5개 그대로', async () => {
+test('운영자 · 둘 다 · 로그인 없음(none) · /api/me 실패는 탭 6개 그대로', async () => {
   for (const me of [
     { authenticated: true, email: 'a@example.com', groups: ['server-admin'] },
     { authenticated: true, email: 'b@example.com', groups: ['developer', 'server-admin'] },
@@ -76,7 +78,7 @@ test('운영자 · 둘 다 · 로그인 없음(none) · /api/me 실패는 탭 5�
     serveMe(me)
     const { unmount } = render(<App />)
     await screen.findByRole('heading', { name: '대시보드' })
-    expect(tabNames()).toEqual(['대시보드', '서버', 'config', '빌드·배포', 'OS 패치·작업이력'])
+    expect(tabNames()).toEqual(['대시보드', '서버', '접속 기록', 'config', '빌드·배포', 'OS 패치·작업이력'])
     unmount()
   }
 })

@@ -152,13 +152,21 @@ test('OS 패치·작업이력 탭에서 서버 행을 열면 패키지가 보인
   await expect(page.getByText('openssl').first()).toBeVisible()
 })
 
-test('대시보드가 실집계를 보여준다 — 탭 순서 서버 → config → 빌드·배포', async ({ page }) => {
+test('대시보드가 실집계를 보여준다 — 탭 순서 서버 → 접속 기록 → config → 빌드·배포', async ({ page }) => {
   await page.goto('/')
   // 기본 탭=대시보드. 서버 탭은 IdP 연동 후 연결 자리 → 서버 카드는 /etc 설정 드리프트만(온라인 서버 없음)
-  await expect(page.locator('nav.sub-nav button')).toHaveText(['대시보드', '서버', 'config', '빌드·배포', 'OS 패치·작업이력'])
+  await expect(page.locator('nav.sub-nav button')).toHaveText(['대시보드', '서버', '접속 기록', 'config', '빌드·배포', 'OS 패치·작업이력'])
   await expect(page.locator('a.stat .stat-tab')).toHaveText(['서버', 'config', 'config', '빌드·배포', 'OS 패치·작업이력'])
   await expect(page.getByText('온라인 서버')).toHaveCount(0)
   await expect(page.getByText('수집 현황')).toBeVisible()
+})
+
+test('접속 기록 탭 — 로그인 정보(그룹)를 모르면 기록 대신 "몰라 보여 줄 수 없어요"(운영자만 보는 기록)', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: '접속 기록' }).click()
+  await expect(page.getByRole('heading', { name: '접속 기록' })).toBeVisible()
+  await expect(page.getByText(/로그인 정보\(그룹\)를 몰라 보여 줄 수 없어요/)).toBeVisible()
+  await expect(page.getByRole('table')).toHaveCount(0)
 })
 
 test('맨 위 버전 — 화면 프록시(/api)로 닿고, 반영할 때 안 넣었으면 "버전 모름(dev)"', async ({ page }) => {

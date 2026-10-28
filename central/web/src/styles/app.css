@@ -388,6 +388,13 @@ table.grid tbody tr.row-detail > td { background: var(--canvas-parchment); paddi
 .access-cmd { font-size: 12px; color: var(--ink); overflow-wrap: anywhere; }
 .access-msg { padding: 24px 16px; margin-bottom: 24px; }
 .access-msg--warn { color: var(--warn); }
+
+/* 접속 기록 탭 — 금고 인증서 발급 기록(운영자만) */
+.access-log__filters { flex-wrap: wrap; }
+.access-log__machines { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--ink-muted-80); }
+.access-log__kind { margin-left: 6px; }
+.access-log__reason { margin-left: 6px; font-size: 12px; }
+.access-log__note { font-size: 12px; margin: 8px 0 0; }
 .access-legend { font-size: 12px; margin: 0 0 8px; }
 
 /* 연결선 — 사람 상자 오른쪽 가운데 → (가로 → 세로 → 가로) → 환경 상자 왼쪽 · 제목 높이. 점선이 흐른다 */
