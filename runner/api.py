@@ -29,6 +29,14 @@ class CentralAPI:
         r.raise_for_status()
         return r.json()
 
+    def upload_gw_logins(self, source: str, reader: str, snap: dict[str, Any]) -> dict[str, Any]:
+        """gw 에 실제로 들어간 기록 요약 파일을 읽은 결과(read_gw_logins) — 못 읽었으면 그 이유를 그대로 올린다."""
+        body = {k: v for k, v in snap.items() if k != "digest"}
+        # source · reader 는 맨 뒤에 — 위 upload_access_log 와 같은 까닭
+        r = self._client.post("/api/access-log/gw-logins", json={**body, "source": source, "reader": reader})
+        r.raise_for_status()
+        return r.json()
+
     def list_servers(self) -> list[dict[str, Any]]:
         r = self._client.get("/api/servers")
         r.raise_for_status()

@@ -26,6 +26,8 @@ class RunnerConfig:
     idp_status_file: str = "/idp-status/status.json"
     # 금고(IdP) 접속 기록 요약 파일 — IdP 서버가 1분마다 최근 14일치를 씀, '접속 기록' 탭에. 빈 값이면 끔
     idp_access_file: str = "/idp-status/access.jsonl"
+    # gw 에 실제로 들어간 기록(같은 폴더, IdP 서버가 1분마다 씀) — 위 발급 기록과 인증서 번호로 이어 붙임. 빈 값이면 끔
+    idp_gw_logins_file: str = "/idp-status/gw-logins.jsonl"
 
     @classmethod
     def load(cls) -> "RunnerConfig":
@@ -47,4 +49,5 @@ class RunnerConfig:
             apply_sudo=os.environ.get("CT_APPLY_SUDO", "") not in ("", "0", "false", "False"),
             idp_status_file=os.environ.get("CT_IDP_STATUS_FILE", "/idp-status/status.json").strip(),
             idp_access_file=os.environ.get("CT_IDP_ACCESS_FILE", "/idp-status/access.jsonl").strip(),
+            idp_gw_logins_file=os.environ.get("CT_IDP_GW_LOGINS_FILE", "/idp-status/gw-logins.jsonl").strip(),
         )
