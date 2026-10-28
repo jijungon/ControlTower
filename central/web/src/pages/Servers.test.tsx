@@ -42,7 +42,8 @@ test('서버 탭 = 왼쪽 사람(운영자·개발자 · 계정) / 가운데 선
   const dev = within(people).getByRole('button', { name: /devtest@example.local/ })
   expect(dev).toHaveTextContent('개발자')
   expect(dev).toHaveTextContent('gw devtest (개인) · 서버 appuser')
-  expect(screen.getByText(/운영자 — 주황 · 굵고 긴 점선/)).toBeInTheDocument()
+  expect(screen.queryByText(/운영자 — 주황 · 굵고 긴 점선/)).toBeNull() // 선 색 범례는 뺌(배지 · 테두리 색으로 충분)
+  expect(screen.getByText(/gw · 서버 줄을 누르면 칠 명령/)).toBeInTheDocument()
 
   const places = screen.getByRole('region', { name: '환경 · gw · 서버' })
   expect(places).toHaveTextContent('oci-idp · gw')

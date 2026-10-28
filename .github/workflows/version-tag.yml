@@ -1,0 +1,30 @@
+name: version-tag
+
+# main 에 합쳐지면 그 커밋에 버전 태그 v0.0.{PR번호}(+그 PR 이 닫은 이슈) 를 단다.
+# 화면 맨 위 버전 = 이 태그 — 반영 쪽이 CT_VERSION=$(git describe --tags --exact-match) 로 넘긴다(docs/DEPLOY.md).
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write       # 태그 만들기
+  pull-requests: read   # 커밋 → PR 번호
+  issues: read          # PR 이 닫은 이슈
+
+concurrency:
+  group: version-tag
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    runs-on: ubuntu-24.04   # 'latest' 금지 — ci.yml 과 같은 이유
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/scripts
+      - name: 버전 태그 (v0.0.{PR}+{이슈})
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: .github/scripts/version-tag.sh | tee -a "$GITHUB_STEP_SUMMARY"
