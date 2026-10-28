@@ -350,29 +350,78 @@ table.grid tbody tr.row-detail > td { background: var(--canvas-parchment); paddi
 .host-status--unknown { background: var(--hairline); color: var(--ink-muted-80); font-weight: 600; }
 .host-status__meta { color: var(--ink-muted-48); font-weight: 400; }
 
-/* 서버 탭 '누가 · 어디로' — 2 : 8 */
-.access { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 8fr); gap: 16px; margin-bottom: 24px; align-items: start; }
+/* 서버 탭 '누가 · 어디로' — 사람 | 선 | 환경 */
+.access { position: relative; display: grid; grid-template-columns: minmax(0, 2fr) minmax(48px, 1fr) minmax(0, 7fr); margin-bottom: 24px; align-items: start; }
 .access-people { padding: 12px; }
 .access-colhead { font-size: 13px; color: var(--ink-muted-48); margin-bottom: 8px; }
-.access-person { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; width: 100%; text-align: left; background: none; border: 0; border-top: 1px solid var(--divider-soft); padding: 10px 6px; cursor: pointer; border-radius: var(--radius-sm); }
+.access-person { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; width: 100%; text-align: left; background: none; border: 0; border-top: 1px solid var(--divider-soft); padding: 10px 6px 10px 10px; cursor: pointer; border-radius: var(--radius-sm); }
 .access-person:first-of-type { border-top: 0; }
+.access-person--admin { border-left: 3px solid var(--access-admin); }
+.access-person--developer { border-left: 3px solid var(--access-dev); }
 .access-person--on { background: var(--surface-pearl); outline: 1px solid var(--hairline); }
 .access-person__who { font-size: 13px; color: var(--ink); word-break: break-all; }
 .access-person__acct { font-size: 12px; color: var(--ink-muted-48); }
-.access-badge--admin { background: var(--deploy-image-bg); color: var(--deploy-image); }
-.access-badge--dev { background: var(--exec-docker-bg); color: var(--exec-docker); }
+.access-badge--admin { background: var(--access-admin-bg); color: var(--access-admin-ink); }
+.access-badge--dev { background: var(--access-dev-bg); color: var(--access-dev-ink); }
 .access-foot { font-size: 12px; color: var(--ink-muted-48); margin: 10px 0 0; }
 .access-places { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-.access-env { padding: 12px 16px; }
+.access-env { position: relative; padding: 12px 16px; transition: opacity 0.15s; }
+.access-env--dim { opacity: 0.12; }
 .access-env__head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
 .access-env__name { font-weight: 600; font-size: 15px; }
+.access-env__right { display: inline-flex; align-items: center; gap: 6px; }
+.access-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+.access-dot--admin { background: var(--access-admin); }
+.access-dot--dev { background: var(--access-dev); }
 .access-empty { font-size: 13px; padding: 6px 0; }
 .access-gw { background: var(--surface-pearl); border-radius: var(--radius-sm); padding: 8px 12px; margin-top: 8px; }
 .access-gw--dim { opacity: 0.35; }
-.access-gw__row, .access-srv { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 2.4fr); gap: 8px; align-items: baseline; font-size: 13px; }
+.access-row { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) auto; gap: 8px; align-items: baseline; width: 100%; text-align: left; background: none; border: 0; padding: 2px 0; font: inherit; font-size: 13px; color: inherit; cursor: pointer; }
+.access-row__hint { font-size: 12px; color: var(--ink-muted-48); }
+.access-row:hover .access-row__hint, .access-row[aria-expanded="true"] .access-row__hint { color: var(--ink); }
 .access-gw__name { font-weight: 600; }
 .access-srv { padding: 5px 0 5px 16px; border-top: 1px solid var(--divider-soft); margin-top: 4px; }
-.access-cmd { font-size: 12px; color: var(--ink-muted-80); overflow-wrap: anywhere; }
+.access-cmdbox { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 6px 0 2px; padding: 8px 10px; background: var(--canvas); border: 1px solid var(--hairline); border-radius: var(--radius-sm); font-size: 12px; }
+.access-cmdbox--no { color: var(--ink-muted-48); }
+.access-cmdbox__who { color: var(--ink-muted-48); }
+.access-cmdbox .btn--sm { margin-right: 0; }
+.access-cmd { font-size: 12px; color: var(--ink); overflow-wrap: anywhere; }
 .access-msg { padding: 24px 16px; margin-bottom: 24px; }
 .access-msg--warn { color: var(--warn); }
-@media (max-width: 800px) { .access { grid-template-columns: minmax(0, 1fr); } }
+.access-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; font-size: 12px; margin: 0 0 8px; }
+.access-legend__item { display: inline-flex; align-items: center; gap: 6px; }
+.access-legend__admin { stroke: var(--access-admin); stroke-width: 2.2; stroke-dasharray: 14 19; }
+.access-legend__dev { stroke: var(--access-dev); stroke-width: 1.6; stroke-dasharray: 4 12; }
+
+/* 연결선 — 사람 상자 오른쪽 가운데 → (가로 → 세로 → 가로) → 환경 상자 왼쪽 · 제목 높이. 점선이 흐른다 */
+.access-links { position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible; }
+.access-link { transition: opacity 0.15s; }
+.access-link--dim { opacity: 0.12; }
+.access-link__base, .access-link__flow { fill: none; }
+.access-link__base { stroke-width: 1; }
+.access-link--admin .access-link__base { stroke: var(--access-admin-soft); }
+.access-link--developer .access-link__base { stroke: var(--access-dev-soft); }
+.access-link--admin .access-link__flow { stroke: var(--access-admin); stroke-width: 2.2; stroke-dasharray: 14 19; animation: access-flow-admin 2.1s linear infinite; }
+.access-link--developer .access-link__flow { stroke: var(--access-dev); stroke-width: 1.6; stroke-dasharray: 4 12; animation: access-flow-dev 2.1s linear infinite; }
+.access-link__end { fill: var(--canvas); stroke-width: 1.5; }
+.access-link--admin .access-link__end { stroke: var(--access-admin); }
+.access-link--developer .access-link__end { stroke: var(--access-dev); }
+.access-link__start.access-link--admin { fill: var(--access-admin); }
+.access-link__start.access-link--developer { fill: var(--access-dev); }
+/* 점선 한 벌(14+19=33 · 4+12=16)의 배수만큼 밀어야 이음매 없이 돈다 */
+@keyframes access-flow-admin { to { stroke-dashoffset: -66; } }
+@keyframes access-flow-dev { to { stroke-dashoffset: -64; } }
+
+/* 상자 윗테두리에 20×2 막대가 왔다 갔다 */
+.access-person::before, .access-env::before { content: ''; position: absolute; top: 0; left: 0; width: 20px; height: 2px; border-radius: 1px; animation: access-scan 3.2s ease-in-out infinite alternate; }
+.access-person--admin::before { background: var(--access-admin); }
+.access-person--developer::before { background: var(--access-dev); }
+.access-env::before { background: var(--ink-muted-48); opacity: 0.5; }
+@keyframes access-scan { to { left: calc(100% - 20px); } }
+@media (prefers-reduced-motion: reduce) {
+  .access-link__flow, .access-person::before, .access-env::before { animation: none; }
+}
+@media (max-width: 800px) {
+  .access { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .access-mid, .access-links { display: none; }
+}
