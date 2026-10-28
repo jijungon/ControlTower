@@ -5,6 +5,7 @@
 2단계(GET /api/access-log/gw-logins, source 'idp-gw'): 그 인증서로 어느 gw 에 · 언제 · 어떤 계정으로 실제로 들어갔나.
        gw 가 5분마다 자기 sshd 기록을 금고에 보고 → IdP 가 모아 gw-logins.jsonl. 인증서 번호(serial)로 1단계와 잇는 건 화면.
        '보고 안 하는 gw 가 있다' 를 '거기엔 아무도 안 들어갔다' 로 보이지 않게 gw 마다 보고 상태를 같이 준다(gw_status).
+       금고 목록과 잇는 건 gw 가 스스로 적어 보낸 (env, service) 뿐 — 출입증 이름(gw)은 관리자가 지은 별칭이라 짐작하지 않는다.
 
 판정은 조회할 때 지금 시각으로 한다. 규칙은 하나 — '못 봤다' 를 '아무도 안 들어왔다' 로 보이지 않는다.
 - 아무것도 안 올라왔으면 연결 전(off) — 수집기가 이 기능을 안 켬
@@ -135,7 +136,8 @@ def gw_status(g: dict, now: datetime) -> dict:
     every = g.get("every_seconds") or GW_EVERY
     last = _parse(g.get("last_report_at"))
     age = int((now - last).total_seconds()) if last else None
-    out = {"gw": g.get("gw"), "host": g.get("host"), "last_report_at": g.get("last_report_at"), "age_seconds": age,
+    out = {"gw": g.get("gw"), "host": g.get("host"), "env": g.get("env"), "service": g.get("service"),
+           "last_report_at": g.get("last_report_at"), "age_seconds": age,
            "every_seconds": every, "files_read": g.get("files_read"), "lines_read": g.get("lines_read")}
     if g.get("read_ok") is not True:  # gw 가 자기 sshd 기록을 못 읽음 — '아무도 안 들어옴' 이 아님
         return {**out, "state": "unknown", "reason": f"못 봄 — gw 가 자기 접속 기록을 못 읽음: {g.get('why') or '이유 모름'}"}
@@ -147,26 +149,27 @@ def gw_status(g: dict, now: datetime) -> dict:
 
 
 def _listed_gws() -> dict:
-    """금고 목록(서버 탭)의 gw → 출입증 이름. 이름 규칙은 gw-<서비스>-<환경>(IdP 의 gw 출입증 만들기가 이렇게 붙임).
-    → {"state": "ok", "names": {이름: {env, service}}} · 못 읽으면 {"state": "off" | "error", "reason"} — '보고 안 함' 을 못 가림."""
+    """금고 목록(서버 탭)에서 gw 가 있는 항목 → {"state": "ok", "keys": [(env, service), …]}.
+    못 읽으면 {"state": "off" | "error", "reason"} — 그땐 '보고 안 함' 을 못 가린다."""
     try:
         inv = fetch_inventory()
     except InventoryError as exc:
         if str(exc) == "off":
             return {"state": "off", "reason": "금고 목록(서버 탭)에 연결 전이라 보고 안 하는 gw 가 있는지 몰라요"}
         return {"state": "error", "reason": f"금고 목록을 못 읽어 보고 안 하는 gw 가 있는지 몰라요: {exc}"}
-    names = {}
-    for env, services in sorted(inv.items()):
-        for svc, v in sorted((services or {}).items()):
-            if isinstance(v, dict) and isinstance(v.get("gw"), dict) and v["gw"].get("host"):
-                names[f"gw-{svc}-{env}"] = {"env": env, "service": svc}
-    return {"state": "ok", "names": names}
+    keys = [(env, svc) for env, services in sorted(inv.items()) for svc, v in sorted((services or {}).items())
+            if isinstance(v, dict) and isinstance(v.get("gw"), dict) and v["gw"].get("host")]
+    return {"state": "ok", "keys": keys}
 
 
 def gw_logins_view(r: AccessLogSnapshot | None, now: datetime, factor: float) -> dict:
-    """gw-logins 한 줄 → judge(파일 상태) + gw 마다 보고 상태. 파일이 ok 일 때만 gw 상태 · 금고 목록을 본다."""
+    """gw-logins 한 줄 → judge(파일 상태) + gw 마다 보고 상태. 파일이 ok 일 때만 gw 상태 · 금고 목록을 본다.
+
+    link(금고 목록과): listed(목록에 있음) · not_listed(보낸 env · service 가 목록에 없음) · unlinked(env · service 를 안 보냄
+    — trust 전 · 옛 꾸러미, 목록과 못 이음) · unknown(목록을 못 읽음). 목록에 있는데 이어지는 보고가 없는 항목은 줄을 더한다:
+    못 잇는 보고가 0개면 silent(보고 안 함), 1개라도 있으면 maybe_silent — 그 보고가 이 항목의 gw 일 수 있어 단정하지 않는다."""
     out = {**judge(r, now, factor, "gw 접속 기록"), "reports": None, "gws": [], "gws_known": False, "reporting": 0,
-           "inventory": {"state": "skipped", "reason": None}}
+           "unlinked": 0, "inventory": {"state": "skipped", "reason": None}}
     if out["state"] != "ok":
         return out
     try:
@@ -176,20 +179,25 @@ def gw_logins_view(r: AccessLogSnapshot | None, now: datetime, factor: float) ->
     if not isinstance(raw, list):  # 머리에 gws 가 없었음 — gw 마다 상태를 모름(보고 안 함과 구분 못 함)
         return {**out, "reports": r.reports, "notes": out["notes"] + ["gw 마다 보고 상태가 파일에 없어요 — 보고 안 하는 gw 를 가릴 수 없어요"]}
     gws = [gw_status(g, now) for g in raw if isinstance(g, dict)]
+    unlinked = sum(not (g["env"] and g["service"]) for g in gws)
     inv = _listed_gws()
+    keys = set(inv.get("keys", []))
+    for g in gws:
+        if not (g["env"] and g["service"]):
+            g["link"] = "unlinked"
+        else:
+            g["link"] = "unknown" if inv["state"] != "ok" else "listed" if (g["env"], g["service"]) in keys else "not_listed"
     if inv["state"] == "ok":
-        seen = {g["gw"] for g in gws}
-        for g in gws:
-            g["listed"] = g["gw"] in inv["names"]
-        gws += [{"gw": name, "host": None, "last_report_at": None, "age_seconds": None, "every_seconds": None,
-                 "files_read": None, "lines_read": None, "listed": True, **where, "state": "silent",
-                 "reason": "보고 안 함 — 금고 목록에 있는 gw 인데 보고가 없어요(gw 출입증 · 보고 켜기 확인)"}
-                for name, where in inv["names"].items() if name not in seen]
-    else:
-        for g in gws:
-            g["listed"] = None
-    gws.sort(key=lambda g: str(g["gw"]))
-    return {**out, "reports": r.reports, "gws": gws, "gws_known": True,
+        seen = {(g["env"], g["service"]) for g in gws if g["link"] == "listed"}
+        if unlinked:
+            state, why = "maybe_silent", f"보고 안 함일 수 있음 — 목록과 못 잇는 보고 {unlinked}개"
+        else:
+            state, why = "silent", "보고 안 함 — 금고 목록에 있는 gw 인데 이어지는 보고가 없어요(gw 보고 켜기 · trust 확인)"
+        gws += [{"gw": None, "host": None, "env": env, "service": svc, "last_report_at": None, "age_seconds": None,
+                 "every_seconds": None, "files_read": None, "lines_read": None, "link": "listed", "state": state, "reason": why}
+                for env, svc in inv["keys"] if (env, svc) not in seen]
+    gws.sort(key=lambda g: (g["gw"] is None, str(g["gw"] or ""), str(g["env"] or ""), str(g["service"] or "")))
+    return {**out, "reports": r.reports, "gws": gws, "gws_known": True, "unlinked": unlinked,
             "reporting": sum(g["state"] == "ok" for g in gws), "inventory": {"state": inv["state"], "reason": inv.get("reason")}}
 
 

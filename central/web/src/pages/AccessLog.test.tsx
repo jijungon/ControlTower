@@ -24,7 +24,7 @@ const OK = {
 // gw 접속 기록(2단계) — 기본은 '연결 전'(1단계 시험들이 그대로 돌게)
 const GW_OFF = {
   state: 'off', reasons: ['아직 연결 전'], notes: [], written_at: null, host: null, window_days: null, files_read: null, lines_read: null,
-  written_age_seconds: null, stale_after_seconds: null, events: [], reports: null, gws: [], gws_known: false, reporting: 0,
+  written_age_seconds: null, stale_after_seconds: null, events: [], reports: null, gws: [], gws_known: false, reporting: 0, unlinked: 0,
   inventory: { state: 'skipped', reason: null },
 }
 
@@ -177,15 +177,21 @@ const LOGINS = [
   login(9, 'gw-shop-dev', 'appuser', 'feed0000feed2222', { kind: 'machine', who: 'runner' }), // 발급 기록 없음 · 기계
   login(16 * 24 * 60, 'gw-shop-stg', 'dev1', 'cafe0000cafe3333', { who: 'dev@example.com', issued_at: iso(16 * 24 * 60 + 5), env: 'stg' }),
 ]
+// 출입증 이름(gw)은 관리자가 지은 별칭 — 금고 목록과 잇는 건 gw 가 적어 보낸 env · service 뿐
+const report = (gw: string | null, env: string | null, service: string | null, state: string, link: string, reason: string | null = null, min: number | null = 1) => ({
+  gw, host: gw ? `${gw}-host` : null, env, service, state, reason, last_report_at: min == null ? null : iso(min),
+  age_seconds: min == null ? null : min * 60, every_seconds: min == null ? null : 300, link,
+})
 const GWS = [
-  { gw: 'gw-lab-dev', host: 'lab-gw', state: 'unknown', reason: '못 봄 — gw 가 자기 접속 기록을 못 읽음: 권한 없음', last_report_at: iso(2), age_seconds: 120, every_seconds: 300, listed: false },
-  { gw: 'gw-pay-prod', host: null, state: 'silent', reason: '보고 안 함 — 금고 목록에 있는 gw 인데 보고가 없어요(gw 출입증 · 보고 켜기 확인)', last_report_at: null, age_seconds: null, every_seconds: null, listed: true, env: 'prod', service: 'pay' },
-  { gw: 'gw-shop-dev', host: 'shop-gw-1', state: 'ok', reason: null, last_report_at: iso(1), age_seconds: 60, every_seconds: 300, listed: true },
-  { gw: 'gw-shop-stg', host: 'shop-gw-2', state: 'stale', reason: '보고 끊김 — 마지막 보고가 16분 전이에요(gw 타이머 · 출입증 확인)', last_report_at: iso(16), age_seconds: 960, every_seconds: 300, listed: true },
+  report('gw-alpha', 'dev', 'shop', 'ok', 'listed'),
+  report('gw-beta', 'stg', 'shop', 'stale', 'listed', '보고 끊김 — 마지막 보고가 16분 전이에요(gw 타이머 · 출입증 확인)', 16),
+  report('gw-lab', 'dev', 'lab', 'unknown', 'not_listed', '못 봄 — gw 가 자기 접속 기록을 못 읽음: 권한 없음', 2),
+  report('gw-new', null, null, 'ok', 'unlinked'), // trust 전 — env · service 를 안 보냄
+  report(null, 'prod', 'pay', 'maybe_silent', 'listed', '보고 안 함일 수 있음 — 목록과 못 잇는 보고 1개', null),
 ]
 const GW = {
   ...GW_OFF, state: 'ok', reasons: [], written_at: iso(0), host: 'idp-host', window_days: 14, files_read: 15, lines_read: 2600,
-  written_age_seconds: 20, stale_after_seconds: 300, events: LOGINS, reports: 30, gws: GWS, gws_known: true, reporting: 1,
+  written_age_seconds: 20, stale_after_seconds: 300, events: LOGINS, reports: 30, gws: GWS, gws_known: true, reporting: 2, unlinked: 1,
   inventory: { state: 'ok', reason: null },
 }
 const ISSUED_OK = { ...OK, events: ISSUED }
@@ -223,27 +229,43 @@ test('발급 기록 없는 접속은 따로 — 기계 접속은 접어 두고, 
   expect(gwCell(6)).toMatch(/^gw-shop-dev · .* · appuser$/)
 })
 
-test('gw 보고 상태 — 보고 중 · 보고 끊김 · 못 봄 · 보고 안 함, 금고 목록에 있나', async () => {
+const reportRows = () =>
+  screen.getAllByTestId('gw-report-row').map((r) => within(r).getAllByRole('cell').map((c) => c.textContent)).map((c) => [c[0], c[1], c[3]])
+
+test('gw 보고 상태 — 보고 중 · 보고 끊김 · 못 봄 · 보고 안 함일 수 있음, 금고 목록과 이은 결과(환경/서비스)', async () => {
   serve(ISSUED_OK, GW)
   render(<AccessLog />)
-  const reports = await screen.findAllByTestId('gw-report-row')
-  expect(reports.map((r) => within(r).getAllByRole('cell').map((c) => c.textContent)).map((c) => [c[0], c[1], c[3]])).toEqual([
-    ['gw-lab-dev', '못 봄', '없음'],
-    ['gw-pay-prod', '보고 안 함', '있음'],
-    ['gw-shop-dev', '보고 중', '있음'],
-    ['gw-shop-stg', '보고 끊김', '있음'],
+  await screen.findAllByTestId('gw-report-row')
+  expect(reportRows()).toEqual([
+    ['gw-alpha', '보고 중', 'dev/shop'],
+    ['gw-beta', '보고 끊김', 'stg/shop'],
+    ['gw-lab', '못 봄', 'dev/lab — 목록에 없음'],
+    ['gw-new', '보고 중', '목록과 못 이음'],
+    ['—', '보고 안 함일 수 있음', 'prod/pay'], // 목록에만 있음 — 못 잇는 보고(gw-new)가 그 gw 일 수 있어 단정 안 함
   ])
-  expect(screen.getByText(/보고 안 함 — 금고 목록에 있는 gw 인데 보고가 없어요/)).toBeInTheDocument()
-  expect(screen.getByText('5분마다 보고')).toBeInTheDocument()
-  expect(screen.getByText(/gw 접속 기록 · 최근 14일 · 방금 기록 · 보고 중 1\/4대/)).toBeInTheDocument()
+  expect(screen.getByText('보고 안 함일 수 있음 — 목록과 못 잇는 보고 1개')).toBeInTheDocument()
+  expect(screen.getByTestId('gw-unlinked').textContent).toBe('목록과 못 이음 — gw-new (환경 · 서비스를 안 보냄 — trust 전이거나 옛 꾸러미)')
+  expect(screen.getAllByText('5분마다 보고')).toHaveLength(2)
+  expect(screen.getByText(/gw 접속 기록 · 최근 14일 · 방금 기록 · 보고 중 2\/5대/)).toBeInTheDocument()
 })
 
-test('금고 목록이 꺼져 있으면 "보고 안 하는 gw 가 있는지 몰라요"', async () => {
+test('못 잇는 보고가 없으면 목록에만 있는 gw 는 "보고 안 함" 으로 단정', async () => {
+  const reason = '보고 안 함 — 금고 목록에 있는 gw 인데 이어지는 보고가 없어요(gw 보고 켜기 · trust 확인)'
+  serve(ISSUED_OK, { ...GW, gws: [GWS[0], report(null, 'prod', 'pay', 'silent', 'listed', reason, null)], reporting: 1, unlinked: 0 })
+  render(<AccessLog />)
+  await screen.findAllByTestId('gw-report-row')
+  expect(reportRows()).toEqual([['gw-alpha', '보고 중', 'dev/shop'], ['—', '보고 안 함', 'prod/pay']])
+  expect(screen.getByText(reason)).toBeInTheDocument()
+  expect(screen.queryByTestId('gw-unlinked')).toBeNull()
+})
+
+test('금고 목록이 꺼져 있으면 "보고 안 하는 gw 가 있는지 몰라요" — 보낸 환경/서비스는 보이되 "목록 모름"', async () => {
   const reason = '금고 목록(서버 탭)에 연결 전이라 보고 안 하는 gw 가 있는지 몰라요'
-  serve(ISSUED_OK, { ...GW, gws: GWS.filter((g) => g.state !== 'silent').map((g) => ({ ...g, listed: null })), inventory: { state: 'off', reason } })
+  const gws = GWS.filter((g) => g.gw).map((g) => (g.link === 'unlinked' ? g : { ...g, link: 'unknown' }))
+  serve(ISSUED_OK, { ...GW, gws, inventory: { state: 'off', reason } })
   render(<AccessLog />)
   expect(await screen.findByText(reason)).toBeInTheDocument()
-  expect(screen.getAllByTestId('gw-report-row').map((r) => within(r).getAllByRole('cell')[3].textContent)).toEqual(['모름', '모름', '모름'])
+  expect(reportRows().map((r) => r[2])).toEqual(['dev/shop — 목록 모름', 'stg/shop — 목록 모름', 'dev/lab — 목록 모름', '목록과 못 이음'])
 })
 
 test.each([
@@ -262,9 +284,9 @@ test.each([
 test('들어간 기록이 0번이면 보고 중인 gw 만큼만 말함 — 보고 안 하는 gw 는 모른다고', async () => {
   serve(ISSUED_OK, { ...GW, events: [] })
   const { unmount } = render(<AccessLog />)
-  expect(await screen.findByText('보고 중인 gw 1대에는 최근 14일 들어온 기록이 없어요 — 보고 안 하는(끊긴 · 못 본) gw 3대는 몰라요')).toBeInTheDocument()
+  expect(await screen.findByText('보고 중인 gw 2대에는 최근 14일 들어온 기록이 없어요 — 보고 안 하는(끊긴 · 못 본) gw 3대는 몰라요')).toBeInTheDocument()
   unmount()
-  serve(ISSUED_OK, { ...GW, events: [], gws: [], reporting: 0, inventory: { state: 'off', reason: '금고 목록 연결 전' } })
+  serve(ISSUED_OK, { ...GW, events: [], gws: [], reporting: 0, unlinked: 0, inventory: { state: 'off', reason: '금고 목록 연결 전' } })
   render(<AccessLog />)
   expect(await screen.findByText('보고 중인 gw 가 없어 들어간 기록을 볼 수 없어요')).toBeInTheDocument()
   expect(screen.getByText(/아직 보고한 gw 가 없어요 — 그래서 들어간 기록을 볼 수 없어요/)).toBeInTheDocument()
@@ -273,7 +295,7 @@ test('들어간 기록이 0번이면 보고 중인 gw 만큼만 말함 — 보�
 })
 
 test('파일에 gw 마다 상태가 없으면 "보고 안 하는 gw 를 가릴 수 없어요"', async () => {
-  serve(ISSUED_OK, { ...GW, gws: [], gws_known: false, reporting: 0 })
+  serve(ISSUED_OK, { ...GW, gws: [], gws_known: false, reporting: 0, unlinked: 0 })
   render(<AccessLog />)
   expect(await screen.findByText(/gw 마다 보고 상태가 파일에 없어요 — 보고 안 하는 gw 를 가릴 수 없어요/)).toBeInTheDocument()
   expect(screen.queryAllByTestId('gw-report-row')).toHaveLength(0)

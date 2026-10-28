@@ -31,6 +31,7 @@ const GW_STATE: Record<GwReport['state'], [string, string]> = {
   stale: ['보고 끊김', 'badge--warn'],
   unknown: ['못 봄', 'badge--muted'],
   silent: ['보고 안 함', 'badge--warn'],
+  maybe_silent: ['보고 안 함일 수 있음', 'badge--warn'],
 }
 const NO_EMAIL = '사람(이메일 기록 전)'
 // 이메일을 적기 전(10-27 전) 사람 로그인은 금고에 'jwt-<긴 16진수>' 이름으로만 남았다 — 사람으로 본다
@@ -119,6 +120,20 @@ function Logins({ e, gw, why, byserial }: { e: Row; gw: GwLogins | null; why: st
   )
 }
 
+// 금고 목록과 이은 결과 — 잇는 건 gw 가 적어 보낸 환경/서비스뿐(출입증 이름으로 짐작하지 않음)
+function ListCell({ g }: { g: GwReport }) {
+  const where = g.env && g.service ? `${g.env}/${g.service}` : null
+  if (g.link === 'listed') return <span className="mono">{where}</span>
+  if (g.link === 'not_listed') return <span className="muted">{where} — 목록에 없음</span>
+  if (g.link === 'unlinked')
+    return (
+      <span className="muted" title="gw 가 환경 · 서비스를 안 보냈어요(trust 전이거나 옛 꾸러미)">
+        목록과 못 이음
+      </span>
+    )
+  return <span className="muted">{where ? `${where} — 목록 모름` : '모름'}</span>
+}
+
 function GwReports({ gw }: { gw: GwLogins }) {
   if (!gw.gws_known)
     return <div className="placeholder access-msg access-msg--warn">gw 마다 보고 상태가 파일에 없어요 — 보고 안 하는 gw 를 가릴 수 없어요.</div>
@@ -140,16 +155,18 @@ function GwReports({ gw }: { gw: GwLogins }) {
         </tr>
       </thead>
       <tbody>
-        {gw.gws.map((g) => {
+        {gw.gws.map((g, i) => {
           const [label, cls] = GW_STATE[g.state] ?? [g.state, 'badge--muted']
           return (
-            <tr key={g.gw} data-testid="gw-report-row">
-              <td className="mono" title={g.host ?? ''}>{g.gw}</td>
+            <tr key={`${g.gw ?? ''}|${g.env}|${g.service}|${i}`} data-testid="gw-report-row">
+              <td className="mono" title={g.host ?? ''}>{g.gw ?? <span className="muted">—</span>}</td>
               <td>
                 <span className={'badge ' + cls}>{label}</span>
               </td>
               <td className="mono" title={g.last_report_at ?? ''}>{g.last_report_at ? fmtTime(at(g.last_report_at)) : '—'}</td>
-              <td>{g.listed == null ? <span className="muted">모름</span> : g.listed ? '있음' : <span className="muted">없음</span>}</td>
+              <td>
+                <ListCell g={g} />
+              </td>
               <td className="muted">{g.reason ?? `${Math.round((g.every_seconds ?? 300) / 60)}분마다 보고`}</td>
             </tr>
           )
@@ -401,6 +418,12 @@ export default function AccessLog() {
               <div className="card access-log__gws">
                 <GwReports gw={gw} />
               </div>
+              {gw.unlinked > 0 && (
+                <p className="muted access-log__note" data-testid="gw-unlinked">
+                  목록과 못 이음 — {gw.gws.filter((g) => g.link === 'unlinked').map((g) => g.gw).join(', ')} (환경 · 서비스를 안 보냄 — trust
+                  전이거나 옛 꾸러미)
+                </p>
+              )}
               {gw.inventory.state !== 'ok' && gw.inventory.reason && <p className="muted access-log__note">{gw.inventory.reason}</p>}
               {gw.notes.length > 0 && <p className="muted access-log__note">{gw.notes.join(' · ')}</p>}
 

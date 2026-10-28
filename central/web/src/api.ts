@@ -455,7 +455,7 @@ export type AccessLog = {
 // gw 접속 기록(2단계) — 그 인증서로 gw 에 실제로 들어간 기록(gw 보고 → IdP 요약 파일 → 수집기 → 중앙). 운영자만
 export type GwLogin = {
   at: string // gw 에 들어간 시각(ISO UTC)
-  gw: string // gw 출입증 이름(gw-<서비스>-<환경>)
+  gw: string // gw 출입증 이름(별칭) — 서비스는 gws 의 같은 gw 로 찾음(이 줄의 env 는 도장의 환경)
   account: string | null // gw 의 리눅스 계정(ubuntu · appuser · 개인 계정)
   kind: 'person' | 'machine' | 'other'
   who: string | null
@@ -465,16 +465,18 @@ export type GwLogin = {
   role: string | null
 }
 export type GwReport = {
-  gw: string
+  gw: string | null // 보낸 gw 의 출입증 이름(관리자가 지은 별칭) — 목록에만 있고 보고가 없는 줄은 null
   host: string | null // gw 자기 이름(보기만)
-  state: 'ok' | 'stale' | 'unknown' | 'silent' // 보고 중 · 보고 끊김 · 못 봄 · 보고 안 함
+  env: string | null // gw 가 스스로 적은 금고 목록 키 — 목록과 잇는 건 env · service 뿐(이름으로 짐작 안 함)
+  service: string | null
+  // 보고 중 · 보고 끊김 · 못 봄 · 보고 안 함 · 보고 안 함일 수 있음(목록과 못 잇는 보고가 있어 단정 못 함)
+  state: 'ok' | 'stale' | 'unknown' | 'silent' | 'maybe_silent'
   reason: string | null
   last_report_at: string | null
   age_seconds: number | null
   every_seconds: number | null
-  listed: boolean | null // 금고 목록(서버 탭)에 있나 — null 이면 견줄 수 없음
-  env?: string
-  service?: string
+  // 금고 목록과: 있음 · 보낸 키가 목록에 없음 · env · service 를 안 보내 못 이음 · 목록을 못 읽음
+  link: 'listed' | 'not_listed' | 'unlinked' | 'unknown'
 }
 export type GwLogins = Omit<AccessLog, 'events'> & {
   events: GwLogin[]
@@ -482,6 +484,7 @@ export type GwLogins = Omit<AccessLog, 'events'> & {
   gws: GwReport[]
   gws_known: boolean // 파일에 gw 마다 상태가 있었나 — 없으면 '보고 안 함' 을 못 가림
   reporting: number // 보고 중인 gw 수
+  unlinked: number // 목록과 못 잇는 보고 수(env · service 없음)
   inventory: { state: 'ok' | 'off' | 'error' | 'skipped'; reason: string | null }
 }
 

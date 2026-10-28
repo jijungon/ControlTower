@@ -183,15 +183,19 @@ def test_upload_keeps_our_source_even_if_the_file_has_one():
 from runner.accesslog import gw_summary, read_gw_logins  # noqa: E402
 
 GW_HEAD = {**HEAD, "events": 3, "reports": 5,
-           "gws": [{"gw": "gw-shop-dev", "host": "shop-gw-1", "last_report_at": "2026-10-28T05:20:00.123456789Z",
+           "gws": [{"gw": "gw-alpha", "host": "alpha-host", "env": "dev", "service": "shop",  # IdP fc8f96a — gw 가 적은 목록 키
+                    "last_report_at": "2026-10-28T05:20:00.123456789Z",
                     "every_seconds": 300, "read_ok": True, "why": None, "source": "journal", "files_read": 1, "lines_read": 77},
-                   {"gw": "gw-shop-stg", "host": "shop-gw-2", "last_report_at": "2026-10-28T05:19:00Z", "every_seconds": 300,
+                   {"gw": "gw-beta", "host": "beta-host", "env": "stg", "service": None,  # 옛 trust — env 만
+                    "last_report_at": "2026-10-28T05:19:00Z", "every_seconds": 300,
                     "read_ok": False, "why": "auth.log 권한 없음", "source": "auth.log", "files_read": 0, "lines_read": 0},
+                   {"gw": "gw-gamma", "host": "gamma-host", "last_report_at": "2026-10-28T05:18:00Z", "every_seconds": 300,
+                    "read_ok": True, "why": None, "source": "journal", "files_read": 1, "lines_read": 3},  # 옛 모양 — 칸 없음
                    {"host": "이름 없는 gw"}, "깨진 칸"]}
-LOGIN = {"at": "2026-10-28T05:21:38.619202123Z", "gw": "gw-shop-dev", "account": "ubuntu", "kind": "person",
+LOGIN = {"at": "2026-10-28T05:21:38.619202123Z", "gw": "gw-alpha", "account": "ubuntu", "kind": "person",
          "who": "ops@example.com", "serial": "776cb41cedacd9d8", "issued_at": "2026-10-28T05:04:58.434246277Z",
          "env": "dev", "role": "dev-ubuntu"}
-LOGIN_NO_ISSUE = {"at": "2026-10-27T01:00:00Z", "gw": "gw-shop-stg", "account": "dev1", "kind": "robot", "who": None,
+LOGIN_NO_ISSUE = {"at": "2026-10-27T01:00:00Z", "gw": "gw-beta", "account": "dev1", "kind": "robot", "who": None,
                   "serial": "0a0b0c0d0e0f1011", "issued_at": None, "env": None, "role": None}
 
 
@@ -200,22 +204,24 @@ def test_gw_logins_reads_header_gws_and_logins_as_the_idp_writes_them(tmp_path):
     assert s["read_ok"] is True and s["audit_ok"] is True and (s["files_read"], s["lines_read"], s["reports"]) == (3, 812, 5)
     assert "source" not in s  # 머리의 source('openbao-audit')는 안 싣는다 — 올리는 이름을 덮지 않게
     assert s["gws"] == [
-        {"gw": "gw-shop-dev", "host": "shop-gw-1", "last_report_at": "2026-10-28T05:20:00.123456Z", "every_seconds": 300,
-         "read_ok": True, "why": None, "log_source": "journal", "files_read": 1, "lines_read": 77},
-        {"gw": "gw-shop-stg", "host": "shop-gw-2", "last_report_at": "2026-10-28T05:19:00Z", "every_seconds": 300,
-         "read_ok": False, "why": "auth.log 권한 없음", "log_source": "auth.log", "files_read": 0, "lines_read": 0},
-    ]
+        {"gw": "gw-alpha", "host": "alpha-host", "env": "dev", "service": "shop", "last_report_at": "2026-10-28T05:20:00.123456Z",
+         "every_seconds": 300, "read_ok": True, "why": None, "log_source": "journal", "files_read": 1, "lines_read": 77},
+        {"gw": "gw-beta", "host": "beta-host", "env": "stg", "service": None, "last_report_at": "2026-10-28T05:19:00Z",
+         "every_seconds": 300, "read_ok": False, "why": "auth.log 권한 없음", "log_source": "auth.log", "files_read": 0, "lines_read": 0},
+        {"gw": "gw-gamma", "host": "gamma-host", "env": None, "service": None, "last_report_at": "2026-10-28T05:18:00Z",
+         "every_seconds": 300, "read_ok": True, "why": None, "log_source": "journal", "files_read": 1, "lines_read": 3},
+    ]  # env · service 가 없으면 None — 중앙이 '목록과 못 이음'(이름으로 짐작하지 않음)
     assert all("source" not in g for g in s["gws"])  # gw 의 source 도 이름을 바꿔 싣는다(log_source)
     assert s["bad_gws"] == 2  # gw 이름 없는 칸 · 깨진 칸 — 버리지 않고 셈
     assert s["events"] == [
-        {"at": "2026-10-28T05:21:38.619202Z", "gw": "gw-shop-dev", "account": "ubuntu", "kind": "person",
+        {"at": "2026-10-28T05:21:38.619202Z", "gw": "gw-alpha", "account": "ubuntu", "kind": "person",
          "who": "ops@example.com", "serial": "776cb41cedacd9d8", "issued_at": "2026-10-28T05:04:58.434246Z",
          "env": "dev", "role": "dev-ubuntu"},
-        {"at": "2026-10-27T01:00:00Z", "gw": "gw-shop-stg", "account": "dev1", "kind": "other", "who": None,
+        {"at": "2026-10-27T01:00:00Z", "gw": "gw-beta", "account": "dev1", "kind": "other", "who": None,
          "serial": "0a0b0c0d0e0f1011", "issued_at": None, "env": None, "role": None},  # 발급 기록 못 찾음 · 모르는 kind 는 other
     ]
     assert s["bad_lines"] == 2 and s["event_lines"] == 4  # 깨진 줄 · gw 없는 줄
-    assert gw_summary(s) == "2번 · 보고한 gw 2대 · 깨진 줄 2"
+    assert gw_summary(s) == "2번 · 보고한 gw 3대 · 깨진 줄 2"
     for e in s["events"]:
         datetime.fromisoformat(e["at"].replace("Z", "+00:00"))  # 나노초도 읽힘
 

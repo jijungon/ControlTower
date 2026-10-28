@@ -17,13 +17,16 @@
   나머지 줄(최신순): {"at"(나노초까지), "kind": "person"|"machine"|"other", "who"(없을 수 있음), "env",
                "account"(개인 gw 계정이면 없음), "role", "serial"(10-28 오전 전 기록은 없음), "result", "reason"}
 
-gw-logins.jsonl(IdP 7159c7f — 바뀌면 _gw_header() · _gw() · _gw_login() 세 곳만 고친다):
+gw-logins.jsonl(IdP 7159c7f · fc8f96a — 바뀌면 _gw_header() · _gw() · _gw_login() 세 곳만 고친다):
   첫 줄(머리): 위 머리 + {"reports", "gws": [gw 마다 마지막 보고]}
-               gws 한 칸: {"gw"(출입증 이름 — 화면 이름), "host"(gw 자기 이름), "last_report_at", "every_seconds"(보통 300),
+               gws 한 칸: {"gw"(출입증 이름 — 보낸 gw · 화면 이름. 관리자가 지은 별칭이라 목록 키와 무관), "host"(gw 자기 이름),
+                          "env", "service"(gw 가 스스로 적은 금고 목록 키 — 목록과 잇는 건 이 둘. trust 전 · 옛 꾸러미면 null),
+                          "last_report_at", "every_seconds"(보통 300),
                           "read_ok", "why"(gw 가 자기 sshd 기록을 읽었나), "source"(→ log_source), "files_read", "lines_read"}
                gws 가 없으면 None('gw 마다 상태 모름'), 깨진 칸은 빼고 bad_gws 로 센다
   나머지 줄(최신순, gw 접속 한 번에 한 줄): {"at"(gw 에 들어간 시각), "gw", "account"(gw 의 리눅스 계정), "kind", "who",
                "serial"(access.jsonl 의 serial 과 같은 번호 — 화면이 이어 붙임), "issued_at" · "env" · "role"(발급 기록에서 옮김, 못 찾으면 null)}
+               ★ 이 env 는 '도장의 환경'(발급 기록) — gws 의 env(gw 의 환경)와 뜻이 다르다. gw 의 서비스는 gw → gws 로 찾는다.
   IP · 열쇠 지문 · 인증서 ID 원문은 파일에 없다.
 """
 from __future__ import annotations
@@ -114,6 +117,8 @@ def _gw(d: Any) -> dict[str, Any] | None:
     return {
         "gw": str(d["gw"]),
         "host": _str(d.get("host")),
+        "env": _str(d.get("env")) or None,          # 금고 목록 키 — 없으면(trust 전 · 옛 보고) 중앙이 '목록과 못 이음'
+        "service": _str(d.get("service")) or None,
         "last_report_at": _at(d.get("last_report_at")),  # 못 읽으면 None — 중앙이 '못 봄'
         "every_seconds": _int(d.get("every_seconds")) or None,
         "read_ok": d["read_ok"] if isinstance(d.get("read_ok"), bool) else None,  # 참이 아니면 중앙이 '못 봄'

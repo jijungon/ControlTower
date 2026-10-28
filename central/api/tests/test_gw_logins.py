@@ -19,16 +19,17 @@ def _ago(seconds: int) -> str:
     return (datetime.now(timezone.utc) - timedelta(seconds=seconds)).isoformat(timespec="seconds")
 
 
-def _gw(name, **kw):
-    base = {"gw": name, "host": f"{name}-host", "last_report_at": _ago(60), "every_seconds": 300, "read_ok": True,
-            "why": None, "log_source": "journal", "files_read": 1, "lines_read": 40}
+def _gw(name, env=None, service=None, **kw):
+    """gw 한 대의 마지막 보고. 출입증 이름(name)은 관리자가 지은 별칭 — 목록과 잇는 건 env · service 뿐(없으면 못 이음)."""
+    base = {"gw": name, "host": f"{name}-host", "env": env, "service": service, "last_report_at": _ago(60), "every_seconds": 300,
+            "read_ok": True, "why": None, "log_source": "journal", "files_read": 1, "lines_read": 40}
     return {**base, **kw}
 
 
-LOGIN_NEW = {"at": "2026-10-28T05:21:38.619202Z", "gw": "gw-shop-dev", "account": "ubuntu", "kind": "person",
+LOGIN_NEW = {"at": "2026-10-28T05:21:38.619202Z", "gw": "gw-alpha", "account": "ubuntu", "kind": "person",
              "who": "ops@example.com", "serial": "776cb41cedacd9d8", "issued_at": "2026-10-28T05:04:58.434246Z",
              "env": "dev", "role": "dev-ubuntu"}
-LOGIN_OLD = {"at": "2026-10-27T01:00:00.000000Z", "gw": "gw-shop-stg", "account": "dev1", "kind": "person",
+LOGIN_OLD = {"at": "2026-10-27T01:00:00.000000Z", "gw": "gw-beta", "account": "dev1", "kind": "person",
              "who": "dev@example.com", "serial": "0a0b0c0d0e0f1011", "issued_at": None, "env": None, "role": None}
 MISSING = {"source": "idp-gw", "read_ok": False, "read_error": "파일 없음"}
 
@@ -38,7 +39,7 @@ def _snap(**kw):
             "interval_seconds": 60, "window_days": 14, "audit_ok": True, "audit_reason": None, "files_read": 3,
             "lines_read": 812, "source_bad_lines": 0, "header_events": 2, "event_lines": 2, "bad_lines": 0,
             "truncated": False, "reports": 9, "bad_gws": 0, "events": [LOGIN_OLD, LOGIN_NEW],
-            "gws": [_gw("gw-shop-dev"), _gw("gw-shop-stg")]}
+            "gws": [_gw("gw-alpha", "dev", "shop"), _gw("gw-beta", "stg", "shop")]}
     return {**base, **kw}
 
 
@@ -85,47 +86,93 @@ def test_gw_row_and_issuance_row_do_not_overwrite_each_other(client, local):
 
 
 def test_ok_logins_newest_first_and_gw_report_states(client, local):
-    gws = [_gw("gw-shop-dev"),
-           _gw("gw-shop-stg", read_ok=False, why="journalctl 권한 없음"),
-           _gw("gw-old-dev", last_report_at=_ago(16 * 60)),  # 5분 × 3 = 15분 넘음
-           _gw("gw-edge-dev", last_report_at=_ago(14 * 60)),  # 아직 15분 안
-           _gw("gw-odd-dev", last_report_at="어제쯤")]
+    gws = [_gw("gw-alpha", "dev", "shop"),
+           _gw("gw-beta", "stg", "shop", read_ok=False, why="journalctl 권한 없음"),
+           _gw("gw-old", "dev", "old", last_report_at=_ago(16 * 60)),  # 5분 × 3 = 15분 넘음
+           _gw("gw-edge", "dev", "edge", last_report_at=_ago(14 * 60)),  # 아직 15분 안
+           _gw("gw-odd", last_report_at="어제쯤")]
     client.post(URL, json=_snap(gws=gws), headers=AUTH)
     s = _get(client)
     assert s["state"] == "ok" and s["reasons"] == [] and s["notes"] == []
-    assert [e["gw"] for e in s["events"]] == ["gw-shop-dev", "gw-shop-stg"]  # 최신순
+    assert [e["gw"] for e in s["events"]] == ["gw-alpha", "gw-beta"]  # 최신순
     assert s["events"][0]["serial"] == "776cb41cedacd9d8"
     by = {g["gw"]: g for g in s["gws"]}
-    assert {k: by[k]["state"] for k in by} == {"gw-shop-dev": "ok", "gw-shop-stg": "unknown", "gw-old-dev": "stale",
-                                               "gw-edge-dev": "ok", "gw-odd-dev": "unknown"}
-    assert by["gw-shop-stg"]["reason"] == "못 봄 — gw 가 자기 접속 기록을 못 읽음: journalctl 권한 없음"
-    assert by["gw-old-dev"]["reason"].startswith("보고 끊김 — 마지막 보고가 16분 전")
-    assert by["gw-odd-dev"]["reason"] == "못 봄 — 마지막 보고 시각을 못 읽음"
+    assert {k: by[k]["state"] for k in by} == {"gw-alpha": "ok", "gw-beta": "unknown", "gw-old": "stale",
+                                               "gw-edge": "ok", "gw-odd": "unknown"}
+    assert by["gw-beta"]["reason"] == "못 봄 — gw 가 자기 접속 기록을 못 읽음: journalctl 권한 없음"
+    assert by["gw-old"]["reason"].startswith("보고 끊김 — 마지막 보고가 16분 전")
+    assert by["gw-odd"]["reason"] == "못 봄 — 마지막 보고 시각을 못 읽음"
+    assert (by["gw-alpha"]["env"], by["gw-alpha"]["service"]) == ("dev", "shop")
     assert s["reporting"] == 2 and s["gws_known"] is True and s["reports"] == 9
-    # 금고 목록이 꺼져 있으면(기본) '보고 안 함' 은 견줄 수 없음 — 모른다고 말함
+    # 금고 목록이 꺼져 있으면(기본) '보고 안 함' 은 견줄 수 없음 — 모른다고 말함. env · service 가 없는 보고는 그래도 '못 이음'
     assert s["inventory"]["state"] == "off" and "보고 안 하는 gw 가 있는지 몰라요" in s["inventory"]["reason"]
-    assert all(g["listed"] is None for g in s["gws"])
+    assert {k: by[k]["link"] for k in by} == {"gw-alpha": "unknown", "gw-beta": "unknown", "gw-old": "unknown",
+                                              "gw-edge": "unknown", "gw-odd": "unlinked"}
+    assert s["unlinked"] == 1 and len(s["gws"]) == 5  # 목록을 모르면 '보고 안 함' 줄을 더하지 않음
 
 
-def test_gw_in_inventory_but_not_reporting_is_silent_not_no_logins(client, local, monkeypatch):
+def _key(g):
+    return g["gw"] or f"{g['env']}/{g['service']}"  # 목록에만 있는 줄은 gw 이름이 없음(보낸 gw 가 없으니)
+
+
+def test_inventory_gw_without_a_linked_report_is_silent_not_no_logins(client, local, monkeypatch):
     _inv(monkeypatch, INVENTORY)
-    client.post(URL, json=_snap(gws=[_gw("gw-shop-dev"), _gw("gw-lab-dev")]), headers=AUTH)
+    client.post(URL, json=_snap(gws=[_gw("gw-alpha", "dev", "shop"), _gw("gw-lab", "dev", "lab")]), headers=AUTH)
     s = _get(client)
-    by = {g["gw"]: g for g in s["gws"]}
-    assert set(by) == {"gw-shop-dev", "gw-lab-dev", "gw-shop-stg", "gw-pay-prod"}  # gw 없는 항목(nogw)은 빠짐
-    assert by["gw-shop-stg"]["state"] == "silent" and by["gw-pay-prod"]["state"] == "silent"
-    assert by["gw-pay-prod"]["reason"].startswith("보고 안 함 — 금고 목록에 있는 gw 인데 보고가 없어요")
-    assert (by["gw-pay-prod"]["env"], by["gw-pay-prod"]["service"]) == ("prod", "pay")
-    assert by["gw-shop-dev"]["listed"] is True and by["gw-lab-dev"]["listed"] is False  # 보고는 하는데 목록엔 없음
-    assert s["inventory"] == {"state": "ok", "reason": None} and s["reporting"] == 2
+    by = {_key(g): g for g in s["gws"]}
+    assert set(by) == {"gw-alpha", "gw-lab", "stg/shop", "prod/pay"}  # gw 없는 항목(nogw)은 빠짐
+    assert by["stg/shop"]["state"] == "silent" and by["prod/pay"]["state"] == "silent"
+    assert by["prod/pay"]["reason"].startswith("보고 안 함 — 금고 목록에 있는 gw 인데 이어지는 보고가 없어요")
+    assert by["prod/pay"]["gw"] is None and by["prod/pay"]["link"] == "listed"
+    assert by["gw-alpha"]["link"] == "listed" and by["gw-lab"]["link"] == "not_listed"  # 보고는 하는데 그 키가 목록엔 없음
+    assert s["inventory"] == {"state": "ok", "reason": None} and s["reporting"] == 2 and s["unlinked"] == 0
+    assert [_key(g) for g in s["gws"]] == ["gw-alpha", "gw-lab", "prod/pay", "stg/shop"]  # 보낸 gw 먼저, 목록에만 있는 줄은 뒤
+
+
+def test_link_is_by_env_and_service_never_by_gw_name(client, local, monkeypatch):
+    """출입증 이름은 관리자가 지은 별칭(목록 키와 무관) — 이름이 목록 키처럼 생겨도 env · service 가 없으면 못 이음."""
+    _inv(monkeypatch, INVENTORY)
+    client.post(URL, json=_snap(gws=[_gw("gw-shop-dev"),                    # 이름은 dev/shop 같지만 env · service 없음
+                                     _gw("gw-anything", "stg", "shop")]), headers=AUTH)  # 이름은 엉뚱해도 stg/shop
+    s = _get(client)
+    by = {_key(g): g for g in s["gws"]}
+    assert by["gw-shop-dev"]["link"] == "unlinked" and by["gw-anything"]["link"] == "listed"
+    assert by["dev/shop"]["state"] == "maybe_silent"  # 이름으로 짐작해 잇지 않음 — 그렇다고 단정하지도 않음
+    assert "stg/shop" not in by
+
+
+def test_unlinked_reports_make_missing_inventory_gws_only_maybe_silent(client, local, monkeypatch):
+    # trust 전(env · service 둘 다 null) · 옛 trust(env 만) — 목록과 못 잇는 보고가 하나라도 있으면 '보고 안 함' 을 단정하지 않음
+    _inv(monkeypatch, INVENTORY)
+    gws = [_gw("gw-alpha", "dev", "shop"), _gw("gw-new"), _gw("gw-half", "prod")]
+    client.post(URL, json=_snap(gws=gws), headers=AUTH)
+    s = _get(client)
+    by = {_key(g): g for g in s["gws"]}
+    assert {k: (by[k]["state"], by[k]["link"]) for k in by} == {
+        "gw-alpha": ("ok", "listed"), "gw-new": ("ok", "unlinked"), "gw-half": ("ok", "unlinked"),
+        "stg/shop": ("maybe_silent", "listed"), "prod/pay": ("maybe_silent", "listed")}
+    assert by["prod/pay"]["reason"] == "보고 안 함일 수 있음 — 목록과 못 잇는 보고 2개"
+    assert s["unlinked"] == 2 and s["reporting"] == 3
+
+
+def test_old_shape_gws_without_env_and_service_fields(client, local, monkeypatch):
+    # IdP 가 새 칸을 적기 전 모양 — 칸 자체가 없음. 모두 '못 이음', 목록 쪽은 '보고 안 함일 수 있음'
+    _inv(monkeypatch, INVENTORY)
+    old = [{k: v for k, v in _gw(n).items() if k not in ("env", "service")} for n in ("gw-alpha", "gw-beta")]
+    client.post(URL, json=_snap(gws=old), headers=AUTH)
+    s = _get(client)
+    assert [(_key(g), g["link"], g["state"]) for g in s["gws"]] == [
+        ("gw-alpha", "unlinked", "ok"), ("gw-beta", "unlinked", "ok"),
+        ("dev/shop", "listed", "maybe_silent"), ("prod/pay", "listed", "maybe_silent"), ("stg/shop", "listed", "maybe_silent")]
 
 
 def test_no_gw_reports_at_all_lists_every_inventory_gw_as_silent(client, local, monkeypatch):
+    # gw 쪽 보고를 켜기 전(gws 가 빈 목록) — 못 잇는 보고도 없으니 목록의 gw 는 모두 '보고 안 함'
     _inv(monkeypatch, INVENTORY)
     client.post(URL, json=_snap(gws=[], events=[], header_events=0, event_lines=0, reports=0), headers=AUTH)
     s = _get(client)
-    assert s["state"] == "ok" and s["events"] == [] and s["reporting"] == 0
-    assert [g["state"] for g in s["gws"]] == ["silent", "silent", "silent"]
+    assert s["state"] == "ok" and s["events"] == [] and s["reporting"] == 0 and s["unlinked"] == 0
+    assert [(_key(g), g["state"]) for g in s["gws"]] == [("dev/shop", "silent"), ("prod/pay", "silent"), ("stg/shop", "silent")]
 
 
 def test_inventory_unreadable_says_comparison_unknown(client, local, monkeypatch):
@@ -134,7 +181,7 @@ def test_inventory_unreadable_says_comparison_unknown(client, local, monkeypatch
     s = _get(client)
     assert s["state"] == "ok" and s["inventory"]["state"] == "error"
     assert s["inventory"]["reason"].startswith("금고 목록을 못 읽어 보고 안 하는 gw 가 있는지 몰라요")
-    assert all(g["state"] != "silent" and g["listed"] is None for g in s["gws"])
+    assert all(g["state"] not in ("silent", "maybe_silent") and g["link"] == "unknown" for g in s["gws"])
 
 
 def test_inventory_is_not_read_when_the_file_is_not_ok(client, local, monkeypatch):
@@ -256,9 +303,10 @@ def test_collector_file_to_screen_end_to_end(client, local, tmp_path, monkeypatc
     _inv(monkeypatch, INVENTORY)
     head = {"written_at": _ago(20), "host": "idp-host", "interval_seconds": 60, "window_days": 14, "source": "openbao-audit",
             "read_ok": True, "why": None, "files_read": 15, "lines_read": 2600, "bad_lines": 0, "reports": 4,
-            "gws": [{"gw": "gw-shop-dev", "host": "shop-gw-1", "last_report_at": _ago(90).replace("+00:00", ".123456789Z"),
+            "gws": [{"gw": "gw-alpha", "host": "alpha-host", "env": "dev", "service": "shop",  # IdP fc8f96a 모양
+                     "last_report_at": _ago(90).replace("+00:00", ".123456789Z"),
                      "every_seconds": 300, "read_ok": True, "why": None, "source": "journal", "files_read": 1, "lines_read": 77},
-                    {"gw": "gw-shop-stg", "host": "shop-gw-2", "last_report_at": _ago(60), "every_seconds": 300,
+                    {"gw": "gw-beta", "host": "beta-host", "last_report_at": _ago(60), "every_seconds": 300,  # 옛 모양 — env · service 칸 없음
                      "read_ok": False, "why": "auth.log 권한 없음", "source": "auth.log", "files_read": 0, "lines_read": 0},
                     "깨진 칸"],
             "events": 4, "truncated": False}  # 깨진 줄 1 포함 4줄
@@ -273,8 +321,11 @@ def test_collector_file_to_screen_end_to_end(client, local, tmp_path, monkeypatc
                                               "2026-10-27T01:00:00.000000Z"]
     assert [e["serial"] for e in s["events"][:2]] == ["776cb41cedacd9d8"] * 2  # 한 인증서로 여러 번
     assert s["events"][0]["issued_at"] == "2026-10-28T05:04:58.434246Z" and s["events"][2]["issued_at"] is None
-    by = {g["gw"]: g for g in s["gws"]}
-    assert {k: by[k]["state"] for k in by} == {"gw-shop-dev": "ok", "gw-shop-stg": "unknown", "gw-pay-prod": "silent"}
+    by = {_key(g): g for g in s["gws"]}
+    assert {k: (by[k]["state"], by[k]["link"]) for k in by} == {
+        "gw-alpha": ("ok", "listed"), "gw-beta": ("unknown", "unlinked"),
+        "stg/shop": ("maybe_silent", "listed"), "prod/pay": ("maybe_silent", "listed")}  # 못 잇는 보고 1개 → 단정 안 함
+    assert s["unlinked"] == 1 and by["gw-alpha"]["host"] == "alpha-host"
     assert s["notes"] == ["깨져서 뺀 줄 1개", "깨져서 뺀 gw 보고 칸 1개"]
     with SessionLocal() as db:  # 'idp-gw' 줄에 들어갔고, 파일의 source 로 새 줄이 생기지 않음
         assert [r.source for r in db.query(AccessLogSnapshot).all()] == ["idp-gw"]
