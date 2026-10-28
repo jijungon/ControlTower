@@ -17,7 +17,7 @@ import { fmtTime } from './SectionHead'
 // users 는 손대지 않는다 — idp-login user add 가 gw 에 OS 계정도 만들어서 목록만 바꾸면 어긋난다.
 
 type Row = { key: number; name: string; addr: string }
-type Msg = { kind: 'ok' | 'warn' | 'fail'; text: string; reload?: boolean }
+type Msg = { kind: 'ok' | 'warn' | 'fail'; text: string; reload?: boolean; why?: string }
 
 export function changeText(c: InventoryChange): string {
   switch (c.kind) {
@@ -40,6 +40,8 @@ function errMsg(e: unknown, what: string): Msg {
   if (e instanceof ApiError) {
     if (e.status === 409) return { kind: 'warn', text: e.message, reload: true }
     if (e.message.startsWith('저장됐는지 모름')) return { kind: 'warn', text: e.message, reload: true }
+    // 서버가 할 일과 원래 까닭을 나눠 줬으면(금고 403 거절 등) 할 일을 그대로, 까닭은 작은 줄로
+    if (e.why) return { kind: 'fail', text: e.message, why: e.why }
     return { kind: 'fail', text: `${what} — ${e.message}` }
   }
   // 답을 못 받음(네트워크) — 저장이었다면 됐는지 모른다
@@ -225,6 +227,7 @@ export default function InventoryEditor({ env, service, onSaved, onClose }: { en
       {msg && (
         <div className={`inv-edit__msg inv-edit__msg--${msg.kind}`} role={msg.kind === 'ok' ? 'status' : 'alert'}>
           {msg.text}
+          {msg.why && <span className="inv-edit__why">{msg.why}</span>}
           {msg.reload && (
             <button type="button" className="btn btn--sm" onClick={reload}>
               다시 불러오기

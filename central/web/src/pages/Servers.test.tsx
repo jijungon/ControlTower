@@ -160,3 +160,57 @@ test('로그인 정보(그룹)를 모르면 빈 목록 · "권한 없음" 이 �
   expect(await screen.findByText(/로그인 정보\(그룹\)를 몰라 목록을 보여 줄 수 없어요/)).toBeInTheDocument()
   expect(screen.queryByText(/볼 수 있는 목록이 없어요/)).toBeNull()
 })
+
+// 이름표(Authentik) — 운영자 줄은 실제 운영자들, 개발자 줄은 이메일 옆 이름. 모르면 '이름 모름' — '운영자 없음' 이 아니다
+const named = (admin: object, dev: object, names: object) => ({
+  ...ACCESS,
+  names,
+  people: [{ ...ACCESS.people[0], ...admin }, { ...ACCESS.people[1], ...dev }],
+})
+
+test('이름표가 있으면 운영자 줄에 실제 운영자(활성 먼저 · 비활성은 흐리게) · 개발자 이메일 옆에 이름', async () => {
+  mockFetch(named(
+    { members: [
+      { name: 'Ops Person', email: 'ops@example.com', active: true },
+      { name: 'akadmin', email: 'root@example.com', active: true },
+      { name: 'Left Company', email: 'gone@example.com', active: false },
+    ], names_note: null },
+    { name: 'Dev Test', active: true },
+    { state: 'ok', reasons: [] },
+  ))
+  render(<Servers />)
+  const people = await screen.findByRole('complementary', { name: '사람' })
+  const members = within(people).getByTestId('admin-members')
+  expect(members.textContent).toBe('Ops Personops@example.comakadminroot@example.comLeft Company (비활성)gone@example.com')
+  expect(within(members).getByText(/Left Company/)).toHaveClass('access-member--inactive')
+  expect(within(members).getByText(/Ops Person/)).not.toHaveClass('access-member--inactive')
+  expect(within(people).queryByText('server-admin 그룹 전원')).toBeNull()
+  const dev = within(people).getByRole('button', { name: /devtest@example.local/ })
+  expect(within(dev).getByText('Dev Test')).toHaveClass('person-name')
+  expect(people).toHaveTextContent('이름은 Authentik 이름표에서 가져와요')
+})
+
+test('이름표를 모르면 운영자 줄은 "server-admin 그룹 전원" + "이름 모름" — "운영자 없음" 이 아니다, 개발자는 이메일만', async () => {
+  mockFetch(named(
+    { members: [], names_note: '이름 모름(이름표를 못 읽음)' },
+    { name: null, active: null },
+    { state: 'unknown', reasons: ['IdP 가 Authentik 을 못 읽음: authentik api: 503'] },
+  ))
+  render(<Servers />)
+  const people = await screen.findByRole('complementary', { name: '사람' })
+  const admin = within(people).getByRole('button', { name: /server-admin 그룹 전원/ })
+  expect(admin).toHaveTextContent('이름 모름(이름표를 못 읽음)')
+  expect(people).not.toHaveTextContent('운영자 없음')
+  expect(within(people).queryByTestId('admin-members')).toBeNull()
+  const dev = within(people).getByRole('button', { name: /devtest@example.local/ })
+  expect(dev.querySelector('.person-name')).toBeNull()
+  expect(people).toHaveTextContent('이름 모름 — IdP 가 Authentik 을 못 읽음: authentik api: 503')
+})
+
+test('비활성 개발자는 이름 옆에 "(비활성)"', async () => {
+  mockFetch(named({}, { name: 'Dev Test', active: false }, { state: 'ok', reasons: [] }))
+  render(<Servers />)
+  const dev = await screen.findByRole('button', { name: /devtest@example.local/ })
+  expect(within(dev).getByText(/Dev Test/)).toHaveTextContent('Dev Test (비활성)')
+  expect(within(dev).getByText(/Dev Test/)).toHaveClass('person-name--inactive')
+})

@@ -263,6 +263,32 @@ class HostStatus(Base):
     signals: Mapped[str | None] = mapped_column(Text, nullable=True)          # JSON — 신호별 원본(화면 펼침용)
 
 
+class IdpPeople(Base):
+    """사람 이름표(Authentik 의 server-admin · developer 사람 목록)를 수집기가 읽어 올린 마지막 모습 — source 마다 한 줄.
+
+    IdP 서버가 5분마다 통째로 다시 쓰는 파일이라 쌓지 않고 올 때마다 통째로 바꾼다. 못 읽었으면 목록도 비운다
+    (지난 이름을 지금 것처럼 남기지 않음). 정상/모름/멈춤 판정은 조회할 때 지금 시각으로 — routers/idp_people.py.
+    """
+    __tablename__ = "idp_people"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source: Mapped[str] = mapped_column(String, unique=True)                  # idp
+    reader: Mapped[str | None] = mapped_column(String, nullable=True)         # 올린 수집기 이름
+    received_at: Mapped[str | None] = mapped_column(String, nullable=True)    # 중앙이 마지막으로 받은 시각
+    read_ok: Mapped[bool] = mapped_column(Boolean, default=False)             # 수집기가 파일을 읽었나
+    read_error: Mapped[str | None] = mapped_column(Text, nullable=True)       # 못 읽은 이유(파일 없음 · 머리 줄 깨짐 …)
+    written_at: Mapped[str | None] = mapped_column(String, nullable=True)     # IdP 가 파일에 적은 시각
+    host: Mapped[str | None] = mapped_column(String, nullable=True)           # 적은 서버(이름은 런타임에만)
+    interval_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 다시 쓰는 주기(보통 300)
+    origin: Mapped[str | None] = mapped_column(String, nullable=True)         # 파일 머리의 source(authentik)
+    list_ok: Mapped[bool | None] = mapped_column(Boolean, nullable=True)      # IdP 가 Authentik 을 읽었나(파일 머리의 read_ok)
+    list_reason: Mapped[str | None] = mapped_column(Text, nullable=True)      # 못 읽은 까닭(파일 머리의 why)
+    groups: Mapped[str | None] = mapped_column(Text, nullable=True)           # JSON — 그룹별 사람 수(비활성 포함), 모르면 null
+    header_people: Mapped[int | None] = mapped_column(Integer, nullable=True)  # IdP 가 적었다는 사람 수
+    person_lines: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 수집기가 받은 사람 줄(깨진 것 포함)
+    bad_lines: Mapped[int] = mapped_column(Integer, default=0)                # 수집기가 깨져서 뺀 줄 수
+    truncated: Mapped[bool] = mapped_column(Boolean, default=False)           # 너무 많아 잘랐나
+    people: Mapped[str | None] = mapped_column(Text, nullable=True)           # JSON 목록 — 이메일 · 아이디 · 이름 · 그룹 · 활성
+
 class AccessLogSnapshot(Base):
     """금고(IdP) 접속 기록 요약 파일을 수집기가 읽어 올린 마지막 모습 — source 마다 한 줄, 올 때마다 통째로 바꾼다.
 

@@ -53,6 +53,9 @@ NAME_RE = re.compile(r"^(?!-)(?!\.{1,2}$)[A-Za-z0-9._-]{1,63}$")
 ADDR_RE = re.compile(r"^(?!-)[A-Za-z0-9.:-]{1,253}$")  # IPv4 · IPv6 · 호스트 이름
 MAX_SERVERS = 200
 CONFLICT = "다른 곳(idp-login 등)에서 먼저 고쳤어요 — 다시 불러온 뒤 고쳐 주세요"
+# 금고가 403 으로 거절 — ct-inventory 정책은 dev · stg 에 이미 있는 항목의 update 만 허락한다(prod · 새 항목은 안 됨).
+# 'permission denied' 만 보이면 무엇을 해야 할지 모른다 → 할 일을 앞에, 금고 답은 작은 줄(why)로
+VAULT_DENIED = "금고가 거절했어요 — prod 나 새 서비스는 gw 에서 idp-login 으로(service add 등) 고쳐요"
 LOCAL_PREVIEW_ACTOR = "로컬 미리보기(로그인 없음)"
 
 
@@ -288,6 +291,10 @@ def save(env: str, service: str, body: EditIn, actor: str = Depends(_editor), db
             status.HTTP_502_BAD_GATEWAY, f"저장됐는지 모름 — 다시 불러와 확인해 주세요: {exc}"
         ) from exc
     except InventoryError as exc:
+        if exc.status == 403:
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY, {"message": VAULT_DENIED, "why": f"아무것도 안 바뀌었어요 · 금고 답: {exc}"}
+            ) from exc
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"금고가 저장을 거절했어요(아무것도 안 바뀜): {exc}") from exc
     result = {"saved": True, "version": out["version"], "updated_at": out["updated_at"], "changes": ch}
     try:
