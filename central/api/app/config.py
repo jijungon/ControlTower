@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     ct_oidc_public_key: str = ""                        # CT_OIDC_PUBLIC_KEY (PEM; JWKS 대신 정적 키)
     ct_oidc_issuer: str = ""                            # CT_OIDC_ISSUER
     ct_oidc_audience: str = ""                          # CT_OIDC_AUDIENCE
+    ct_oidc_hs256_secret_file: str = ""                 # CT_OIDC_HS256_SECRET_FILE (proxy: 프록시 provider 의 client_secret — HS256)
 
     # gw · 서버 목록 — 금고에서 읽기만 (서버 탭 '누가 · 어디로'). off=안 읽음(기본), vault=AppRole 로 읽음
     ct_inventory_mode: str = "off"                      # CT_INVENTORY_MODE

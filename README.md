@@ -111,7 +111,10 @@ ControlTower는 **혼자서도 그대로 돌고**, 나중에 사내 IdP/Secrets 
 - 각 모드는 **미설정·실패 시 기본으로 폴백**한다(안전). 기본값만 쓰면 예전과 100% 동일하게 동작.
 - `CT_AUTH_MODE=proxy` — 앞단 Authentik(프록시)이 요청마다 붙이는 `X-authentik-jwt` 의 **서명을 검사**해서 그 안의 이메일 · 그룹을 쓴다. 서버 탭 '누가 · 어디로' 가 이 그룹으로 거른다(server-admin=전부, developer=dev · stg).
   글자 헤더(`X-authentik-email` · `-groups`)는 믿지 않는다 — 누가 흉내 내 보내도 서명이 안 맞는다. 토큰이 없거나 검사에 떨어지면 '누군지 모름' 으로 막는다.
-  필요한 값: `CT_OIDC_JWKS_URL`(프록시 provider 의 jwks — RS256 서명 키가 있어야 함) · `CT_OIDC_ISSUER`(필수 — 같은 키로 서명하는 다른 앱 토큰을 거름) · `CT_OIDC_AUDIENCE`(넣으면 검사). RS256 만 · 만료 필수.
+  필요한 값: `CT_OIDC_ISSUER`(필수 — 같은 키로 서명하는 다른 앱 토큰을 거름) · `CT_OIDC_AUDIENCE`(넣으면 검사) · 서명 방식마다 키 하나:
+  - **HS256** — Authentik 프록시 provider 는 저장할 때마다 서명 키를 지워 설계상 HS256(공유 비밀 = provider 의 client_secret)이다. 그 비밀을 서버 안 파일로 두고 `CT_OIDC_HS256_SECRET_FILE` 로 가리킨다(파일이 없거나 비면 통과시키지 않고 `/api/me` 에 까닭).
+  - **RS256** — `CT_OIDC_JWKS_URL`(provider 의 jwks).
+  - 토큰의 alg 마다 그 키 · 그 방식 하나만 쓴다(공개키를 HMAC 비밀로 쓰는 혼동을 막음). 그 밖(none 등)은 거부. 만료 필수.
   켜는 순서: 금고 연결은 끈 채(`CT_INVENTORY_MODE` 없음 — 화면은 그대로) `CT_AUTH_MODE=proxy` 만 켜고, 로그인해서 `/api/me` 를 연다 → `proxy` 칸에 토큰이 왔나 · 통과했나 · 떨어진 까닭 · 토큰에 적힌 `aud` · 클레임 이름(`groups` 가 있나)이 보인다. `aud` 를 `CT_OIDC_AUDIENCE` 에 넣고 통과를 본 뒤 금고 연결을 켠다.
 - 플랫폼 자체(Authentik/OpenBao)는 **별도 프로젝트** — 설계·계획은 로컬 전용 `~/Downloads/parameta-idp-secrets/`.
 
