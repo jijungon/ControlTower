@@ -375,6 +375,42 @@ export async function fetchAccess(): Promise<Access> {
   return res.json()
 }
 
+// 접속 기록 — 금고가 인증서(도장)를 내준 기록(IdP 요약 파일 → 수집기 → 중앙). 운영자만(아니면 403)
+export type AccessEvent = {
+  at: string // ISO UTC — 금고는 나노초까지 적음(수집기가 마이크로초로 자름)
+  kind: 'person' | 'machine' | 'other'
+  who: string | null // 이메일 · 기계 신분 이름 · 없을 수 있음
+  env: string
+  account: string | null // ubuntu · appuser · 없으면 개인 gw 계정(*-gw 역할)
+  role: string | null // 금고 역할(dev-ubuntu · stg-gw · dev-runner …)
+  serial: string | null // 인증서 번호 — 10-28 오전 전 기록은 없음
+  result: string // issued(발급) · denied(거부)
+  reason: string | null
+}
+export type AccessLog = {
+  state: 'ok' | 'off' | 'unknown' | 'no_identity'
+  reasons: string[]
+  notes: string[]
+  written_at: string | null
+  host: string | null
+  window_days: number | null
+  files_read: number | null
+  lines_read: number | null
+  written_age_seconds: number | null
+  stale_after_seconds: number | null
+  events: AccessEvent[]
+}
+
+// 403(운영자 아님)은 따로 알아보게 — '못 불러옴' 과 다르다
+export class ForbiddenError extends Error {}
+
+export async function fetchAccessLog(): Promise<AccessLog> {
+  const res = await fetch('/api/access-log')
+  if (res.status === 403) throw new ForbiddenError(((await res.json().catch(() => null)) as { detail?: string } | null)?.detail ?? '운영자만 볼 수 있어요')
+  if (!res.ok) throw new Error(`GET /api/access-log ${res.status}`)
+  return res.json()
+}
+
 // 지금 도는 ControlTower 버전 — 반영할 때 CT_VERSION/CT_BUILD 를 넣는다. 안 넣으면 'dev'(화면은 '버전 모름')
 export type AppVersion = { version: string; build: string; started_at?: string | null }
 

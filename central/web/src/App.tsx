@@ -3,15 +3,16 @@ import { developerOnly, fetchMe } from './api'
 import AuthExpiredBanner from './components/AuthExpiredBanner'
 import HostStatusBar from './components/HostStatusBar'
 import VersionTag from './components/VersionTag'
+import AccessLog from './pages/AccessLog'
 import Dashboard from './pages/Dashboard'
 import Servers from './pages/Servers'
 import BuildDeploy from './pages/BuildDeploy'
 import ConfigRepo from './pages/ConfigRepo'
 import Ops from './pages/Ops'
 
-// 서버(IdP 연동 후 서버 ↔ 항목 연결 자리 + /etc 설정 파일) → config(repo / center — 무엇으로 만드나)
-// → 빌드·배포(어떻게 배포하나) → OS 패치·작업이력
-const TABS = ['대시보드', '서버', 'config', '빌드·배포', 'OS 패치·작업이력'] as const
+// 서버(IdP 연동 후 서버 ↔ 항목 연결 자리 + /etc 설정 파일) → 접속 기록(누가 언제 인증서를 받았나 — 운영자만)
+// → config(repo / center — 무엇으로 만드나) → 빌드·배포(어떻게 배포하나) → OS 패치·작업이력
+const TABS = ['대시보드', '서버', '접속 기록', 'config', '빌드·배포', 'OS 패치·작업이력'] as const
 type Tab = (typeof TABS)[number]
 // 개발자(server-admin 아님)는 서버 탭만 — 서버 탭 안의 /etc 칸(운영자용)도 숨김. API 도 같은 선으로 막힘
 const DEV_TABS: readonly Tab[] = ['서버']
@@ -20,6 +21,7 @@ function Page({ tab, go, devOnly }: { tab: Tab; go: (t: Tab) => void; devOnly: b
   switch (tab) {
     case '대시보드': return <Dashboard onGo={(t) => TABS.includes(t as Tab) && go(t as Tab)} />
     case '서버': return <Servers showConf={!devOnly} />
+    case '접속 기록': return <AccessLog />
     case '빌드·배포': return <BuildDeploy />
     case 'config': return <ConfigRepo />
     case 'OS 패치·작업이력': return <Ops />

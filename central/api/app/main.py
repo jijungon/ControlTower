@@ -16,7 +16,20 @@ from starlette.concurrency import run_in_threadpool
 
 from .auth import DEVELOPER_OPEN_API, auth_mode, developer_only, principal_of
 from .db import Base, engine
-from .routers import access, audit, cicd, collect, conf, connection_tests, host_status, me, servers, updates, versions
+from .routers import (
+    access,
+    access_log,
+    audit,
+    cicd,
+    collect,
+    conf,
+    connection_tests,
+    host_status,
+    me,
+    servers,
+    updates,
+    versions,
+)
 
 # 배포 확인은 이 값으로 한다(프론트 번들 grep 아님). 반영할 때 CT_VERSION/CT_BUILD 를 넣는다(compose 가 api 에 넘김).
 # 아무도 안 넣으면 'dev' — 화면은 버전을 지어내지 않고 '버전 모름' 으로 보인다.
@@ -45,6 +58,7 @@ app.include_router(host_status.router)
 app.include_router(audit.router)
 app.include_router(me.router)
 app.include_router(access.router)
+app.include_router(access_log.router)
 
 
 @app.middleware("http")

@@ -20,6 +20,13 @@ class CentralAPI:
         r.raise_for_status()
         return r.json()
 
+    def upload_access_log(self, source: str, reader: str, snap: dict[str, Any]) -> dict[str, Any]:
+        """금고 접속 기록 요약 파일을 읽은 결과(read_access) — 못 읽었으면 그 이유를 그대로 올린다."""
+        body = {k: v for k, v in snap.items() if k != "digest"}  # 지문은 '바뀌었나' 판단용, 중앙엔 안 보냄
+        r = self._client.post("/api/access-log", json={"source": source, "reader": reader, **body})
+        r.raise_for_status()
+        return r.json()
+
     def list_servers(self) -> list[dict[str, Any]]:
         r = self._client.get("/api/servers")
         r.raise_for_status()

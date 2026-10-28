@@ -263,6 +263,35 @@ class HostStatus(Base):
     signals: Mapped[str | None] = mapped_column(Text, nullable=True)          # JSON — 신호별 원본(화면 펼침용)
 
 
+class AccessLogSnapshot(Base):
+    """금고(IdP) 접속 기록 요약 파일을 수집기가 읽어 올린 마지막 모습 — source 마다 한 줄, 올 때마다 통째로 바꾼다.
+
+    파일 자체가 '최근 14일치' 라 쌓지 않는다(보존은 IdP 쪽 원본 몫). 정상/못 봄/멈춤 판정은 조회할 때 지금 시각으로.
+    파일이 없으면(IdP 반영 전 포함) '못 봄' — 빈 표로 보이지 않게.
+    """
+    __tablename__ = "access_log"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source: Mapped[str] = mapped_column(String, unique=True)                  # idp(금고 기록)
+    reader: Mapped[str | None] = mapped_column(String, nullable=True)         # 올린 수집기 이름
+    received_at: Mapped[str | None] = mapped_column(String, nullable=True)    # 중앙이 마지막으로 받은 시각
+    read_ok: Mapped[bool] = mapped_column(Boolean, default=False)             # 수집기가 파일을 읽었나
+    read_error: Mapped[str | None] = mapped_column(Text, nullable=True)       # 못 읽은 이유(파일 없음 · 머리 줄 깨짐 …)
+    written_at: Mapped[str | None] = mapped_column(String, nullable=True)     # IdP 가 파일에 적은 시각
+    host: Mapped[str | None] = mapped_column(String, nullable=True)           # 적은 서버(이름은 런타임에만)
+    interval_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 다시 쓰는 주기(보통 60)
+    window_days: Mapped[int | None] = mapped_column(Integer, nullable=True)   # 며칠치인가(보통 14)
+    audit_ok: Mapped[bool | None] = mapped_column(Boolean, nullable=True)     # IdP 가 금고 기록을 읽었나(파일 머리의 read_ok)
+    audit_reason: Mapped[str | None] = mapped_column(Text, nullable=True)     # 못 읽은 까닭(파일 머리의 why)
+    files_read: Mapped[int | None] = mapped_column(Integer, nullable=True)    # IdP 가 읽은 금고 기록 파일 수 — 0 이면 '못 봄'
+    lines_read: Mapped[int | None] = mapped_column(Integer, nullable=True)    # IdP 가 읽은 금고 기록 줄 수(있으면) — 0 이면 '못 봄'
+    source_bad_lines: Mapped[int | None] = mapped_column(Integer, nullable=True)  # IdP 가 금고 기록에서 못 읽은 줄
+    header_events: Mapped[int | None] = mapped_column(Integer, nullable=True)  # IdP 가 적었다는 건수
+    event_lines: Mapped[int | None] = mapped_column(Integer, nullable=True)   # 수집기가 받은 이벤트 줄(깨진 것 포함)
+    bad_lines: Mapped[int] = mapped_column(Integer, default=0)                # 수집기가 깨져서 뺀 줄 수
+    truncated: Mapped[bool] = mapped_column(Boolean, default=False)           # 최근 몇천 건까지만 넘겼나
+    events: Mapped[str | None] = mapped_column(Text, nullable=True)           # JSON 목록 — 인증서 발급 · 거부
+
+
 # ── 작업이력 / 감사 로그 ─────────────────────────────────────────────
 
 class AuditLog(Base):

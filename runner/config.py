@@ -24,6 +24,8 @@ class RunnerConfig:
     apply_sudo: bool = False    # conf 적용 시 sudo 사용(root 소유 파일). CT_APPLY_SUDO=1
     # 서버가 스스로 적는 상태 파일(IdP 서버 status.json) — 수집기가 읽어 화면 맨 위에. 빈 값이면 이 기능을 끔
     idp_status_file: str = "/idp-status/status.json"
+    # 금고(IdP) 접속 기록 요약 파일 — IdP 서버가 1분마다 최근 14일치를 씀, '접속 기록' 탭에. 빈 값이면 끔
+    idp_access_file: str = "/idp-status/access.jsonl"
 
     @classmethod
     def load(cls) -> "RunnerConfig":
@@ -44,4 +46,5 @@ class RunnerConfig:
             shape_targets=os.path.expanduser(os.environ.get("CT_SHAPE_TARGETS", "shape-targets.yml")),
             apply_sudo=os.environ.get("CT_APPLY_SUDO", "") not in ("", "0", "false", "False"),
             idp_status_file=os.environ.get("CT_IDP_STATUS_FILE", "/idp-status/status.json").strip(),
+            idp_access_file=os.environ.get("CT_IDP_ACCESS_FILE", "/idp-status/access.jsonl").strip(),
         )

@@ -65,6 +65,8 @@ from .gitlab import (
     is_down,
     reset_down,
 )
+from .accesslog import read_access
+from .accesslog import summary as access_summary
 from .hoststatus import read_status, summary
 from .probe import probe_ssh
 from .repoversions import extract_versions
@@ -1036,13 +1038,17 @@ def cmd_agent(
     mode = "gitlab+ssh" if ssh else "gitlab"
     schedule = f"{daily_at} {tz}" if daily_at else None
     status_file = (getattr(cfg, "idp_status_file", "") or "").strip()  # 빈 값이면 서버 상태 읽기를 끔
+    access_file = (getattr(cfg, "idp_access_file", "") or "").strip()  # 빈 값이면 접속 기록 읽기를 끔
     print(
         f"수집기 시작: {name} ({mode}) — {interval:g}초마다 요청 확인" + (f" · 자동 매일 {schedule}" if schedule else " · 자동 없음(버튼만)")
         + (f" · 서버 상태 파일 {status_file}" if status_file else " · 서버 상태 읽기 꺼짐")
+        + (f" · 접속 기록 파일 {access_file}" if access_file else " · 접속 기록 읽기 꺼짐")
     )
     asked: str | None = None  # 오늘 자동 요청을 이미 물어봤나(같은 날 반복 호출 줄이기)
     sent: tuple | None = None  # 서버 상태 — 마지막으로 올린 (읽음?, 이유, 기록 시각)
     sent_at, sent_summary, sent_error = 0.0, "", ""
+    acc_sent: tuple | None = None  # 접속 기록 — 마지막으로 올린 (읽음?, 이유, 내용 지문)
+    acc_at, acc_summary, acc_error = 0.0, "", ""
     while True:
         api = CentralAPI(cfg.central_url, cfg.api_token)
         try:
@@ -1060,6 +1066,20 @@ def cmd_agent(
                         if summary(snap) != sent_summary:  # 로그는 상태가 바뀔 때만
                             print(f"[{time.strftime('%H:%M:%S')}] 서버 상태: {summary(snap)}")
                         sent, sent_at, sent_summary, sent_error = key, time.monotonic(), summary(snap), ""
+            if access_file:  # 접속 기록 요약 — 내용이 바뀌었으면 바로, 아니어도 1분마다(못 읽어도 이유를 올림)
+                acc = read_access(access_file)
+                key = (acc["read_ok"], acc.get("read_error"), acc.get("digest"))
+                if key != acc_sent or time.monotonic() - acc_at >= STATUS_RESEND_SECONDS:
+                    try:  # 올리기 실패가 수집 요청 확인까지 막지 않게 따로
+                        api.upload_access_log("idp", name, acc)
+                    except httpx.HTTPError as e:
+                        if str(e) != acc_error:
+                            print(f"[{time.strftime('%H:%M:%S')}] 접속 기록을 못 올림: {e}")
+                        acc_error = str(e)
+                    else:
+                        if access_summary(acc) != acc_summary:  # 로그는 바뀔 때만
+                            print(f"[{time.strftime('%H:%M:%S')}] 접속 기록: {access_summary(acc)}")
+                        acc_sent, acc_at, acc_summary, acc_error = key, time.monotonic(), access_summary(acc), ""
             since = _daily_since(datetime.now(timezone.utc), daily_at, tz) if daily_at else None
             if since and since != asked:
                 res = api.request_auto("shape", since)
