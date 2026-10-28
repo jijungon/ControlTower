@@ -10,8 +10,11 @@ import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
+from .auth import DEVELOPER_OPEN_API, auth_mode, developer_only, principal_of
 from .db import Base, engine
 from .routers import access, audit, cicd, collect, conf, connection_tests, host_status, me, servers, updates, versions
 
@@ -42,6 +45,23 @@ app.include_router(host_status.router)
 app.include_router(audit.router)
 app.include_router(me.router)
 app.include_router(access.router)
+
+
+@app.middleware("http")
+async def developer_server_tab_only(request: Request, call_next):
+    """개발자(server-admin 아님)는 서버 탭이 쓰는 API 만 — 나머지는 읽기도 403(새로 생길 API 도 기본 막힘).
+    그룹을 아는 모드(oidc · proxy)에서만. 신분증 오류는 각 API 가 지금처럼 다룬다(러너 공유 토큰도 여기로 빠짐)."""
+    path = request.url.path.rstrip("/") or "/"
+    if path.startswith("/api/") and path not in DEVELOPER_OPEN_API and auth_mode() in ("oidc", "proxy"):
+        try:
+            user = await run_in_threadpool(
+                principal_of, request.headers.get("authorization", ""), request.headers.get("x-authentik-jwt", "")
+            )
+        except HTTPException:
+            user = None
+        if user is not None and developer_only(user):
+            return JSONResponse({"detail": "개발자는 서버 탭만 볼 수 있어요"}, status_code=403)
+    return await call_next(request)
 
 
 @app.get("/health")

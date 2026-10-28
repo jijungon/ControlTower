@@ -52,6 +52,11 @@ def current_user(
     x_authentik_jwt: str = Header(default=""),
 ) -> Principal:
     """현재 사용자 의존성. none=익명(열림), oidc=검증된 사용자(실패 401), proxy=서명 맞는 프록시 토큰(아니면 익명)."""
+    return principal_of(authorization, x_authentik_jwt)
+
+
+def principal_of(authorization: str, x_authentik_jwt: str) -> Principal:
+    """헤더 두 개로 사용자를 안다 — current_user 와 main.py 의 '개발자는 서버 탭만' 이 같이 쓴다."""
     mode = auth_mode()
     if mode == "proxy":
         return _from_proxy(x_authentik_jwt.strip())
@@ -62,6 +67,15 @@ def current_user(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "login required")
     claims = _verify_oidc(token)
     return Principal(authenticated=True, email=claims.get("email"), groups=_groups(claims))
+
+
+# 개발자(server-admin 아님)는 서버 탭만 — 화면도 API 도. 서버 탭이 쓰는 이 넷 말고는(새로 생길 API 포함) 403.
+# 그룹을 아는 모드(oidc · proxy)에서만 따진다. 러너(공유 토큰) · 신분증 없음 · viewer · none 모드는 그대로.
+DEVELOPER_OPEN_API = frozenset({"/api/me", "/api/access", "/api/version", "/api/host-status"})
+
+
+def developer_only(user: Principal) -> bool:
+    return user.authenticated and "developer" in user.groups and "server-admin" not in user.groups
 
 
 def _groups(claims: dict) -> list[str]:

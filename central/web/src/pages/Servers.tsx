@@ -4,8 +4,8 @@ import Conf from './Conf'
 // 서버 탭 = IdP 연동 뒤, 서버 정보(목록·접속)를 IdP(금고 목록)에서 받아 보여 주는 곳.
 // 예전 ~/.ssh/config 임포트 목록(IP · 접속키 · 깔린 도구)은 계속 안 쓴다(API·runner 는 남김) — 원본은 금고 목록 하나.
 // '누가 · 어디로' 는 보기 전용 (2026-10-27). config · 빌드·배포 항목과의 연결은 다음.
-// /etc 설정 파일(드리프트·적용)은 그대로.
-export default function Servers() {
+// /etc 설정 파일(드리프트·적용)은 운영자용 — 개발자에게는 숨김(showConf=false).
+export default function Servers({ showConf = true }: { showConf?: boolean }) {
   return (
     <div>
       <div className="page-head">
@@ -19,7 +19,7 @@ export default function Servers() {
       </div>
       <AccessMap />
 
-      <Conf />
+      {showConf && <Conf />}
     </div>
   )
 }
