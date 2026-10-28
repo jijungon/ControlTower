@@ -7,7 +7,7 @@ OpenBao **HTTP API** 로 붙는다 (bao CLI 바이너리 불필요 — 중앙 se
 **미설정(OpenBao 주소 없음)이면 None 을 돌려 key 모드로 폴백한다.**
 
 환경변수:
-  CT_BAO_ADDR            OpenBao 주소 (예: https://bao.parameta.local)   ← 없으면 비활성(None)
+  CT_BAO_ADDR            OpenBao 주소 (예: https://bao.local)            ← 없으면 비활성(None)
   CT_BAO_SSH_ROLE        서명 역할                                        [기본 runner-ro]
   CT_SSH_KEY             서명할 키의 개인키 경로(.pub 를 서명)             [기본 ~/.ssh/id_ed25519]
   CT_BAO_SSH_PRINCIPALS  인증서 principals (쉼표구분; 미설정이면 역할 default_user)

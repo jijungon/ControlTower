@@ -26,9 +26,9 @@
 
 | 서버 | IP | user | vpn/접근제어 | 키 |
 |---|---|---|---|---|
-| web-01 | 10.89.2.67 | deploy | ncloud | `gw_prod_ed25519` · `SHA256:aB3d…9f` |
-| db-01 | 10.89.3.10 | dbadmin | dbsafe | `db_ed25519` · `SHA256:c7X1…e2` |
-| build-01 | 144.24.73.187 | ci | — | `build_ed25519` · `SHA256:0kP9…4a` |
+| web-01 | 10.0.0.11 | deploy | ncloud | `gw_prod_ed25519` · `SHA256:aB3d…9f` |
+| db-01 | 10.0.0.12 | dbadmin | dbsafe | `db_ed25519` · `SHA256:c7X1…e2` |
+| build-01 | 10.0.0.13 | ci | — | `build_ed25519` · `SHA256:0kP9…4a` |
 
 - `~/.ssh/config` 임포트로 채움(Host·HostName·User·IdentityFile). 경유 gw 열 없음 — 대부분 서버 자체가 gw이거나 직접 접속.
 - **vpn/접근제어**(한 칸): 특수 접속 경로가 필요하면 이름(`dbsafe`·`ncloud` 등), 없으면 `—`. 체크박스 대신 값으로 적어 칸 절약 + 어떻게 접속할지 즉시 판단.
@@ -76,7 +76,7 @@
 
 - **Pull(수집)** — 소스 2종:
   - **빌드/서버(ssh)**: 러너가 큐를 받아 conf + docker builder의 `docker --version` 수집 → 중앙 API 업로드. (서버 내부 설치 패키지·런타임 인벤토리는 나중에)
-  - **GitLab repo(API)**: 중앙 VM이 사내망에서 GitLab API 직접 호출(토큰). **repo·center는 두 GitLab 인스턴스**(repo=repo.theloop.co.kr, center=gitlab.center.24x365.online). `.gitlab-ci.yml`(image 태그=빌드 버전)·`Dockerfile`(`FROM`·`RUN apt/npm`=빌드 설치 항목)·`package.json`·`.nvmrc`·`pom.xml` 파싱 → 빌드 버전 + 설치 항목
+  - **GitLab repo(API)**: 중앙 VM이 사내망에서 GitLab API 직접 호출(토큰). **repo·center는 두 GitLab 인스턴스**(repo=기존 GitLab, center=이관 대상 GitLab). `.gitlab-ci.yml`(image 태그=빌드 버전)·`Dockerfile`(`FROM`·`RUN apt/npm`=빌드 설치 항목)·`package.json`·`.nvmrc`·`pom.xml` 파싱 → 빌드 버전 + 설치 항목
   - 두 소스 모두 기준본과 diff → 배지, EOL 매칭. (레포 선언본 vs 서버 런타임 불일치도 드리프트로 표시 가능)
 - **Push(적용)**: dry-run diff → 승인(prod) → 서버 백업 → 원자적 교체 → 검증(`validate_cmd`, 실패 시 자동 복원) → reload → 기록
 - 수집기 정의 예 (서비스 추가 = YAML 1개):
@@ -96,8 +96,8 @@ reload_cmd: "systemctl reload nginx"
 # GitLab repo 선언본 소스 (API)
 name: backend-stack
 source: gitlab
-instances: [repo (repo.theloop), center (gitlab.center)]   # 두 GitLab 인스턴스
-projects: ["web3/supercycl/*"]                              # 대상 레포 글롭
+instances: [repo, center]                                   # 두 GitLab 인스턴스
+projects: ["group/subgroup/*"]                              # 대상 레포 글롭
 extract:
   node: ["package.json:engines.node", ".nvmrc"]
   nest: ["package.json:dependencies.@nestjs/core"]
@@ -137,19 +137,19 @@ Control Tower
 
 ## Phase 5 — CI/CD 배포 현황 관리 (2026-09-10 정식 편입)
 
-> repo(`repo.theloop.co.kr`)와 center(`gitlab.center.24x365.online`)는 **두 개의 GitLab 인스턴스**이고 supercycl은 repo→center 이관 중.
+> repo(기존 GitLab)와 center(이관 대상 GitLab)는 **두 개의 GitLab 인스턴스**이고 대상 서비스 그룹은 repo→center 이관 중.
 > (앞의 '버전 관리'에서 repo·center는 프로젝트명이 아니라 이 두 GitLab. config는 center 인프라 repo)
 
 **Phase 5로 정식 편입**(2026-09-10). 버전 관리·GitLab 연동 위에 얹는다. 관리 대상:
 
 - **서비스별 배포 경로** — repo CI → center CI(push_src) → 이미지 빌드/배포 잡의 연결 상태
 - **환경 매트릭스** — dev·stg·preview·lab·prod 별 배포 방식·대상 서버(IP)
-- **직배포 탐지** — scp standalone 직배포(aggregator dev/stg, brandsite, youthmeta-mobile 등) = 이관 대상 플래그
-- **executor 유형** — shell(`gitrun-cycl-brand`) / docker(`repo-runner`) + docker 전환 대상
+- **직배포 탐지** — scp standalone 직배포(일부 서비스의 dev/stg 등) = 이관 대상 플래그
+- **executor 유형** — shell 러너 / docker 러너 + docker 전환 대상
 - **이관 준비 상태** — 서비스별 ✅/⚠️/❌
-- **고아·불명 서비스** — 원본 repo 부재(sync_was 404) 등 존폐 확인 대상
+- **고아·불명 서비스** — 원본 repo 부재(404) 등 존폐 확인 대상
 
-상세 조사 원본(2026-08-27 라이브 API, 미결 질문 8개 포함): `supercycl-CICD-현황.md`
+상세 조사 원본(2026-08-27 라이브 API, 미결 질문 8개 포함)은 사내 정보(주소·서버·서비스 이름)라 공개 repo 밖 로컬 전용으로 둔다.
 
 ## 추후 진행 (별도 트랙) — 런타임 설정·정책 저장소 중앙화
 
