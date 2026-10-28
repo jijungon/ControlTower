@@ -479,7 +479,11 @@ export default function AccessLog() {
                           </td>
                           <td className="mono muted">{l.serial ?? '번호 없음'}</td>
                           <td className="muted">
-                            {l.issued_at ? `${fmtTime(at(l.issued_at))}${l.env ? ` · ${l.env}` : ''}` : '못 이음(번호 기록 설정 전 · 14일 넘음 등)'}
+                            {l.issued_at
+                              ? `${fmtTime(at(l.issued_at))}${l.env ? ` · ${l.env}` : ''}`
+                              : data?.state === 'ok'
+                                ? '못 이음(번호 기록 설정 전 · 14일 넘음 등)'
+                                : '발급 기록을 못 봐서 못 이음'}
                           </td>
                         </tr>
                       ))}
