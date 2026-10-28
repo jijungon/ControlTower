@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchAccessLog, ForbiddenError, type AccessEvent, type AccessLog as AccessLogData } from '../api'
 import GroupFilter from '../components/GroupFilter'
+import PersonName, { findName } from '../components/PersonName'
 import SectionHead, { fmtTime, runAll } from '../components/SectionHead'
 
 // 접속 기록 — 누가 · 언제 · 어느 환경에 · 어떤 계정으로 들어갈 인증서(도장)를 받았나(금고 기록). 운영자만 · 보기 전용.
@@ -201,6 +202,8 @@ export default function AccessLog() {
                     <td className="mono" title={e.at}>{fmtTime(at(e.at))}</td>
                     <td title={e.who ?? ''}>
                       {e.whoShown === e.who ? e.who : <span className="muted">{e.whoShown}</span>}
+                      {/* 이름표에서 찾으면 이메일 옆에 이름(소문자로 찾음) — 못 찾거나 이름표를 모르면 이메일만 */}
+                      {e.whoShown === e.who && <PersonName {...findName(data.names, e.who)} />}
                       {e.kindShown !== 'person' && (
                         <span className="badge badge--muted access-log__kind">{KIND_LABEL[e.kindShown] ?? e.kindShown}</span>
                       )}
@@ -227,6 +230,11 @@ export default function AccessLog() {
             )}
           </div>
           {data.notes.length > 0 && <p className="muted access-log__note">{data.notes.join(' · ')}</p>}
+          {data.names && data.names.state !== 'ok' && (
+            <p className="muted access-log__note" data-testid="names-note">
+              {data.names.state === 'off' ? '이름표 연결 전이라 이메일만 보여요' : `이름표를 못 읽어 이메일만 보여요 — ${data.names.reasons.join(' · ') || '이유 모름'}`}
+            </p>
+          )}
           <p className="muted access-log__note">어느 gw · 서버로 들어갔는지는 2단계(gw 접속 기록)부터 보여요 — 지금은 금고가 인증서를 내준 기록이에요.</p>
         </>
       )}

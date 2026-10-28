@@ -20,6 +20,14 @@ class CentralAPI:
         r.raise_for_status()
         return r.json()
 
+    def upload_people(self, source: str, reader: str, snap: dict[str, Any]) -> dict[str, Any]:
+        """사람 이름표 파일을 읽은 결과(read_people) — 못 읽었으면 그 이유를 그대로 올린다."""
+        body = {k: v for k, v in snap.items() if k != "digest"}  # 지문은 '바뀌었나' 판단용, 중앙엔 안 보냄
+        # source · reader 를 맨 뒤에 — 읽은 내용에 같은 이름이 있어도 덮어쓰지 않게(#72 와 같은 까닭)
+        r = self._client.post("/api/idp-people", json={**body, "source": source, "reader": reader})
+        r.raise_for_status()
+        return r.json()
+
     def upload_access_log(self, source: str, reader: str, snap: dict[str, Any]) -> dict[str, Any]:
         """금고 접속 기록 요약 파일을 읽은 결과(read_access) — 못 읽었으면 그 이유를 그대로 올린다."""
         body = {k: v for k, v in snap.items() if k != "digest"}  # 지문은 '바뀌었나' 판단용, 중앙엔 안 보냄
