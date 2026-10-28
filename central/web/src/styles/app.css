@@ -316,7 +316,7 @@ table.grid tbody tr.row-detail > td { background: var(--canvas-parchment); paddi
 .btn:disabled { opacity: 0.5; cursor: default; }
 .btn--sm { height: 26px; padding: 0 10px; font-size: 12px; margin-right: 6px; }
 .btn--primary { background: var(--primary); color: var(--on-primary); border-color: transparent; }
-.btn--primary:hover { filter: brightness(1.05); }
+.btn--primary:hover { background: var(--primary); filter: brightness(1.05); } /* .btn:hover 의 흰 바탕이 덮으면 흰 글자가 안 보임 */
 
 /* diff 미리보기 */
 .diff {
@@ -396,6 +396,32 @@ table.grid tbody tr.row-detail > td { background: var(--canvas-parchment); paddi
 .access-log__reason { margin-left: 6px; font-size: 12px; }
 .access-log__note { font-size: 12px; margin: 8px 0 0; }
 .access-legend { font-size: 12px; margin: 0 0 8px; }
+.access-tools { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.access-tools .btn--sm { margin-right: 0; }
+.access-edit-note { font-size: 12px; color: var(--ink-muted-80); background: var(--warn-bg); border-radius: var(--radius-sm); padding: 8px 12px; margin: 0 0 10px; }
+.access-edit-open { margin-top: 6px; }
+
+/* 목록 고치기(운영자) — gw 상자 안에서 펼침 */
+.inv-edit { margin: 8px 0 2px; padding: 10px 12px; background: var(--canvas); border: 1px solid var(--hairline); border-radius: var(--radius-sm); font-size: 13px; }
+.inv-edit__head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
+.inv-edit__head .spacer { flex: 1; }
+.inv-edit__head .btn--sm { margin-right: 0; }
+.inv-edit__title { font-weight: 600; }
+.inv-edit__who { font-size: 12px; margin: 0 0 8px; }
+.inv-edit__grid { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr) auto; gap: 6px 8px; align-items: center; margin-bottom: 8px; }
+.inv-edit__row { display: contents; }
+.inv-edit__label { font-size: 12px; color: var(--ink-muted-48); }
+.inv-input { height: 28px; min-width: 0; width: 100%; padding: 0 8px; font-size: 12px; color: var(--ink); background: var(--canvas); border: 1px solid var(--hairline); border-radius: var(--radius-sm); outline: none; }
+.inv-input:focus { border-color: var(--primary-focus); }
+.inv-input--port { max-width: 96px; }
+.inv-edit__note { font-size: 12px; margin: 8px 0; }
+.inv-edit__actions { display: flex; gap: 6px; margin-top: 6px; }
+.inv-edit__changes { margin: 6px 0; padding-left: 18px; font-size: 12px; }
+.inv-edit__msg { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; padding: 8px 10px; border-radius: var(--radius-sm); font-size: 12px; }
+.inv-edit__msg .btn--sm { margin-right: 0; }
+.inv-edit__msg--ok { background: var(--ok-bg); color: var(--ok); }
+.inv-edit__msg--warn { background: var(--warn-bg); color: var(--warn); }
+.inv-edit__msg--fail { background: var(--danger-bg); color: var(--danger); }
 
 /* 연결선 — 사람 상자 오른쪽 가운데 → (가로 → 세로 → 가로) → 환경 상자 왼쪽 · 제목 높이. 점선이 흐른다 */
 .access-links { position: absolute; top: 0; left: 0; pointer-events: none; overflow: visible; }

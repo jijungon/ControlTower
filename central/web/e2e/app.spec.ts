@@ -135,6 +135,11 @@ test('서버 탭 = 누가 · 어디로 — 금고 연결 전이면 빈 목록이
   await expect(page.getByRole('heading', { name: '누가 · 어디로' })).toBeVisible()
   await expect(page.getByText(/금고 목록에 아직 연결하지 않았어요/)).toBeVisible() // CT_INVENTORY_MODE 기본 off
   await expect(page.getByPlaceholder('서버 · IP · user 검색')).toHaveCount(0)
+  // 목록 고치기는 기본 꺼짐(CT_INVENTORY_EDIT) — 버튼도 없고, API 로 바로 보내도 '꺼져 있어요'
+  await expect(page.getByRole('button', { name: '목록 고치기' })).toHaveCount(0)
+  const put = await page.request.put('/api/inventory/dev/shop', { data: { version: 1, servers: {} } })
+  expect(put.status()).toBe(403)
+  expect((await put.json()).detail).toContain('꺼져 있어요')
 })
 
 test('서버 탭의 /etc 설정 파일 섹션에서 동기화·드리프트가 보인다', async ({ page }) => {

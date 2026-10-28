@@ -25,6 +25,7 @@ from .routers import (
     conf,
     connection_tests,
     host_status,
+    inventory_edit,
     me,
     servers,
     updates,
@@ -59,6 +60,7 @@ app.include_router(audit.router)
 app.include_router(me.router)
 app.include_router(access.router)
 app.include_router(access_log.router)
+app.include_router(inventory_edit.router)  # 목록 고치기 — DEVELOPER_OPEN_API 밖(개발자 403)
 
 
 @app.middleware("http")

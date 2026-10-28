@@ -352,6 +352,7 @@ export type Access = {
   viewer: { email: string | null; role: string }
   envs: AccessEnv[]
   people: AccessPerson[]
+  can_edit?: boolean // 목록 고치기를 보일까 — CT_INVENTORY_EDIT 가 켜졌고 운영자일 때만 true
 }
 
 // 지금 로그인한 사람 — 그룹을 아는 모드(oidc · proxy)에서만 authenticated · groups 가 찬다
@@ -374,6 +375,56 @@ export async function fetchAccess(): Promise<Access> {
   if (!res.ok) throw new Error(`GET /api/access ${res.status}`)
   return res.json()
 }
+
+// ── 목록 고치기(운영자) — 금고 한 항목의 gw · 서버. users 는 여기서 안 고침(gw 의 idp-login user add 가 OS 계정도 만듦) ──
+export type InventoryEntry = {
+  env: string
+  service: string
+  version: number // 고치기 시작할 때의 판 — 저장할 때 이 판 그대로여야 쓴다(check-and-set)
+  updated_at: string | null // 금고가 그 판에 적은 시각
+  last_edit: { here: boolean; by: string | null; at: string | null } // here=false → 지금 판은 CT 밖(idp-login 등)에서 씀
+  gw: { host: string; port: number } | null
+  servers: Record<string, string>
+  users_count: number
+}
+export type InventoryChange = {
+  kind: 'gw_host' | 'gw_port' | 'server_add' | 'server_remove' | 'server_addr' | 'server_rename'
+  name?: string
+  from?: string | number | null
+  to?: string | number | null
+  addr?: string
+}
+export type InventoryEdit = { version: number; gw: { host: string; port: number } | null; servers: Record<string, string> }
+export type InventorySaved = { saved: true; version: number; updated_at: string | null; changes: InventoryChange[]; history_error?: string }
+
+// 상태 코드를 같이 — 409(다른 곳에서 먼저 고침) · 502(금고 거절 · 저장됐는지 모름)를 화면이 나눠 보인다
+export class ApiError extends Error {
+  constructor(public status: number, message: string) {
+    super(message)
+  }
+}
+
+async function inventoryCall<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(url, init)
+  if (!res.ok) {
+    const detail = ((await res.json().catch(() => null)) as { detail?: unknown } | null)?.detail
+    throw new ApiError(res.status, typeof detail === 'string' ? detail : `${init?.method ?? 'GET'} ${url} ${res.status}`)
+  }
+  return res.json()
+}
+
+const invUrl = (env: string, service: string) => `/api/inventory/${encodeURIComponent(env)}/${encodeURIComponent(service)}`
+const jsonBody = (method: string, body: unknown): RequestInit => ({
+  method,
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body),
+})
+
+export const fetchInventoryEntry = (env: string, service: string) => inventoryCall<InventoryEntry>(invUrl(env, service))
+export const previewInventoryEdit = (env: string, service: string, body: InventoryEdit) =>
+  inventoryCall<{ version: number; changes: InventoryChange[] }>(`${invUrl(env, service)}/preview`, jsonBody('POST', body))
+export const saveInventoryEdit = (env: string, service: string, body: InventoryEdit) =>
+  inventoryCall<InventorySaved>(invUrl(env, service), jsonBody('PUT', body))
 
 // 접속 기록 — 금고가 인증서(도장)를 내준 기록(IdP 요약 파일 → 수집기 → 중앙). 운영자만(아니면 403)
 export type AccessEvent = {

@@ -11,6 +11,7 @@
     developer · viewer 에게도 운영(prod) gw · 서버 주소가 간다. 로컬 미리보기만 CT_ACCESS_LOCAL_PREVIEW=1 로 연다.
   금고 연결이 꺼져 있으면(off) 사용자와 상관없이 '연결 전' — 금고는 읽지도 않는다.
 운영자 이름은 아직 금고에 없다(Authentik 그룹이 원본) — "server-admin 그룹 전원" 한 줄로 보인다.
+can_edit = 화면에 '고치기' 를 보일까(CT_INVENTORY_EDIT 가 켜졌고 운영자일 때만) — 고치기 자체는 routers/inventory_edit.py.
 """
 from __future__ import annotations
 
@@ -19,6 +20,7 @@ from fastapi import APIRouter, Depends
 from ..auth import Principal, auth_mode, current_user
 from ..config import settings
 from ..inventory_source import ENVS, InventoryError, fetch_inventory
+from .inventory_edit import can_edit
 
 router = APIRouter(prefix="/api", tags=["access"])
 
@@ -99,4 +101,4 @@ def access(user: Principal = Depends(current_user)) -> dict:
         "where": [{"env": e["env"], "service": s["name"]} for e in out_envs for s in e["services"]],
     }
     rows = [admins] + sorted(people.values(), key=lambda p: p["email"])
-    return {**base, "state": "ok", "envs": out_envs, "people": rows}
+    return {**base, "state": "ok", "envs": out_envs, "people": rows, "can_edit": can_edit(user)}

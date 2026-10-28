@@ -19,6 +19,8 @@ const ACTION_LABEL: Record<string, string> = {
   'cicd.collect': 'CI/CD 수집',
   'cicd.shape': '비교표 수집',
   'cicd.config': 'config 수집',
+  'inventory.edit': '목록 고침(금고)',
+  'inventory.edit_unknown': '목록 고침 — 저장됐는지 모름',
 }
 
 function target(r: AuditRow): string {

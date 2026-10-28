@@ -256,6 +256,21 @@ CI/CD 파이프라인 상태와 repo 선언본 버전(node/nest/java)은 GitLab 
 - 수집기: `CT_IDP_ACCESS_FILE`(기본 `/idp-status/access.jsonl`, 빈 값이면 끔) · 내용이 바뀌면 바로, 아니어도 1분마다 올림 · 중앙은 올 때마다 통째로 바꿈(쌓지 않음 — 보존은 IdP 쪽 원본)
 - API: `POST /api/access-log`(수집기, 러너 토큰) · `GET /api/access-log`(운영자)
 
+### 서버 탭 '목록 고치기' — 운영자가 gw · 서버를 금고에 고침 (기본 끔)
+
+서버 탭 '누가 · 어디로' 의 목록(금고 `inventory/<환경>/<서비스>`)은 원래 gw 의 `idp-login service add · server add · user add` 로만 적는다.
+스위치를 켜면 운영자가 화면에서 **gw 주소 · 포트와 서버(이름 · 주소)** 를 고칠 수 있다.
+
+- 켜기: 서버 `.env` 에 `CT_INVENTORY_EDIT=1`(compose 가 api 에 넘김 — compose 의 `environment` 가 `env_file` 보다 앞서므로 env_file 에 넣으면 안 먹음)
+  + 금고 `ct-inventory` 정책에 `inventory/data/*` 의 `update` 를 더해야 저장된다. 정책이 없으면 금고가 거절하고 화면에 그 까닭(`permission denied`)을 그대로 보인다.
+- 누가: 운영자(server-admin)만. 개발자는 '서버 탭만' 문지기가 403, viewer 는 403, 그룹을 모르면 403(로컬 미리보기만 열림).
+- 못 고치는 것: **사람(users)** — `idp-login user add` 가 gw 에 OS 계정도 만들어서 목록만 바꾸면 어긋난다. 새 서비스 · 서비스 지우기도 gw 에서.
+- 안전하게: 열 때 금고에서 새로 읽어 판 번호(v)를 쥐고 → [바뀐 것 보기](금고 지금 판과 비교) → [저장] = 읽은 통째에서 gw · servers 만 바꿔 `cas=그 판` 으로 씀.
+  그 사이 idp-login 이 먼저 고쳤으면 금고가 거절 → "다시 불러온 뒤 고쳐 주세요". 모르는 칸 · users 는 그대로. 답을 못 받으면 "저장됐는지 모름".
+- 누가 고쳤나: 작업이력(`inventory.edit`, 이메일 · `v7 → v8` · 바뀐 종류 — 주소는 안 적음). 금고 안에는 안 적는다. 시각은 금고가 판마다 적는 `created_time`.
+- 금고에 하는 일: `GET inventory/data/<환경>/<서비스>` · `POST inventory/data/<환경>/<서비스>`(`options.cas`) 둘뿐 — create · delete · metadata 쓰기 없음.
+- API: `GET /api/inventory/<환경>/<서비스>` · `POST …/preview` · `PUT …` (`routers/inventory_edit.py`)
+
 ### 탭별 출처 — 고칠 때 어디를 보면 되나
 
 기준: **방식(어떻게)은 빌드·배포, 버전(무엇으로)은 config, 서버에 깔린 것은 서버 탭.** 화면의 표마다 같은 "출처" 줄이 붙어 있다.
