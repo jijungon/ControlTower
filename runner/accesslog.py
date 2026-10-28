@@ -65,7 +65,6 @@ def _header(d: Any) -> dict[str, Any] | None:
         "host": _str(d.get("host")),
         "interval_seconds": _int(d.get("interval_seconds")) or None,
         "window_days": _int(d.get("window_days")),
-        "source": _str(d.get("source")),
         "audit_ok": d["read_ok"],
         "audit_reason": _str(d.get("why")),
         "files_read": _int(d.get("files_read")),       # 0 이면 중앙이 '못 봄'

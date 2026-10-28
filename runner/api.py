@@ -16,14 +16,16 @@ class CentralAPI:
 
     def upload_host_status(self, source: str, reader: str, snap: dict[str, Any]) -> dict[str, Any]:
         """서버가 스스로 적는 상태 파일을 읽은 결과(read_status) — 못 읽었으면 그 이유를 그대로 올린다."""
-        r = self._client.post("/api/host-status", json={"source": source, "reader": reader, **snap})
+        r = self._client.post("/api/host-status", json={**snap, "source": source, "reader": reader})
         r.raise_for_status()
         return r.json()
 
     def upload_access_log(self, source: str, reader: str, snap: dict[str, Any]) -> dict[str, Any]:
         """금고 접속 기록 요약 파일을 읽은 결과(read_access) — 못 읽었으면 그 이유를 그대로 올린다."""
         body = {k: v for k, v in snap.items() if k != "digest"}  # 지문은 '바뀌었나' 판단용, 중앙엔 안 보냄
-        r = self._client.post("/api/access-log", json={"source": source, "reader": reader, **body})
+        # source · reader 를 맨 뒤에 — 읽은 내용에 같은 이름이 있어도 덮어쓰지 않게(10-28 운영: 파일의 source 가
+        # 'idp' 를 덮어 중앙이 늘 '연결 전' 으로 보였다)
+        r = self._client.post("/api/access-log", json={**body, "source": source, "reader": reader})
         r.raise_for_status()
         return r.json()
 

@@ -33,11 +33,12 @@ def _write(tmp_path, lines, name="access.jsonl"):
 def test_reads_header_and_events_as_the_idp_writes_them(tmp_path):
     s = read_access(_write(tmp_path, [HEAD, EV_PERSON, EV_GW, "{깨진 줄", EV_MACHINE, EV_OTHER, ""]))
     assert s["read_ok"] is True and s["read_error"] is None
-    assert {k: s[k] for k in ("written_at", "host", "interval_seconds", "window_days", "source", "audit_ok", "audit_reason",
+    assert {k: s[k] for k in ("written_at", "host", "interval_seconds", "window_days", "audit_ok", "audit_reason",
                               "files_read", "lines_read", "source_bad_lines", "header_events", "truncated")} == {
         "written_at": "2026-10-28T02:00:00Z", "host": "idp-host", "interval_seconds": 60, "window_days": 14,
-        "source": "openbao-audit", "audit_ok": True, "audit_reason": None, "files_read": 3, "lines_read": 812,
+        "audit_ok": True, "audit_reason": None, "files_read": 3, "lines_read": 812,
         "source_bad_lines": 1, "header_events": 4, "truncated": False}
+    assert "source" not in s  # 파일의 source('openbao-audit')는 안 싣는다 — 올릴 때 'idp' 를 덮어썼다(10-28 운영)
     assert [e["kind"] for e in s["events"]] == ["person", "person", "machine", "other"]
     assert s["events"][1]["account"] is None and s["events"][1]["role"] == "dev-gw"  # 개인 gw 계정
     assert s["events"][3]["who"] is None  # 이름 없는 기록도 버리지 않음
@@ -148,3 +149,30 @@ def test_agent_does_not_resend_unchanged_file_every_round(monkeypatch, tmp_path)
     with pytest.raises(_Stop):
         cli.cmd_agent(cfg)
     assert [s[2]["written_at"] for s in sent] == ["2026-10-28T02:00:00Z", "2026-10-28T02:01:00Z"]
+
+
+def test_upload_keeps_our_source_even_if_the_file_has_one():
+    # 읽은 내용에 source · reader 가 있어도 올리는 이름('idp' · 수집기 이름)이 이긴다 — 10-28 운영에서
+    # 파일 머리의 source('openbao-audit')가 'idp' 를 덮어 중앙이 늘 '연결 전' 이었다
+    import httpx
+
+    from runner.api import CentralAPI
+
+    sent: list = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+
+        sent.append((request.url.path, json.loads(request.content)))
+        return httpx.Response(200, json={"ok": True})
+
+    api = CentralAPI("http://central", "t")
+    api._client = httpx.Client(base_url="http://central", transport=httpx.MockTransport(handler))
+    snap = {"source": "openbao-audit", "reader": "file", "read_ok": True, "digest": "x", "events": []}
+    api.upload_access_log("idp", "collector-1", snap)
+    api.upload_host_status("idp", "collector-1", {"source": "file", "reader": "file", "read_ok": True})
+    assert [(p, b["source"], b["reader"]) for p, b in sent] == [
+        ("/api/access-log", "idp", "collector-1"),
+        ("/api/host-status", "idp", "collector-1"),
+    ]
+    assert "digest" not in sent[0][1]

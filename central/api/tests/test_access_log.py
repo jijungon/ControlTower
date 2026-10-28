@@ -155,3 +155,29 @@ def test_only_operators_see_it_in_proxy_mode(client, monkeypatch):
     assert s["state"] == "no_identity" and s["events"] == []
     # 수집기의 올리기는 proxy 모드에서도 그대로 닿는다
     assert client.post("/api/access-log", json=_snap(), headers=AUTH).status_code == 200
+
+
+def test_collector_file_to_screen_end_to_end(client, local, tmp_path):
+    """수집기가 실제로 읽고(read_access) 실제로 올린(CentralAPI) 그대로 화면까지 — 중간을 손으로 만들지 않는다.
+    10-28 운영: 파일 머리의 source('openbao-audit')가 올릴 때 'idp' 를 덮어 중앙이 늘 '연결 전' 이었는데,
+    위 시험들은 API 에 source='idp' 를 직접 넣어서 못 잡았다."""
+    import json
+
+    from runner.accesslog import read_access
+    from runner.api import CentralAPI
+
+    head = {"written_at": _ago(20), "host": "idp-host", "interval_seconds": 60, "window_days": 14, "source": "openbao-audit",
+            "read_ok": True, "why": None, "files_read": 15, "lines_read": 2600, "bad_lines": 0, "events": 2, "truncated": False}
+    ev_ns = {**EV_NEW, "at": "2026-10-28T03:04:06.322348939Z"}  # 실제 파일처럼 나노초
+    f = tmp_path / "access.jsonl"
+    f.write_text("\n".join(json.dumps(x) for x in (head, ev_ns, EV_OLD)) + "\n")
+
+    api = CentralAPI("http://unused", "unused")
+    client.headers.update(AUTH)
+    api._client = client  # 수집기의 HTTP 를 그대로 앱으로 — 몸통 모양 · 이름 순서까지 실제와 같다
+    api.upload_access_log("idp", "test-collector", read_access(str(f)))
+
+    s = _get(client)
+    assert s["state"] == "ok", s["reasons"]
+    assert (s["files_read"], s["lines_read"], len(s["events"])) == (15, 2600, 2)
+    assert s["events"][0]["at"].startswith("2026-10-28T03:04:06.322348")
