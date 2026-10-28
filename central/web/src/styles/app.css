@@ -403,6 +403,10 @@ table.grid tbody tr.row-detail > td { background: var(--canvas-parchment); paddi
 .access-log__kind { margin-left: 6px; }
 .access-log__reason { margin-left: 6px; font-size: 12px; }
 .access-log__note { font-size: 12px; margin: 8px 0 0; }
+.access-log__logins { font-size: 13px; line-height: 1.5; }
+.access-log__logins .badge { margin-bottom: 2px; }
+.access-log__gws { margin-bottom: 16px; }
+.access-log__sub { font-size: 15px; margin: 20px 0 8px; }
 .access-legend { font-size: 12px; margin: 0 0 8px; }
 .access-tools { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .access-tools .btn--sm { margin-right: 0; }

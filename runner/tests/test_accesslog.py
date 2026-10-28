@@ -176,3 +176,118 @@ def test_upload_keeps_our_source_even_if_the_file_has_one():
         ("/api/host-status", "idp", "collector-1"),
     ]
     assert "digest" not in sent[0][1]
+
+
+# ── 2단계: gw-logins.jsonl — gw 에 실제로 들어간 기록(IdP 7159c7f) ─────────────
+
+from runner.accesslog import gw_summary, read_gw_logins  # noqa: E402
+
+GW_HEAD = {**HEAD, "events": 3, "reports": 5,
+           "gws": [{"gw": "gw-alpha", "host": "alpha-host", "env": "dev", "service": "shop",  # IdP fc8f96a — gw 가 적은 목록 키
+                    "last_report_at": "2026-10-28T05:20:00.123456789Z",
+                    "every_seconds": 300, "read_ok": True, "why": None, "source": "journal", "files_read": 1, "lines_read": 77},
+                   {"gw": "gw-beta", "host": "beta-host", "env": "stg", "service": None,  # 옛 trust — env 만
+                    "last_report_at": "2026-10-28T05:19:00Z", "every_seconds": 300,
+                    "read_ok": False, "why": "auth.log 권한 없음", "source": "auth.log", "files_read": 0, "lines_read": 0},
+                   {"gw": "gw-gamma", "host": "gamma-host", "last_report_at": "2026-10-28T05:18:00Z", "every_seconds": 300,
+                    "read_ok": True, "why": None, "source": "journal", "files_read": 1, "lines_read": 3},  # 옛 모양 — 칸 없음
+                   {"host": "이름 없는 gw"}, "깨진 칸"]}
+LOGIN = {"at": "2026-10-28T05:21:38.619202123Z", "gw": "gw-alpha", "account": "ubuntu", "kind": "person",
+         "who": "ops@example.com", "serial": "776cb41cedacd9d8", "issued_at": "2026-10-28T05:04:58.434246277Z",
+         "env": "dev", "role": "dev-ubuntu"}
+LOGIN_NO_ISSUE = {"at": "2026-10-27T01:00:00Z", "gw": "gw-beta", "account": "dev1", "kind": "robot", "who": None,
+                  "serial": "0a0b0c0d0e0f1011", "issued_at": None, "env": None, "role": None}
+
+
+def test_gw_logins_reads_header_gws_and_logins_as_the_idp_writes_them(tmp_path):
+    s = read_gw_logins(_write(tmp_path, [GW_HEAD, LOGIN, "{깨진 줄", {**LOGIN, "gw": ""}, LOGIN_NO_ISSUE], "gw-logins.jsonl"))
+    assert s["read_ok"] is True and s["audit_ok"] is True and (s["files_read"], s["lines_read"], s["reports"]) == (3, 812, 5)
+    assert "source" not in s  # 머리의 source('openbao-audit')는 안 싣는다 — 올리는 이름을 덮지 않게
+    assert s["gws"] == [
+        {"gw": "gw-alpha", "host": "alpha-host", "env": "dev", "service": "shop", "last_report_at": "2026-10-28T05:20:00.123456Z",
+         "every_seconds": 300, "read_ok": True, "why": None, "log_source": "journal", "files_read": 1, "lines_read": 77},
+        {"gw": "gw-beta", "host": "beta-host", "env": "stg", "service": None, "last_report_at": "2026-10-28T05:19:00Z",
+         "every_seconds": 300, "read_ok": False, "why": "auth.log 권한 없음", "log_source": "auth.log", "files_read": 0, "lines_read": 0},
+        {"gw": "gw-gamma", "host": "gamma-host", "env": None, "service": None, "last_report_at": "2026-10-28T05:18:00Z",
+         "every_seconds": 300, "read_ok": True, "why": None, "log_source": "journal", "files_read": 1, "lines_read": 3},
+    ]  # env · service 가 없으면 None — 중앙이 '목록과 못 이음'(이름으로 짐작하지 않음)
+    assert all("source" not in g for g in s["gws"])  # gw 의 source 도 이름을 바꿔 싣는다(log_source)
+    assert s["bad_gws"] == 2  # gw 이름 없는 칸 · 깨진 칸 — 버리지 않고 셈
+    assert s["events"] == [
+        {"at": "2026-10-28T05:21:38.619202Z", "gw": "gw-alpha", "account": "ubuntu", "kind": "person",
+         "who": "ops@example.com", "serial": "776cb41cedacd9d8", "issued_at": "2026-10-28T05:04:58.434246Z",
+         "env": "dev", "role": "dev-ubuntu"},
+        {"at": "2026-10-27T01:00:00Z", "gw": "gw-beta", "account": "dev1", "kind": "other", "who": None,
+         "serial": "0a0b0c0d0e0f1011", "issued_at": None, "env": None, "role": None},  # 발급 기록 못 찾음 · 모르는 kind 는 other
+    ]
+    assert s["bad_lines"] == 2 and s["event_lines"] == 4  # 깨진 줄 · gw 없는 줄
+    assert gw_summary(s) == "2번 · 보고한 gw 3대 · 깨진 줄 2"
+    for e in s["events"]:
+        datetime.fromisoformat(e["at"].replace("Z", "+00:00"))  # 나노초도 읽힘
+
+
+def test_gw_logins_header_without_gws_is_unknown_not_empty(tmp_path):
+    old = {k: v for k, v in GW_HEAD.items() if k != "gws"}
+    s = read_gw_logins(_write(tmp_path, [old, LOGIN], "gw-logins.jsonl"))
+    assert s["gws"] is None and s["bad_gws"] == 0  # 빈 목록([])이 아니라 모름(None) — 중앙이 '보고 안 함' 으로 그리지 않게
+    assert gw_summary(s) == "1번 · 보고한 gw 모름"
+    s = read_gw_logins(_write(tmp_path, [{**GW_HEAD, "gws": "깨짐"}, LOGIN], "gw-logins.jsonl"))
+    assert s["gws"] is None
+
+
+def test_gw_logins_cannot_read_keeps_reason(tmp_path):
+    s = read_gw_logins(str(tmp_path / "gw-logins.jsonl"))  # IdP 반영 전 — 파일 없음
+    assert s == {"read_ok": False, "read_error": "파일 없음", "events": [], "bad_lines": 0}
+    assert gw_summary(s) == "못 봄(파일 없음)"
+    s = read_gw_logins(_write(tmp_path, [{**GW_HEAD, "read_ok": False, "why": "감사 기록 없음"}], "gw-logins.jsonl"))
+    assert s["audit_ok"] is False and gw_summary(s) == "못 봄(IdP 가 금고 기록을 못 읽음 — 감사 기록 없음)"
+
+
+def _fake_api_gw(sent):
+    class FakeAPI(_fake_api(sent)):
+        def upload_gw_logins(self, source, reader, snap):
+            sent.append((source, reader, snap))
+            return {"ok": True}
+
+    return FakeAPI
+
+
+def test_agent_uploads_gw_logins_and_reason_when_missing(monkeypatch, tmp_path):
+    import runner.cli as cli
+
+    sent: list = []
+    monkeypatch.setattr(cli, "CentralAPI", _fake_api_gw(sent))
+    path = _write(tmp_path, [GW_HEAD, LOGIN], "gw-logins.jsonl")
+    cfg = types.SimpleNamespace(central_url="x", api_token="t", runner_name="test-collector", idp_status_file="",
+                                idp_access_file=_write(tmp_path, [HEAD, EV_PERSON]), idp_gw_logins_file=path)
+    cli.cmd_agent(cfg, once=True)
+    assert [(s[0], s[1], len(s[2]["events"])) for s in sent] == [("idp", "test-collector", 1), ("idp-gw", "test-collector", 1)]
+
+    sent.clear()
+    cfg.idp_access_file = ""
+    cfg.idp_gw_logins_file = str(tmp_path / "없는파일.jsonl")  # IdP 반영 전 — 건너뛰지 않고 '못 봄' 을 올림
+    cli.cmd_agent(cfg, once=True)
+    assert [(s[0], s[2]["read_ok"], s[2]["read_error"]) for s in sent] == [("idp-gw", False, "파일 없음")]
+
+    sent.clear()
+    cfg.idp_gw_logins_file = ""
+    cli.cmd_agent(cfg, once=True)
+    assert sent == []  # 꺼짐
+
+
+def test_gw_upload_keeps_our_source_even_if_the_file_has_one():
+    import httpx
+
+    from runner.api import CentralAPI
+
+    sent: list = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append((request.url.path, json.loads(request.content)))
+        return httpx.Response(200, json={"ok": True})
+
+    api = CentralAPI("http://central", "t")
+    api._client = httpx.Client(base_url="http://central", transport=httpx.MockTransport(handler))
+    api.upload_gw_logins("idp-gw", "collector-1", {"source": "openbao-audit", "reader": "file", "read_ok": True, "digest": "x"})
+    assert [(p, b["source"], b["reader"]) for p, b in sent] == [("/api/access-log/gw-logins", "idp-gw", "collector-1")]
+    assert "digest" not in sent[0][1]

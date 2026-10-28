@@ -466,15 +466,54 @@ export type AccessLog = {
   names?: { state: NamesState; reasons: string[]; notes: string[]; people: Record<string, { name: string | null; active: boolean }> }
 }
 
+// gw 접속 기록(2단계) — 그 인증서로 gw 에 실제로 들어간 기록(gw 보고 → IdP 요약 파일 → 수집기 → 중앙). 운영자만
+export type GwLogin = {
+  at: string // gw 에 들어간 시각(ISO UTC)
+  gw: string // gw 출입증 이름(별칭) — 서비스는 gws 의 같은 gw 로 찾음(이 줄의 env 는 도장의 환경)
+  account: string | null // gw 의 리눅스 계정(ubuntu · appuser · 개인 계정)
+  kind: 'person' | 'machine' | 'other'
+  who: string | null
+  serial: string | null // 인증서 번호 — 발급 기록의 serial 과 같음(이어 붙임)
+  issued_at: string | null // 발급 기록에서 옮긴 값 — 못 찾았으면 null(14일 넘음 등)
+  env: string | null
+  role: string | null
+}
+export type GwReport = {
+  gw: string | null // 보낸 gw 의 출입증 이름(관리자가 지은 별칭) — 목록에만 있고 보고가 없는 줄은 null
+  host: string | null // gw 자기 이름(보기만)
+  env: string | null // gw 가 스스로 적은 금고 목록 키 — 목록과 잇는 건 env · service 뿐(이름으로 짐작 안 함)
+  service: string | null
+  // 보고 중 · 보고 끊김 · 못 봄 · 보고 안 함 · 보고 안 함일 수 있음(목록과 못 잇는 보고가 있어 단정 못 함)
+  state: 'ok' | 'stale' | 'unknown' | 'silent' | 'maybe_silent'
+  reason: string | null
+  last_report_at: string | null
+  age_seconds: number | null
+  every_seconds: number | null
+  // 금고 목록과: 있음 · 보낸 키가 목록에 없음 · env · service 를 안 보내 못 이음 · 목록을 못 읽음
+  link: 'listed' | 'not_listed' | 'unlinked' | 'unknown'
+}
+export type GwLogins = Omit<AccessLog, 'events' | 'names'> & {
+  events: GwLogin[]
+  reports: number | null
+  gws: GwReport[]
+  gws_known: boolean // 파일에 gw 마다 상태가 있었나 — 없으면 '보고 안 함' 을 못 가림
+  reporting: number // 보고 중인 gw 수
+  unlinked: number // 목록과 못 잇는 보고 수(env · service 없음)
+  inventory: { state: 'ok' | 'off' | 'error' | 'skipped'; reason: string | null }
+}
+
 // 403(운영자 아님)은 따로 알아보게 — '못 불러옴' 과 다르다
 export class ForbiddenError extends Error {}
 
-export async function fetchAccessLog(): Promise<AccessLog> {
-  const res = await fetch('/api/access-log')
+async function operatorGet<T>(url: string): Promise<T> {
+  const res = await fetch(url)
   if (res.status === 403) throw new ForbiddenError(((await res.json().catch(() => null)) as { detail?: string } | null)?.detail ?? '운영자만 볼 수 있어요')
-  if (!res.ok) throw new Error(`GET /api/access-log ${res.status}`)
+  if (!res.ok) throw new Error(`GET ${url} ${res.status}`)
   return res.json()
 }
+
+export const fetchAccessLog = () => operatorGet<AccessLog>('/api/access-log')
+export const fetchGwLogins = () => operatorGet<GwLogins>('/api/access-log/gw-logins')
 
 // 지금 도는 ControlTower 버전 — 반영할 때 CT_VERSION/CT_BUILD 를 넣는다. 안 넣으면 'dev'(화면은 '버전 모름')
 export type AppVersion = { version: string; build: string; started_at?: string | null }
