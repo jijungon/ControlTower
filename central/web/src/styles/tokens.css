@@ -57,4 +57,8 @@
 
   /* 배포 방식 '이미지'(표준) — 보라. 초록이면 executor 의 shell 연두와 같아 보여서 겹치지 않는 색으로 */
   --deploy-image: #6a4fc0; --deploy-image-bg: #f1edfb;
+
+  /* 서버 탭 '누가 · 어디로' — 운영자 주황 · 개발자 청록 (보라·파랑은 서로 구분이 안 된다고 해서 바꿈) */
+  --access-admin: #d85a30; --access-admin-soft: #f0997b; --access-admin-bg: #faece7; --access-admin-ink: #712b13;
+  --access-dev: #1d9e75;   --access-dev-soft: #9fe1cb;   --access-dev-bg: #e1f5ee;   --access-dev-ink: #085041;
 }

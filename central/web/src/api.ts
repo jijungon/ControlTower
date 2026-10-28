@@ -354,6 +354,21 @@ export type Access = {
   people: AccessPerson[]
 }
 
+// 지금 로그인한 사람 — 그룹을 아는 모드(oidc · proxy)에서만 authenticated · groups 가 찬다
+export type Me = { authenticated: boolean; email: string | null; groups: string[] }
+
+export async function fetchMe(): Promise<Me> {
+  const res = await fetch('/api/me')
+  if (!res.ok) throw new Error(`GET /api/me ${res.status}`)
+  return res.json()
+}
+
+// 개발자(server-admin 아님)는 서버 탭만 — API 도 같은 선으로 막는다(central/api/app/main.py)
+export function developerOnly(me: Me | null): boolean {
+  const groups = me && Array.isArray(me.groups) ? me.groups : []
+  return !!me && me.authenticated === true && groups.includes('developer') && !groups.includes('server-admin')
+}
+
 export async function fetchAccess(): Promise<Access> {
   const res = await fetch('/api/access')
   if (!res.ok) throw new Error(`GET /api/access ${res.status}`)
