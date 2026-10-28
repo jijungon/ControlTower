@@ -16,7 +16,7 @@
   개발자 줄: 이름표에서 찾으면 name · active, 못 찾으면 None(이메일만).
 운영자 줄은 운영자에게만 — 개발자(server-admin 아님) 응답엔 운영자 줄 · 이름 · 이메일 · 갈 곳 · 이름 알림이 아예 없다(10-28).
   화면에서 숨기는 게 아니라 응답에서 뺀다. 개발자는 dev · stg 의 개발자 줄만 받는다.
-  이름표 까닭(names.reasons)도 개발자에겐 원문 대신 일반 문구 한 줄 — state 는 그대로(이름 표시에 씀).
+  이름표 까닭(names.reasons) · 금고 오류(state=error 의 error)도 개발자에겐 원문 대신 일반 문구 한 줄 — state 는 그대로.
 can_edit = 화면에 '고치기' 를 보일까(CT_INVENTORY_EDIT 가 켜졌고 운영자일 때만) — 고치기 자체는 routers/inventory_edit.py.
 """
 from __future__ import annotations
@@ -35,6 +35,7 @@ router = APIRouter(prefix="/api", tags=["access"])
 
 AUDIENCE = {"dev": "개발자 · 운영자", "stg": "개발자 · 운영자", "prod": "운영자만"}
 DEV_NAMES_REASON = "이름표를 못 읽어 이름 없이 이메일만 보여요"  # 개발자에게 보내는 이름표 까닭 — 원문 대신 이 한 줄
+DEV_INVENTORY_ERROR = "운영자에게 알려 주세요"  # 개발자에게 보내는 금고 오류 — 원문(파일 · 금고 경로 · 예외 문장) 대신 이 한 줄
 
 
 def _inventory_on() -> bool:
@@ -120,7 +121,7 @@ def access(user: Principal = Depends(current_user), db: Session = Depends(get_db
     except InventoryError as exc:
         if str(exc) == "off":
             return {**base, "state": "off"}
-        return {**base, "state": "error", "error": str(exc)}
+        return {**base, "state": "error", "error": DEV_INVENTORY_ERROR if developer_only(user) else str(exc)}
 
     names = idp_people.current(db)
     known = idp_people.by_email(names)

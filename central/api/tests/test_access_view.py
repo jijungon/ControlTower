@@ -51,6 +51,33 @@ def test_못_읽으면_error_와_까닭을_보여준다(client, monkeypatch):
     assert r["state"] == "error" and "AppRole" in r["error"]
 
 
+RAW_ERRORS = [
+    "AppRole 로그인 실패 — secret_id 만료가 가장 흔하다",
+    "secret_id 파일을 못 읽는다: /run/secrets/ct-inventory-secret-id",
+    "금고 LIST inventory/metadata/dev: HTTP 403 permission denied",
+]
+
+
+def test_개발자에겐_금고_오류_원문_대신_일반_문구_운영자는_원문(client, monkeypatch):
+    """금고 오류 원문(파일 · 금고 경로 · 예외 문장)은 운영 안쪽 정보 — 개발자에겐 state=error 와 일반 문구 한 줄만."""
+    monkeypatch.setattr(settings, "ct_inventory_mode", "vault")
+    for raw in RAW_ERRORS:
+        def boom(raw=raw):
+            raise inventory_source.InventoryError(raw)
+        monkeypatch.setattr(access_router, "fetch_inventory", boom)
+        r = client.get("/api/access", headers=_oidc(monkeypatch, ["developer"])).json()
+        assert r["state"] == "error" and r["error"] == access_router.DEV_INVENTORY_ERROR, raw
+        body = str(r)
+        for trace in (raw, "AppRole", "secret_id", "/run/secrets", "inventory/", "403"):
+            assert trace not in body, trace
+        for groups in (["server-admin"], ["developer", "server-admin"]):
+            r = client.get("/api/access", headers=_oidc(monkeypatch, groups)).json()
+            assert r == {**r, "state": "error", "error": raw}, groups
+        monkeypatch.setattr(settings, "ct_auth_mode", "none")
+        monkeypatch.setattr(settings, "ct_access_local_preview", True)
+        assert client.get("/api/access").json()["error"] == raw  # 로컬 미리보기도 원문
+
+
 def test_그룹을_모르면_전부가_아니라_막고_금고도_안_읽는다(client, monkeypatch):
     """운영 모양: 앞단 Authentik 만 로그인, ControlTower 는 사용자를 모름(CT_AUTH_MODE=none) + 금고 연결 켬.
     '모른다' 를 '다 볼 수 있다' 로 보면 developer · viewer 에게도 운영 gw · 서버 주소가 간다."""
