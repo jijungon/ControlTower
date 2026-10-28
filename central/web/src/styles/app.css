@@ -354,7 +354,7 @@ table.grid tbody tr.row-detail > td { background: var(--canvas-parchment); paddi
 .access { position: relative; display: grid; grid-template-columns: minmax(0, 2fr) minmax(48px, 1fr) minmax(0, 7fr); margin-bottom: 24px; align-items: start; }
 .access-people { padding: 12px; }
 .access-colhead { font-size: 13px; color: var(--ink-muted-48); margin-bottom: 8px; }
-.access-person { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; width: 100%; text-align: left; background: none; border: 0; border-top: 1px solid var(--divider-soft); padding: 10px 6px 10px 10px; cursor: pointer; border-radius: var(--radius-sm); }
+.access-person { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; width: 100%; text-align: left; background: none; border: 0; border-top: 1px solid var(--divider-soft); padding: 10px 6px 10px 10px; cursor: pointer; border-radius: var(--radius-sm); }
 .access-person:first-of-type { border-top: 0; }
 .access-person--admin { border-left: 3px solid var(--access-admin); }
 .access-person--developer { border-left: 3px solid var(--access-dev); }
@@ -455,13 +455,9 @@ table.grid tbody tr.row-detail > td { background: var(--canvas-parchment); paddi
 @keyframes access-flow-admin { to { stroke-dashoffset: -66; } }
 @keyframes access-flow-dev { to { stroke-dashoffset: -64; } }
 
-/* 사람 상자 윗테두리에 20×2 막대가 왔다 갔다 (환경 상자는 뺌 — 10-28) */
-.access-person::before { content: ''; position: absolute; top: 0; left: 0; width: 20px; height: 2px; border-radius: 1px; animation: access-scan 3.2s ease-in-out infinite alternate; }
-.access-person--admin::before { background: var(--access-admin); }
-.access-person--developer::before { background: var(--access-dev); }
-@keyframes access-scan { to { left: calc(100% - 20px); } }
+/* 사람 상자 막대도 뺌(10-29) — 환경 상자는 10-28 에 뺌 */
 @media (prefers-reduced-motion: reduce) {
-  .access-link__flow, .access-person::before { animation: none; }
+  .access-link__flow { animation: none; }
 }
 @media (max-width: 800px) {
   .access { grid-template-columns: minmax(0, 1fr); gap: 12px; }
