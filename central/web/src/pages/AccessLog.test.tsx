@@ -214,12 +214,12 @@ test('발급 줄마다 그 인증서로 들어간 gw · 시각 · 계정 — 여
   expect(rows()).toHaveLength(6) // 기계 줄(과 그 접속)은 접어 둠
 })
 
-test('발급 기록 없는 접속은 따로 — 기계 접속은 접어 두고, 기계 줄에 이어진 접속은 그쪽에', async () => {
+test('발급 기록과 못 이은 접속은 따로 — 기계 접속은 접어 두고, 기계 줄에 이어진 접속은 그쪽에', async () => {
   serve(ISSUED_OK, GW)
   render(<AccessLog />)
-  expect(await screen.findByText('발급 기록 없는 접속(14일 넘음 등)')).toBeInTheDocument()
+  expect(await screen.findByText('발급 기록과 못 이은 접속 — 번호 기록 설정 전에 받았거나 14일 넘은 인증서')).toBeInTheDocument()
   expect(orphanRows().map((r) => [r[1], r[2], r[3], r[4], r[5]])).toEqual([
-    ['gw-shop-dev', 'ubuntu', 'ops@example.com', 'dead0000beef1111', '발급 기록 없음(14일 넘음 등)'],
+    ['gw-shop-dev', 'ubuntu', 'ops@example.com', 'dead0000beef1111', '못 이음(번호 기록 설정 전 · 14일 넘음 등)'],
   ]) // 16일 전 접속은 기간(14일) 밖
   fireEvent.click(within(screen.getByRole('radiogroup', { name: '기간 필터' })).getByRole('radio', { name: '오늘' }))
   fireEvent.click(within(screen.getByRole('radiogroup', { name: '기간 필터' })).getByRole('radio', { name: '14일' }))
@@ -315,7 +315,7 @@ test('발급 기록을 못 보면 gw 접속을 이어 붙이지 않고 따로 �
   expect(rows()).toHaveLength(0)
   expect(orphanRows()).toHaveLength(7) // 사람 접속 8번 중 기간(14일) 안 7번 — 기계 2번은 접어 둠
   expect(screen.getByText('기계 · 시험/관리 토큰 접속 2번은 접어 두었어요.')).toBeInTheDocument()
-  expect(orphanRows()[0][5]).toBe('발급 기록 없음(14일 넘음 등)')
+  expect(orphanRows()[0][5]).toBe('못 이음(번호 기록 설정 전 · 14일 넘음 등)')
 })
 
 test('gw 접속 기록만 못 불러오면 그 까닭 — 칸은 "못 봄"', async () => {

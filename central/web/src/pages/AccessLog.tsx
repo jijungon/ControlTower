@@ -436,7 +436,7 @@ export default function AccessLog() {
               {gw.notes.length > 0 && <p className="muted access-log__note">{gw.notes.join(' · ')}</p>}
 
               <h3 className="access-log__sub">
-                {data?.state === 'ok' ? '발급 기록 없는 접속(14일 넘음 등)' : '들어간 gw · 시각 — 발급 기록을 못 봐서 이어 붙이지 못했어요'}
+                {data?.state === 'ok' ? '발급 기록과 못 이은 접속 — 번호 기록 설정 전에 받았거나 14일 넘은 인증서' : '들어간 gw · 시각 — 발급 기록을 못 봐서 이어 붙이지 못했어요'}
               </h3>
               {gw.events.length === 0 ? (
                 <div className="card placeholder access-msg" data-testid="gw-no-logins">
@@ -479,7 +479,7 @@ export default function AccessLog() {
                           </td>
                           <td className="mono muted">{l.serial ?? '번호 없음'}</td>
                           <td className="muted">
-                            {l.issued_at ? `${fmtTime(at(l.issued_at))}${l.env ? ` · ${l.env}` : ''}` : '발급 기록 없음(14일 넘음 등)'}
+                            {l.issued_at ? `${fmtTime(at(l.issued_at))}${l.env ? ` · ${l.env}` : ''}` : '못 이음(번호 기록 설정 전 · 14일 넘음 등)'}
                           </td>
                         </tr>
                       ))}

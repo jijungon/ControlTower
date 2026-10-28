@@ -154,7 +154,7 @@ def _gw_login(d: Any) -> dict[str, Any] | None:
         "kind": kind if kind in KINDS else "other",
         "who": _str(d.get("who")) or None,
         "serial": _str(d.get("serial")) or None,
-        "issued_at": _at(d.get("issued_at")),  # 발급 기록을 못 찾았으면 None(14일 넘음 등)
+        "issued_at": _at(d.get("issued_at")),  # 발급 기록을 못 찾았으면 None(번호 기록 설정 전 발급 · 14일 넘음 등)
         "env": _str(d.get("env")),
         "role": _str(d.get("role")),
     }
