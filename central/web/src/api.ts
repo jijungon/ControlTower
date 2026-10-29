@@ -502,6 +502,43 @@ export type GwLogins = Omit<AccessLog, 'events' | 'names'> & {
   inventory: { state: 'ok' | 'off' | 'error' | 'skipped'; reason: string | null }
 }
 
+// 서버 접속 기록(3단계) — 그 인증서로 gw 뒤 서버에 실제로 들어간 기록(gw 가 서버 기록을 읽어 보냄 → IdP 요약 파일 → 수집기 → 중앙). 운영자만
+export type ServerLogin = {
+  at: string // 서버에 들어간 시각(ISO UTC)
+  server: string // 금고 목록 inventory/<env>/<service> 의 servers 키
+  gw: string | null // 그 서버 기록을 읽어 보낸 gw
+  service: string | null // 그 gw 의 서비스
+  account: string | null // 서버의 리눅스 계정
+  kind: 'person' | 'machine' | 'other'
+  who: string | null
+  serial: string | null // 인증서 번호 — 발급 기록 · gw 접속 기록의 serial 과 같음(이어 붙임)
+  issued_at: string | null // 발급 기록에서 옮긴 값 — 못 찾았으면 null(번호 기록 설정 전 발급 · 14일 넘음 등)
+  env: string | null // 도장의 환경(발급 기록) — 서버의 환경은 servers 에서
+  role: string | null
+}
+export type ServerRead = {
+  server: string
+  gw: string | null // 읽은 gw — 목록에만 있고 읽기가 없는 줄은 null
+  host: string | null // 서버 자기 이름(보기만)
+  env: string | null // 그 gw 의 금고 목록 키 — 목록과 잇는 건 (env, service, server) 뿐(이름으로 짐작 안 함)
+  service: string | null
+  // 읽는 중 · 못 읽음(까닭 그대로) · 끊김(10분 넘게 안 읽음) · 모름 · 안 읽음(목록에만 있음) · 안 읽음일 수 있음(목록과 못 잇는 읽기가 있어 단정 못 함)
+  state: 'ok' | 'failed' | 'stale' | 'unknown' | 'silent' | 'maybe_silent'
+  reason: string | null
+  last_read_at: string | null
+  age_seconds: number | null
+  link: 'listed' | 'not_listed' | 'unlinked' | 'unknown'
+}
+export type ServerLogins = Omit<AccessLog, 'events' | 'names'> & {
+  events: ServerLogin[]
+  reports: number | null
+  servers: ServerRead[]
+  servers_known: boolean // 파일에 서버마다 읽기 상태가 있었나 — 없으면 '안 읽음' 을 못 가림
+  reading: number // 읽는 중인 서버 수
+  unlinked: number // 목록과 못 잇는 읽기 수(env · service 없음)
+  inventory: { state: 'ok' | 'off' | 'error' | 'skipped'; reason: string | null }
+}
+
 // 403(운영자 아님)은 따로 알아보게 — '못 불러옴' 과 다르다
 export class ForbiddenError extends Error {}
 
@@ -514,6 +551,7 @@ async function operatorGet<T>(url: string): Promise<T> {
 
 export const fetchAccessLog = () => operatorGet<AccessLog>('/api/access-log')
 export const fetchGwLogins = () => operatorGet<GwLogins>('/api/access-log/gw-logins')
+export const fetchServerLogins = () => operatorGet<ServerLogins>('/api/access-log/server-logins')
 
 // 지금 도는 ControlTower 버전 — 반영할 때 CT_VERSION/CT_BUILD 를 넣는다. 안 넣으면 'dev'(화면은 '버전 모름')
 export type AppVersion = { version: string; build: string; started_at?: string | null }
