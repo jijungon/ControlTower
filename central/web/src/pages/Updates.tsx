@@ -37,7 +37,7 @@ export default function Updates() {
         asOf={latestTime((rows ?? []).map((r) => r.collected_at))}
         onRefresh={() => runAll(setBusy, [() => load()])}
         busy={busy}
-        source="서버마다 SSH 로 apt(없으면 yum/dnf) 대기 패치 · 수집 python -m runner.cli updates"
+        source="서버마다 SSH 로 apt(없으면 yum/dnf) 대기 패치 · 수집 python -m runner.cli updates, 또는 수집기가 금고 도장(15분)으로(CT_CERT_SERVERS)"
       />
 
       <div className="card">
@@ -60,7 +60,15 @@ export default function Updates() {
                       <span className="caret">{r.pending > 0 ? (isOpen ? '▾' : '▸') : ''}</span>
                       {r.hostname}
                     </td>
-                    <td>{r.error ? <span className="badge badge--danger">수집 실패</span> : r.pending}</td>
+                    <td>
+                      {r.error ? (
+                        <span className="badge badge--danger">수집 실패</span>
+                      ) : r.blocked ? (
+                        <span className="badge badge--muted" title={r.blocked_reason}>이 길로는 못 읽음</span>
+                      ) : (
+                        r.pending
+                      )}
+                    </td>
                     <td>
                       {r.security > 0 ? (
                         <span className="badge badge--danger">{r.security}</span>
@@ -75,6 +83,8 @@ export default function Updates() {
                       <td colSpan={4}>
                         {r.error ? (
                           <div className="muted">수집 실패 — {r.error}</div>
+                        ) : r.blocked ? (
+                          <div className="muted">금고 도장으로는 못 읽는 항목 — {r.blocked_reason}</div>
                         ) : r.pending === 0 ? (
                           <div className="muted">대기 중인 업데이트 없음</div>
                         ) : (

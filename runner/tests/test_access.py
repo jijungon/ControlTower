@@ -1,7 +1,7 @@
 """접속 어댑터(access) + 서명기(signer) 단위 테스트 — OpenBao 없이 검증.
 
 핵심: 기본(key) 모드는 기존과 동일(추가 옵션 없음). cert 모드는 서명된 인증서 옵션을 끼운다.
-서명 미설정/실패면 key 로 폴백.
+서명 미설정/실패면 key 로 폴백. 금고 로그인 · 비밀 파일 · 도장 본문은 test_signer.py.
 """
 import json
 
@@ -69,21 +69,38 @@ def test_signer_caches_and_gates(monkeypatch, tmp_path):
     signer.reset_cache()
     key = tmp_path / "id"
     (tmp_path / "id.pub").write_text("ssh-ed25519 AAAA test")
-    calls = {"n": 0}
+    calls = []
 
-    def fake_sign(pub, keyp):
-        calls["n"] += 1
-        return keyp + "-cert.pub"
+    def fake_sign(env, pub, token=None):
+        calls.append((env, pub))
+        return "CERT-DATA"
 
     monkeypatch.setenv("CT_BAO_ADDR", "https://bao.local")
     monkeypatch.setenv("CT_SSH_KEY", str(key))
-    monkeypatch.setattr(signer, "_sign", fake_sign)
+    monkeypatch.delenv("CT_BAO_SSH_ENV", raising=False)
+    monkeypatch.setattr(signer, "sign", fake_sign)
 
     first = signer.ensure_cert("a")
     second = signer.ensure_cert("b")
-    assert first == second        # 프로세스 캐시 재사용
-    assert calls["n"] == 1         # 서명은 1회만(서버마다 다시 안 함)
-    assert first[0] == str(key)
+    assert calls == [("dev", "ssh-ed25519 AAAA test")]  # 공개키를 실제로 읽어 dev(기본) 도장을 한 번만
+    assert first == second == (str(key), str(key) + "-cert.pub")  # 프로세스 캐시 재사용
+    assert (tmp_path / "id-cert.pub").read_text() == "CERT-DATA"
+
+
+def test_signer_cache_expires_before_cert_does(monkeypatch, tmp_path):
+    """15분 도장 — 오래 도는 프로세스가 끊긴 도장을 계속 쓰지 않게 10분 지나면 다시 받는다."""
+    signer.reset_cache()
+    (tmp_path / "id.pub").write_text("ssh-ed25519 AAAA test")
+    calls = []
+    monkeypatch.setenv("CT_BAO_ADDR", "https://bao.local")
+    monkeypatch.setenv("CT_SSH_KEY", str(tmp_path / "id"))
+    monkeypatch.setattr(signer, "sign", lambda env, pub, token=None: calls.append(env) or "C")
+    now = [1000.0]
+    monkeypatch.setattr(signer.time, "monotonic", lambda: now[0])
+    signer.ensure_cert("a")
+    now[0] += signer.CACHE_SECONDS + 1
+    signer.ensure_cert("a")
+    assert calls == ["dev", "dev"]
 
 
 def test_signer_unconfigured_returns_none(monkeypatch):
@@ -92,13 +109,11 @@ def test_signer_unconfigured_returns_none(monkeypatch):
     assert signer.ensure_cert("a") is None
 
 
-def test_signer_sign_via_http(monkeypatch, tmp_path):
-    """_sign 이 bao CLI 아닌 HTTP(urllib)로 OpenBao 에 서명 요청하는지 검증."""
+def test_signer_sign_via_http(monkeypatch):
+    """sign 이 bao CLI 아닌 HTTP(urllib)로 ssh-<환경>/sign/<환경>-collector 에 서명 요청하는지."""
     signer.reset_cache()
     monkeypatch.setenv("CT_BAO_ADDR", "http://bao.local")
     monkeypatch.setenv("CT_BAO_TOKEN", "root")
-    monkeypatch.delenv("CT_BAO_ROLE_ID", raising=False)
-    monkeypatch.delenv("CT_BAO_SECRET_ID", raising=False)
 
     captured = {}
 
@@ -111,14 +126,10 @@ def test_signer_sign_via_http(monkeypatch, tmp_path):
 
     monkeypatch.setattr(signer.urllib.request, "urlopen", fake_urlopen)
 
-    key = tmp_path / "id"
-    cert = signer._sign("ssh-ed25519 AAAA pub", str(key))
-
-    assert cert == str(key) + "-cert.pub"
-    assert (tmp_path / "id-cert.pub").read_text() == "CERT-DATA"
-    assert captured["url"].endswith("/v1/ssh-client-signer/sign/runner-ro")
+    assert signer.sign("dev", "ssh-ed25519 AAAA pub") == "CERT-DATA"
+    assert captured["url"] == "http://bao.local/v1/ssh-dev/sign/dev-collector"
     assert captured["token"] == "root"
-    assert captured["body"]["public_key"] == "ssh-ed25519 AAAA pub"
+    assert captured["body"] == {"public_key": "ssh-ed25519 AAAA pub"}
     assert captured["context"] is None  # http → 기존 경로 그대로
 
 
@@ -172,7 +183,7 @@ def test_ssl_context_is_passed_to_urlopen(monkeypatch, tmp_path):
         return FakeResp({"data": {"signed_key": "C"}})
 
     monkeypatch.setattr(signer.urllib.request, "urlopen", fake_urlopen)
-    signer._sign("ssh-ed25519 AAAA pub", str(tmp_path / "id"))
+    signer.sign("dev", "ssh-ed25519 AAAA pub")
     assert isinstance(seen["context"], signer.ssl.SSLContext)
 
 

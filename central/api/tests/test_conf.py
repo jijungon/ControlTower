@@ -55,3 +55,20 @@ def test_drift_flow(client):
     client.post("/api/conf/snapshots", json={"snapshots": [{"server_id": sid, "path": PATH, "content": None, "error": "No such file"}]}, headers=AUTH)
     row = client.get("/api/conf").json()[0]
     assert row["status"] == "error" and row["detail"] == "No such file"
+
+
+def test_도장으로_못_읽는_경로는_blocked(client):
+    """수집기 도장 길(#58): 박힌 규칙 밖이라 안 보냈거나 금고가 거절한 경로 → status=blocked(수집 실패 아님), 까닭은 detail."""
+    from app.routers.conf import BLOCKED
+
+    sid = _server(client)
+    client.post("/api/conf/targets", json={"path": "/opt/app/app.conf"}, headers=AUTH)
+    why = "박힌 규칙 밖의 경로(/etc 아래 · compose 파일만) — 보내지 않음"
+    client.post(
+        "/api/conf/snapshots",
+        json={"snapshots": [{"server_id": sid, "path": "/opt/app/app.conf", "content": None, "error": BLOCKED + why}]},
+        headers=AUTH,
+    )
+    rows = client.get("/api/conf").json()
+    assert len(rows) == 1 and rows[0]["path"] == "/opt/app/app.conf"  # 올린 것을 실제로 읽었는지 먼저
+    assert rows[0]["status"] == "blocked" and rows[0]["detail"] == why

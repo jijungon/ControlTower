@@ -154,6 +154,12 @@ class CentralAPI:
         return r.json()
 
     # ── 다시 수집(화면 버튼) ──
+    def collect_servers(self, picks: list[str]) -> dict[str, Any]:
+        """도장 길(#58)로 읽을 서버의 주소 — 중앙이 금고 목록에서 이 이름들(<환경>/<서비스>/<서버>)만 찾아 준다."""
+        r = self._client.get("/api/collect/servers", params={"pick": picks})
+        r.raise_for_status()
+        return r.json()
+
     def claim_collect(self, kind: str, collector: str, mode: str, schedule: str | None = None) -> dict[str, Any] | None:
         """켜져 있다는 표시(+ 자동 수집 시각) + 기다리는 요청이 있으면 하나 가져옴(없으면 None)."""
         r = self._client.post("/api/collect/claim", json={"kind": kind, "collector": collector, "mode": mode, "schedule": schedule})

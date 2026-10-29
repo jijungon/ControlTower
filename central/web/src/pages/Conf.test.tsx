@@ -51,3 +51,18 @@ test('적용 대기 섹션 — 승인 버튼과 diff 토글', async () => {
   // 이미 계획된 (web-02) drift 행은 '계획됨' 으로 표시 → 적용 계획 버튼 없음
   expect(screen.queryByRole('button', { name: '적용 계획' })).not.toBeInTheDocument()
 })
+
+test('금고 도장 길로 못 읽는 경로는 수집 실패가 아니라 이 길로는 못 읽음', async () => {
+  routed(
+    [
+      { server_id: 7, hostname: 'dev/shop/web-01', path: '/opt/app/app.conf', status: 'blocked', detail: '박힌 규칙 밖의 경로(/etc 아래 · compose 파일만) — 보내지 않음' },
+      { server_id: 7, hostname: 'dev/shop/web-01', path: '/etc/hosts', status: 'error', detail: 'timeout' },
+    ],
+    [],
+  )
+  render(<Conf />)
+  expect(await screen.findByText('/opt/app/app.conf')).toBeInTheDocument() // 받은 줄을 실제로 그렸나 먼저
+  expect(screen.getByText('이 길로는 못 읽음')).toBeInTheDocument()
+  expect(screen.getAllByText('수집 실패')).toHaveLength(1)
+  expect(screen.getByText(/박힌 규칙 밖의 경로/)).toBeInTheDocument()
+})

@@ -49,7 +49,8 @@ export const createGroup = (name: string) => postJsonServer('/api/groups', { nam
 export const setServerMeta = (id: number, meta: { group_id?: number | null; tags?: string[] }) =>
   postJsonServer(`/api/servers/${id}/meta`, meta) as Promise<Server>
 
-export type ConfStatus = 'synced' | 'drift' | 'no_baseline' | 'error'
+// blocked = 수집기 도장 길(#58)로는 못 읽는 경로 — 수집 실패도 정상도 아님(detail 에 까닭)
+export type ConfStatus = 'synced' | 'drift' | 'no_baseline' | 'error' | 'blocked'
 
 export type ConfRow = {
   server_id: number
@@ -131,6 +132,8 @@ export type UpdateRow = {
   security: number
   packages: UpdatePkg[]
   error?: string
+  blocked?: boolean // 수집기 도장 길(#58)로는 못 읽음 — 수집 실패도 '대기 0' 도 아님
+  blocked_reason?: string
   collected_at?: string | null
 }
 

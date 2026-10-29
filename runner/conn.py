@@ -8,6 +8,28 @@ import shlex
 import subprocess
 
 from .access import ssh_access_opts
+from .apt import parse_upgradable
+from .yum import parse_yum
+
+# ── IdP 수집기 도장(#58)에 박힌 명령과 **한 글자도** 다르면 안 되는 글 ──
+# ssh 는 호스트 뒤 argv 를 공백으로 이어 한 줄로 보낸다. 금고는 그 한 줄이 아래 셋 중 하나일 때만 돌리고,
+# 그 밖은 rc 126 + stderr 'idp-collect: …' 로 거절한다. 바꾸면 금고 쪽 박힌 명령도 같이 바꿔야 한다.
+APT_UPGRADABLE = ("apt", "list", "--upgradable")
+YUM_CHECK_UPDATE = "sh -lc 'command -v dnf >/dev/null 2>&1 && dnf -q check-update || yum -q check-update'"
+# 도장이 거절한 것 — '오류'(접속 · 권한)도 '정상(값 없음)'도 아닌 '이 길로는 못 읽음'. 중앙이 이 머리글로 가른다
+# (central/api/app/routers/updates.py · conf.py 의 BLOCKED 와 같은 글)
+BLOCKED = "이 길(도장)로는 못 읽음 — "
+REFUSED_RC = 126
+REFUSED_MARK = "idp-collect:"
+
+
+def _why(rc: int, stderr: str) -> str:
+    """실패 까닭 한 줄. 도장이 거절했으면(rc 126 + 'idp-collect:') BLOCKED 머리글을 붙인다 — 둘 다일 때만."""
+    lines = [ln.strip() for ln in (stderr or "").strip().splitlines() if ln.strip()]
+    refused = next((ln for ln in lines if ln.startswith(REFUSED_MARK)), None)
+    if rc == REFUSED_RC and refused:
+        return BLOCKED + refused
+    return lines[-1] if lines else f"exit {rc}"
 
 
 def _ssh_argv(alias: str, timeout: int) -> list[str]:
@@ -43,12 +65,15 @@ def test_ssh(alias: str, timeout: int = 8) -> tuple[bool, str]:
         return False, "ssh not found"
 
 
-def read_file(alias: str, path: str, timeout: int = 8) -> tuple[str | None, str | None]:
-    """서버의 파일 내용을 읽는다(시스템 ssh cat). (content, error) — 실패 시 (None, error)."""
+def read_file(alias: str, path: str, timeout: int = 8, ssh: list[str] | None = None) -> tuple[str | None, str | None]:
+    """서버의 파일 내용을 읽는다(시스템 ssh cat). (content, error) — 실패 시 (None, error).
+
+    ssh = 호스트까지 포함한 ssh 앞부분(도장 길 — runner/certpath.py). 없으면 ~/.ssh/config 별칭(alias)으로.
+    """
     try:
         r = subprocess.run(
             [
-                *_ssh_argv(alias, timeout),
+                *(ssh or _ssh_argv(alias, timeout)),
                 "cat", "--", path,
             ],
             capture_output=True,
@@ -57,8 +82,7 @@ def read_file(alias: str, path: str, timeout: int = 8) -> tuple[str | None, str 
         )
         if r.returncode == 0:
             return r.stdout, None
-        err = r.stderr.strip()
-        return None, (err.splitlines()[-1] if err else f"exit {r.returncode}")
+        return None, _why(r.returncode, r.stderr)
     except subprocess.TimeoutExpired:
         return None, "timeout"
     except FileNotFoundError:
@@ -151,14 +175,13 @@ def run_remote(alias: str, command: str, timeout: int = 8) -> tuple[str | None, 
         return None, "ssh not found"
 
 
-def list_upgrades_yum(alias: str, timeout: int = 8) -> tuple[str | None, str | None]:
+def list_upgrades_yum(alias: str, timeout: int = 8, ssh: list[str] | None = None) -> tuple[str | None, str | None]:
     """yum/dnf 업그레이드 목록(조회만). rc 100=업데이트 있음(정상), 0=없음. dnf 우선, 없으면 yum."""
-    cmd = "sh -lc 'command -v dnf >/dev/null 2>&1 && dnf -q check-update || yum -q check-update'"
     try:
         r = subprocess.run(
             [
-                *_ssh_argv(alias, timeout),
-                cmd,
+                *(ssh or _ssh_argv(alias, timeout)),
+                YUM_CHECK_UPDATE,
             ],
             capture_output=True,
             text=True,
@@ -166,15 +189,14 @@ def list_upgrades_yum(alias: str, timeout: int = 8) -> tuple[str | None, str | N
         )
         if r.returncode in (0, 100):   # yum/dnf: 100 = 업데이트 있음
             return r.stdout, None
-        err = r.stderr.strip()
-        return None, (err.splitlines()[-1] if err else f"exit {r.returncode}")
+        return None, _why(r.returncode, r.stderr)
     except subprocess.TimeoutExpired:
         return None, "timeout"
     except FileNotFoundError:
         return None, "ssh not found"
 
 
-def list_upgrades(alias: str, timeout: int = 8) -> tuple[str | None, str | None]:
+def list_upgrades(alias: str, timeout: int = 8, ssh: list[str] | None = None) -> tuple[str | None, str | None]:
     """대기 중인 apt 업그레이드 목록을 읽는다(`apt list --upgradable`). (stdout, error).
 
     읽기 전용 조회다 — 서버를 변경하지 않는다(설치·업그레이드 안 함).
@@ -183,8 +205,8 @@ def list_upgrades(alias: str, timeout: int = 8) -> tuple[str | None, str | None]
     try:
         r = subprocess.run(
             [
-                *_ssh_argv(alias, timeout),
-                "apt", "list", "--upgradable",
+                *(ssh or _ssh_argv(alias, timeout)),
+                *APT_UPGRADABLE,
             ],
             capture_output=True,
             text=True,
@@ -192,9 +214,21 @@ def list_upgrades(alias: str, timeout: int = 8) -> tuple[str | None, str | None]
         )
         if r.returncode == 0:
             return r.stdout, None
-        err = r.stderr.strip()
-        return None, (err.splitlines()[-1] if err else f"exit {r.returncode}")
+        return None, _why(r.returncode, r.stderr)
     except subprocess.TimeoutExpired:
         return None, "timeout"
     except FileNotFoundError:
         return None, "ssh not found"
+
+
+def read_updates(alias: str, timeout: int = 8, ssh: list[str] | None = None) -> tuple[list[dict] | None, str | None]:
+    """대기 OS 패치 → (패키지들, 오류). apt 가 없으면(not found) dnf/yum 으로 한 번 더. 못 읽으면 (None, 까닭)."""
+    out, err = list_upgrades(alias, timeout, ssh)
+    if out is not None:
+        return parse_upgradable(out), None
+    if err and "not found" in err.lower():   # apt 없음 → yum/dnf 폴백
+        yout, yerr = list_upgrades_yum(alias, timeout, ssh)
+        if yout is not None:
+            return parse_yum(yout), None
+        return None, yerr
+    return None, err

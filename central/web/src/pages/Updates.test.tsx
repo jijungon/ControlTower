@@ -52,3 +52,17 @@ test('OS 패치는 10개씩 페이지로', async () => {
   expect(screen.getByText('srv-11')).toBeInTheDocument()
   expect(screen.queryByText('srv-01')).toBeNull()
 })
+
+test('금고 도장 길로 못 읽은 서버는 수집 실패 · 대기 0 이 아니라 이 길로는 못 읽음', async () => {
+  mockFetch([
+    { server_id: 7, hostname: 'dev/shop/web-01', pending: 0, security: 0, packages: [], error: '', blocked: true, blocked_reason: 'idp-collect: this certificate only runs …' },
+    { server_id: 8, hostname: 'dev/shop/web-02', pending: 0, security: 0, packages: [], error: 'timeout' },
+  ])
+  render(<Updates />)
+  expect(await screen.findByText('dev/shop/web-01')).toBeInTheDocument() // 받은 줄을 실제로 그렸나 먼저
+  expect(screen.getByText('이 길로는 못 읽음')).toBeInTheDocument()
+  expect(screen.getAllByText('수집 실패')).toHaveLength(1) // web-02(진짜 오류)만
+  await userEvent.click(screen.getByText('dev/shop/web-01'))
+  expect(screen.getByText(/금고 도장으로는 못 읽는 항목 — idp-collect:/)).toBeInTheDocument()
+  expect(screen.queryByText('대기 중인 업데이트 없음')).toBeNull()
+})

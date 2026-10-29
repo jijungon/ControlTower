@@ -11,6 +11,7 @@
   python -m runner.cli shape    # 서비스 비교표 + center config(start.sh 상태·형태) 수집(shape-targets.yml)
   python -m runner.cli all      # 모든 수집기 1회(--loop --interval N 로 주기 실행)
   python -m runner.cli apply    # 승인된 conf 를 서버에 실제 적용(--dry-run/--rollback ID)
+  python -m runner.cli cert-read # 금고 도장으로 CT_CERT_SERVERS 의 서버에서 OS 패치 · /etc 읽기(--plan: 찾기만)
 
 env: CT_CENTRAL_URL(기본 :8000) · CT_API_TOKEN(기본 dev-runner-token) · CT_SSH_CONFIG(기본 ~/.ssh/config)
 접속 테스트는 시스템 ssh 가 ~/.ssh/config(ProxyJump·키)를 그대로 사용한다.
@@ -30,11 +31,10 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
-from . import applier
+from . import applier, certpath
 from .accesslog import gw_summary, read_access, read_gw_logins, read_server_logins, server_summary
 from .accesslog import summary as access_summary
 from .api import CentralAPI
-from .apt import parse_upgradable
 from .cishape import (
     BUILD_KINDS,
     DEPLOY_KINDS,
@@ -55,7 +55,7 @@ from .cishape import (
     pick_versions,
 )
 from .config import RunnerConfig
-from .conn import gateway_aliases, list_upgrades, list_upgrades_yum, read_file, read_file_via, run_remote, test_ssh
+from .conn import gateway_aliases, read_file, read_file_via, read_updates, run_remote, test_ssh
 from .gitlab import (
     fetch_job_log_head,
     fetch_latest_pipeline,
@@ -74,7 +74,6 @@ from .probe import probe_ssh
 from .repoversions import extract_versions
 from .sshconf import parse_ssh_config
 from .versions import PROBES, parse_version
-from .yum import parse_yum
 
 # 선언본 후보 파일(있는 것만 파싱)
 REPO_VERSION_FILES = (".nvmrc", "package.json", "pom.xml")
@@ -170,17 +169,7 @@ def cmd_updates(cfg: RunnerConfig, group: str | None = None, host: str | None = 
         servers = _select(api.list_servers(), group, host, online)
         snaps = []
         for s in servers:
-            out, err = list_upgrades(s["hostname"], cfg.connect_timeout)
-            if out is not None:
-                pkgs = parse_upgradable(out)
-            elif err and "not found" in err.lower():   # apt 없음 → yum/dnf 폴백
-                yout, yerr = list_upgrades_yum(s["hostname"], cfg.connect_timeout)
-                if yout is not None:
-                    pkgs, err = parse_yum(yout), None
-                else:
-                    pkgs, err = None, yerr
-            else:
-                pkgs = None
+            pkgs, err = read_updates(s["hostname"], cfg.connect_timeout)  # apt, 없으면 yum/dnf
             snaps.append({"server_id": s["id"], "packages": pkgs, "error": err})
         res = api.upload_update_snapshots(snaps)
         pending = sum(len(x["packages"]) for x in snaps if x["packages"])
@@ -1064,7 +1053,8 @@ def cmd_agent(
     기본은 GitLab 만 다시 읽음(서버에 SSH 키 없이). ssh=True 면 서버 compose 도 SSH 로(키가 있는 PC 에서만).
     """
     name = name or cfg.runner_name
-    mode = "gitlab+ssh" if ssh else "gitlab"
+    cert_on = bool(certpath.picks(getattr(cfg, "cert_servers", ""))[0])  # 도장 길(#58) — CT_CERT_SERVERS 가 비면 끔
+    mode = ("gitlab+ssh" if ssh else "gitlab") + ("+cert" if cert_on else "")
     schedule = f"{daily_at} {tz}" if daily_at else None
     status_file = (getattr(cfg, "idp_status_file", "") or "").strip()  # 빈 값이면 서버 상태 읽기를 끔
     people_file = (getattr(cfg, "idp_people_file", "") or "").strip()  # 빈 값이면 이름표 읽기를 끔
@@ -1078,6 +1068,7 @@ def cmd_agent(
         + (f" · 접속 기록 파일 {access_file}" if access_file else " · 접속 기록 읽기 꺼짐")
         + (f" · gw 접속 기록 파일 {gw_file}" if gw_file else " · gw 접속 기록 읽기 꺼짐")
         + (f" · 서버 접속 기록 파일 {srv_file}" if srv_file else " · 서버 접속 기록 읽기 꺼짐")
+        + (f" · 도장으로 서버 읽기 {cfg.cert_servers}" if cert_on else " · 도장 길 꺼짐")
     )
     asked: str | None = None  # 오늘 자동 요청을 이미 물어봤나(같은 날 반복 호출 줄이기)
     sent: tuple | None = None  # 서버 상태 — 마지막으로 올린 (읽음?, 이유, 기록 시각)
@@ -1140,6 +1131,13 @@ def cmd_agent(
                     res = cmd_shape(cfg, targets_path, "read" if ssh else None, no_ssh=not ssh)
                 except Exception as e:  # 수집 중 오류 → 실패로 닫고 계속 기다림
                     res = {"ok": False, "message": f"수집 중 오류: {type(e).__name__}: {e}"[:300]}
+                if cert_on:  # 서버 안의 정보(OS 패치 · /etc) — 금고 도장(15분)으로, 실패해도 위 결과는 그대로 올림
+                    try:
+                        cres = certpath.collect(cfg, api)
+                    except Exception as e:  # noqa: BLE001 — 도장 길 오류가 요청을 열어 둔 채 남기지 않게
+                        cres = {"ok": False, "message": f"도장 길 오류: {type(e).__name__}: {e}"[:200]}
+                    print(f"[{time.strftime('%H:%M:%S')}] {cres['message']}")
+                    res = {"ok": res["ok"] and cres["ok"], "message": f"{res['message']} · {cres['message']}"}
                 api.finish_collect(req["id"], res["ok"], res["message"])
                 print(f"[{time.strftime('%H:%M:%S')}] 요청 #{req['id']} {'완료' if res['ok'] else '실패'} — {res['message']}")
         except httpx.HTTPError as e:
@@ -1220,6 +1218,20 @@ def cmd_probe(cfg: RunnerConfig, group: str | None = None, host: str | None = No
         api.close()
 
 
+def cmd_cert_read(cfg: RunnerConfig, plan: bool = False) -> dict:
+    """도장 길(#58) 한 번 — 수집기 컨테이너에서 손으로 확인할 때. 꺼져 있으면(CT_CERT_SERVERS 빈 값) 아무것도 안 함."""
+    if not certpath.picks(cfg.cert_servers)[0]:
+        print("도장 길 꺼짐 — CT_CERT_SERVERS 에 읽을 서버(<환경>/<서비스>/<서버>)를 적으면 켜짐")
+        return {"ok": False, "message": "도장 길 꺼짐"}
+    api = CentralAPI(cfg.central_url, cfg.api_token)
+    try:
+        res = certpath.collect(cfg, api, plan=plan)
+    finally:
+        api.close()
+    print(res["message"])
+    return res
+
+
 def run_all_once(cfg: RunnerConfig) -> None:
     """모든 수집기를 1회 실행. 한 스텝이 실패해도 나머지는 계속(격리)."""
     steps = [
@@ -1287,6 +1299,8 @@ def main() -> None:
         help="자동 수집 시각 HH:MM(기본 CT_COLLECT_DAILY_AT, 비우면 버튼만) — 예: 09:00",
     )
     agp.add_argument("--tz", default=os.environ.get("CT_COLLECT_TZ", "Asia/Seoul"), help="자동 수집 시각의 시간대(기본 Asia/Seoul)")
+    crp = sub.add_parser("cert-read", help="금고 도장(15분)으로 CT_CERT_SERVERS 의 서버에서 OS 패치 · /etc 읽기(읽기만)")
+    crp.add_argument("--plan", action="store_true", help="금고 목록에서 찾기까지만(로그인 · 접속 안 함)")
     allp = sub.add_parser("all", help="모든 수집기 1회 실행(--loop 로 주기 반복)")
     allp.add_argument("--loop", action="store_true", help="간격을 두고 반복 실행")
     allp.add_argument("--interval", type=int, default=300, help="반복 간격(초, 기본 300)")
@@ -1319,6 +1333,8 @@ def main() -> None:
             cfg, args.targets, interval=args.interval, once=args.once, ssh=args.ssh, name=args.name,
             daily_at=args.daily_at or None, tz=args.tz,
         )
+    elif args.cmd == "cert-read":
+        cmd_cert_read(cfg, plan=args.plan)
     elif args.cmd == "all":
         cmd_all(cfg, loop=args.loop, interval=args.interval)
     elif args.cmd == "apply":

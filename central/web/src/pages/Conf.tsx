@@ -19,6 +19,7 @@ const BADGE: Record<ConfStatus, JSX.Element> = {
   drift: <span className="badge badge--warn">드리프트</span>,
   no_baseline: <span className="badge badge--muted">기준본 없음</span>,
   error: <span className="badge badge--danger">수집 실패</span>,
+  blocked: <span className="badge badge--muted">이 길로는 못 읽음</span>,
 }
 
 const APPLY_BADGE: Record<ApplyStatus, JSX.Element> = {
