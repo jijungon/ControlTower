@@ -2,18 +2,21 @@
 
 중앙은 키·토큰이 없다(조회 전용). 그래서 수집을 직접 하지 않고 요청만 저장한다.
 수집기는 ControlTower 와 같은 서버(또는 PC)에서 돌며 몇 초마다 /claim 으로 요청을 확인 → GitLab 을 다시 읽어 올림 → /finish.
+GET /servers — 수집기가 도장 길(#58)로 읽을 서버의 주소. 수집기 신분(ct-collector)은 금고 목록을 못 읽어서
+  중앙(ct-inventory)이 대신 찾아 준다 — 수집기가 이름으로 물은 서버만, 이름 · 주소만(사람 · 이메일은 안 줌).
 """
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..audit import record
 from ..auth import require_runner
 from ..db import get_db
+from ..inventory_source import ENVS, InventoryError, fetch_inventory
 from ..models import Collector, CollectRequest
 
 router = APIRouter(prefix="/api/collect", tags=["collect"])
@@ -22,6 +25,7 @@ KINDS = {"shape"}  # shape = 빌드·배포 + config (runner shape)
 ALIVE_SECONDS = 60  # 이 안에 확인했으면 '수집기 켜짐'
 STALE_MINUTES = 15  # 수집 중으로 이만큼 지나면 수집기가 죽은 것 → 실패로
 PENDING_MINUTES = 10  # 요청됨으로 이만큼 아무도 안 가져가면 취소(수집기가 꺼져 있던 것)
+MAX_PICKS = 50  # /servers 에 한 번에 물을 수 있는 이름 수
 
 
 def _now() -> datetime:
@@ -188,3 +192,28 @@ def finish(request_id: int, body: FinishIn, db: Session = Depends(get_db)) -> di
     record(db, "collect.done" if body.ok else "collect.failed", target_type="collect", target_id=r.kind, detail=r.message)
     db.commit()
     return _out(r)
+
+
+@router.get("/servers", dependencies=[Depends(require_runner)])
+def collect_servers(pick: list[str] = Query(default=[])) -> dict:
+    """pick = <환경>/<서비스>/<서버> 이름들 → 금고 목록(inventory/<환경>/<서비스> 의 servers)에서 찾은 주소.
+    찾은 것만 servers 에, 못 찾은 이름은 missing 에(추측하지 않음). 이름을 안 주면 아무것도 안 준다(목록 통째로 안 내줌).
+    금고 연결이 꺼져 있으면 state=off, 못 읽으면 state=error(까닭) — 빈 목록으로 보이지 않게."""
+    picks = list(dict.fromkeys(p.strip() for p in pick if p.strip()))[:MAX_PICKS]
+    try:
+        inv = fetch_inventory()
+    except InventoryError as exc:
+        if str(exc) == "off":
+            return {"state": "off", "servers": [], "missing": picks}
+        return {"state": "error", "error": str(exc), "servers": [], "missing": picks}
+    servers, missing = [], []
+    for p in picks:
+        env, _, rest = p.partition("/")
+        service, _, name = rest.partition("/")
+        entry = (inv.get(env) or {}).get(service) if env in ENVS else None
+        addr = ((entry or {}).get("servers") or {}).get(name) if isinstance(entry, dict) else None
+        if name and "/" not in name and isinstance(addr, str) and addr:
+            servers.append({"env": env, "service": service, "name": name, "addr": addr})
+        else:
+            missing.append(p)
+    return {"state": "ok", "servers": servers, "missing": missing}

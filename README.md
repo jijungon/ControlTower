@@ -67,7 +67,7 @@ flowchart TB
   repo = 개발자가 코드를 올리는 곳(빌드 설정 · node 버전) · center = 이미지를 만들고 배포하는 곳(빌드·배포 버전) · config = 서버에서 실행할 설정(Dockerfile · start.sh).
 - **보는 길(보라)** — 주소를 열면 **로그인**(사내 IdP)부터, 허락된 그룹만 통과 → **화면**. 화면은 GitLab 을 직접 읽지 않고 **DB 에 모아 둔 것**을 보여 준다. 그래서 화면에 "데이터 기준 ○시 ○분" 이 함께 나온다.
 - **DB(회색)** — 두 길이 만나는 곳. 수집기는 넣기만, 화면은 꺼내기만.
-- **아직 못 읽는 것(점선)** — 서버 compose · OS 패치 · /etc 는 GitLab 이 아니라 **각 서버 안**에 있어 SSH 로만 읽힌다. ControlTower 서버에는 다른 서버로 들어갈 **키를 두지 않으므로** 지난 값 그대로 — 필요하면 키를 가진 PC 의 러너(아래)로 채우고, 나중에는 IdP 의 단명 SSH 인증서로 읽는다.
+- **아직 못 읽는 것(점선)** — 서버 compose · OS 패치 · /etc 는 GitLab 이 아니라 **각 서버 안**에 있어 SSH 로만 읽힌다. ControlTower 서버에는 다른 서버로 들어갈 **키를 두지 않으므로** 지난 값 그대로 — 필요하면 키를 가진 PC 의 러너(아래)로 채운다. OS 패치 · /etc 는 IdP 의 단명 도장으로 읽는 길이 생겼다(기본 꺼짐 — 아래 '수집기가 금고 도장으로 서버 안 읽기').
 - 화면 · API · DB 는 서버 안(127.0.0.1)에만 열리고, 밖에서는 로그인을 거쳐야만 닿는다(→ [docs/DEPLOY.md](docs/DEPLOY.md) 의 ⚠ BIND_ADDR).
 - 코드 반영: GitHub `main` → 서버가 새 코드를 받아 다시 띄움.
 
@@ -123,7 +123,7 @@ ControlTower는 **혼자서도 그대로 돌고**, 나중에 사내 IdP/Secrets 
 운영 OpenBao는 HTTPS(사내 CA 발급)에 LB가 mTLS를 요구할 수 있다. 주소가 `https://` 일 때만 적용되며,
 `http://`(PoC·개발)에는 **아무 영향이 없다.**
 
-| | 러너(`CT_SSH_MODE=cert`) | 중앙(`CT_SECRET_MODE=vault`) |
+| | 러너 · 수집기 도장(`CT_SSH_MODE=cert` · `CT_CERT_SERVERS`) | 중앙(`CT_SECRET_MODE=vault`) |
 |---|---|---|
 | 사내 CA 번들(PEM) | `CT_BAO_CACERT` | `CT_VAULT_CACERT` |
 | 클라이언트 인증서 | `CT_BAO_CLIENT_CERT` | `CT_VAULT_CLIENT_CERT` |
@@ -225,6 +225,21 @@ CI/CD 파이프라인 상태와 repo 선언본 버전(node/nest/java)은 GitLab 
 - 빌드·배포 · config 는 ↻ 대신 이 버튼(끝나면 표를 새로 불러옴) — 데이터 기준 시각도 버튼 옆 한 곳에만
 - 속도: GitLab 호출을 미리 동시에(8개씩) 읽고, 같은 호출은 수집 한 번에 한 번만(같은 프로젝트의 job 목록 등), 버전 파일은 폴더 목록을 보고 있는 것만, 연결은 재사용 — 한 번에 55초 → 15초 안팎
 - API: `POST /api/collect/requests`(버튼) · `GET /api/collect/status` · `POST /api/collect/claim`·`/requests/{id}/finish`(수집기, 러너 토큰)
+
+### 수집기가 금고 도장으로 서버 안 읽기 (#58, 기본 끔)
+
+수집기가 금고(IdP)에서 **15분짜리 도장**을 받아 서버의 OS 패치 · /etc 를 읽고 버린다. 수집기 · 서버 어디에도 오래 사는 열쇠를 두지 않는다.
+
+- 켜기: `collector.env` 의 `CT_CERT_SERVERS` 에 읽을 서버를 **금고 목록 이름** `<환경>/<서비스>/<서버>` 로(쉼표로 여럿). 비면 꺼짐
+  - 주소는 적지 않는다 — 수집할 때마다 api 가 금고 목록(`inventory/<환경>/<서비스>` 의 servers)에서 그 이름의 주소를 준다(`GET /api/collect/servers`, 러너 토큰 · 물은 이름만 · 사람 정보 없음). 목록에 없으면 추측하지 않고 '목록에 없음'. 수집기 신분은 목록을 못 읽어서 api 가 대신 찾는다(api 의 `CT_INVENTORY_MODE=vault` 필요)
+  - 금고: `CT_BAO_ADDR` · 비밀 **파일** `CT_BAO_ROLE_ID_FILE` · `CT_BAO_SECRET_ID_FILE`(로그인할 때마다 새로 읽음 — 금고가 비밀을 바꿔도 그대로 돎) · https 면 `CT_BAO_CACERT` 등(아래 표)
+- 한 번 수집(매일 자동 · [다시 수집] 때 GitLab 다음에): 임시 폴더에 새 키 → 금고 로그인 → 대상 서버의 환경마다 도장 한 번(`ssh-<환경>/sign/<환경>-collector`, 본문은 공개키 하나만) → 서버마다 `appuser` 로 OS 패치(apt, 없으면 dnf/yum) · 등록한 /etc 파일 → 키 · 도장 지움
+- 도장에는 **명령이 박혀 있다** — `apt list --upgradable` · dnf/yum 확인 · `cat -- <경로>`(/etc 아래 또는 compose 파일) 세 가지만 돈다. 보내는 글이 한 글자라도 다르면 거절(`runner/conn.py` 의 상수, 시험이 글자를 못 박음)
+  - 거절(rc 126 + `idp-collect:`)과 규칙 밖 경로(보내지 않음)는 **'이 길로는 못 읽음'**(회색) — 빨간 '수집 실패'(접속 · 권한)와도, '대기 0'(정상)과도 다르다. 버전 확인(`node --version` 등)은 이 길로 안 되므로 시도하지 않는다
+  - 못 받은 도장 · 안 닿은 서버도 까닭과 함께 올린다 — 지난 값이 정상으로 남아 보이지 않게. 길 전체가 막히면(목록 · 도장) [다시 수집] 결과도 실패
+- 화면: OS 패치 표와 서버 탭 /etc 표에 서버 이름이 `<환경>/<서비스>/<서버>` 로 보인다
+- 손으로 확인: `docker compose exec collector python -m runner.cli cert-read --plan`(목록에서 찾기만) → `cert-read`(실제로 읽기)
+- 아직: 수집기에서 바로 22번으로 닿는 서버만(회사 서버 = gw 뒤는 따로). 서버 compose 를 이 길로 읽는 것은 그때 같이
 
 ### 화면 맨 위 — 서버 상태(정상 · 경보 · 모름)
 
@@ -343,7 +358,7 @@ CI/CD 파이프라인 상태와 repo 선언본 버전(node/nest/java)은 GitLab 
 | 서버 · 서버 설정 파일 (/etc) | 서버마다 같아야 하는 파일 비교·적용 | 서버마다 SSH 로 등록한 파일 | `conf` · `apply` | `/api/conf` · `Conf.tsx` |
 | 빌드·배포 · 서비스 비교 | 환경별 배포 방식 · executor | repo·center `.gitlab-ci.yml` (+ 서버 compose 로 확인) | `shape` (대상 `shape-targets.yml`) | `/api/cicd/shape` · `CicdCompare.tsx` |
 | config · config 폴더 | 코드에 적힌 버전 · 런타임/베이스 이미지 · 실행 명령 위치 · start.sh 상태·형태 | center config repo(Dockerfile·start.sh) · repo 코드(`.nvmrc`·`package.json`·`pom.xml`) · 서버 compose | `shape` (대상 `shape-targets.yml`) | `/api/cicd/config` · `ConfigRepo.tsx` |
-| OS 패치·작업이력 · OS 패치 | 서버마다 안 깔린 패치 | 서버마다 SSH 로 apt(→yum/dnf) | `updates` | `/api/updates` · `Updates.tsx` |
+| OS 패치·작업이력 · OS 패치 | 서버마다 안 깔린 패치 | 서버마다 SSH 로 apt(→yum/dnf) — 또는 수집기가 금고 도장으로 | `updates` · `cert-read`(수집기 `agent` 가 자동) | `/api/updates` · `Updates.tsx` |
 | OS 패치·작업이력 · 작업이력 | ControlTower 가 한 모든 일 | 중앙 API 가 기록 | — | `/api/audit` · `Jobs.tsx` |
 
 - 수집은 `python -m runner.cli <명령>`, 한 번에 다 돌리려면 `all` (`make collect`).

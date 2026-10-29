@@ -2,6 +2,8 @@
 
 흐름: 러너가 서버에서 `apt list --upgradable` 을 파싱해 snapshots 업로드 →
       GET /api/updates 로 서버별 대기/보안 개수 + 패키지 목록(드릴다운).
+수집기 도장 길(#58)에서 금고 도장이 거절한 것은 error 가 BLOCKED 로 시작한다 → blocked=True ·
+  '이 길로는 못 읽음'(오류도 정상도 아님). 까닭은 blocked_reason, error 는 빈 글.
 """
 from __future__ import annotations
 
@@ -19,6 +21,8 @@ from ..db import get_db
 from ..models import Server, UpdateSnapshot
 
 router = APIRouter(prefix="/api/updates", tags=["updates"])
+# runner/conn.py 의 BLOCKED 와 같은 글 — 도장이 거절함(rc 126 + idp-collect:) · 박힌 규칙 밖이라 안 보냄
+BLOCKED = "이 길(도장)로는 못 읽음 — "
 
 
 def _now() -> str:
@@ -60,6 +64,7 @@ def updates_matrix(db: Session = Depends(get_db)) -> list[dict]:
     for snap in db.query(UpdateSnapshot).all():
         pkgs: list[dict] = json.loads(snap.packages) if snap.packages else []
         srv = servers.get(snap.server_id)
+        blocked = (snap.error or "").startswith(BLOCKED)
         out.append(
             {
                 "server_id": snap.server_id,
@@ -67,7 +72,9 @@ def updates_matrix(db: Session = Depends(get_db)) -> list[dict]:
                 "pending": len(pkgs),
                 "security": sum(1 for p in pkgs if p.get("security")),
                 "packages": pkgs,
-                "error": snap.error or "",
+                "error": "" if blocked else (snap.error or ""),
+                "blocked": blocked,
+                "blocked_reason": snap.error[len(BLOCKED):] if blocked else "",
                 "collected_at": snap.collected_at,
             }
         )

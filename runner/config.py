@@ -32,6 +32,8 @@ class RunnerConfig:
     idp_gw_logins_file: str = "/idp-status/gw-logins.jsonl"
     # gw 뒤 서버에 실제로 들어간 기록(같은 폴더, gw 가 읽어 보낸 서버 sshd 기록) — 위 둘과 인증서 번호로 이어 붙임. 빈 값이면 끔
     idp_server_logins_file: str = "/idp-status/server-logins.jsonl"
+    # 도장 길(#58) — 금고 도장으로 읽을 서버, 금고 목록 이름 <환경>/<서비스>/<서버> 를 쉼표로. 빈 값이면 끔(기본)
+    cert_servers: str = ""
 
     @classmethod
     def load(cls) -> "RunnerConfig":
@@ -56,4 +58,5 @@ class RunnerConfig:
             idp_access_file=os.environ.get("CT_IDP_ACCESS_FILE", "/idp-status/access.jsonl").strip(),
             idp_gw_logins_file=os.environ.get("CT_IDP_GW_LOGINS_FILE", "/idp-status/gw-logins.jsonl").strip(),
             idp_server_logins_file=os.environ.get("CT_IDP_SERVER_LOGINS_FILE", "/idp-status/server-logins.jsonl").strip(),
+            cert_servers=os.environ.get("CT_CERT_SERVERS", "").strip(),
         )

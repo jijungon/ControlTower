@@ -2,6 +2,8 @@
 
 흐름: targets(관리 경로) → 러너가 서버에서 읽어 snapshots 업로드 →
       baseline(기준본)과 sha256 비교 → GET /api/conf 로 드리프트 매트릭스.
+수집기 도장 길(#58)에서 금고 도장이 거절했거나 박힌 규칙 밖이라 안 보낸 경로는 error 가 BLOCKED 로 시작한다 →
+  status=blocked · '이 길로는 못 읽음'(수집 실패도 정상도 아님).
 """
 from __future__ import annotations
 
@@ -19,6 +21,7 @@ from ..db import get_db
 from ..models import ConfApplyIntent, ConfBaseline, ConfSnapshot, ConfTarget, Server
 
 router = APIRouter(prefix="/api/conf", tags=["conf"])
+BLOCKED = "이 길(도장)로는 못 읽음 — "  # runner/conn.py 의 BLOCKED 와 같은 글
 
 
 def _now() -> str:
@@ -115,7 +118,10 @@ def conf_matrix(db: Session = Depends(get_db)) -> list[dict]:
     out: list[dict] = []
     for snap in db.query(ConfSnapshot).all():
         base = baselines.get(snap.path)
-        if snap.error:
+        blocked = (snap.error or "").startswith(BLOCKED)
+        if blocked:
+            status = "blocked"
+        elif snap.error:
             status = "error"
         elif base is None:
             status = "no_baseline"
@@ -130,7 +136,7 @@ def conf_matrix(db: Session = Depends(get_db)) -> list[dict]:
                 "hostname": srv.hostname if srv else str(snap.server_id),
                 "path": snap.path,
                 "status": status,
-                "detail": snap.error or "",
+                "detail": snap.error[len(BLOCKED):] if blocked else (snap.error or ""),
                 "collected_at": snap.collected_at,
             }
         )
