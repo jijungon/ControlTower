@@ -1,8 +1,9 @@
 """금고(IdP) 접속 기록 요약 파일 읽기 — IdP 서버가 1분마다 최근 14일치를 다시 쓰고, 수집기가 읽어 중앙에 올린다.
 
-파일 둘(같은 폴더, 같은 머리 모양):
+파일 셋(같은 폴더, 같은 머리 모양):
 - access.jsonl(1단계, read_access) — '누가 · 언제 · 어느 환경 · 어떤 계정' 인증서(도장)를 받았나(금고 기록)
 - gw-logins.jsonl(2단계, read_gw_logins) — 그 인증서로 '어느 gw 에 · 언제 · 어떤 계정으로' 실제로 들어갔나(gw 보고)
+- server-logins.jsonl(3단계, read_server_logins) — 그 인증서로 'gw 뒤 어느 서버에 · 언제 · 어떤 계정으로' 들어갔나(gw 가 읽어 보냄)
 
 규칙: '못 봤다' 를 '아무도 안 들어왔다' 로 적지 않는다.
 - 파일 없음 · 권한 없음 · 머리 줄이 깨짐 → read_ok=False + 이유(화면에서 '못 봄')
@@ -28,6 +29,18 @@ gw-logins.jsonl(IdP 7159c7f · fc8f96a — 바뀌면 _gw_header() · _gw() · _g
                "serial"(access.jsonl 의 serial 과 같은 번호 — 화면이 이어 붙임), "issued_at" · "env" · "role"(발급 기록에서 옮김, 못 찾으면 null)}
                ★ 이 env 는 '도장의 환경'(발급 기록) — gws 의 env(gw 의 환경)와 뜻이 다르다. gw 의 서비스는 gw → gws 로 찾는다.
   IP · 열쇠 지문 · 인증서 ID 원문은 파일에 없다.
+
+server-logins.jsonl(IdP 11번 — 바뀌면 _srv_header() · _srv() · _srv_login() 세 곳만 고친다):
+  gw 가 5분마다 '기록 읽기만 되는 2분짜리 도장' 으로 자기 뒤 서버의 sshd 기록을 받아 와 금고에 보낸다(서버엔 아무것도 안 깜).
+  첫 줄(머리): 위 머리 + {"reports", "servers": [gw · 서버마다 마지막 읽기]}
+               servers 한 칸: {"server"(금고 목록 inventory/<env>/<service> 의 servers 키), "gw"(읽은 gw), "env", "service"(그 gw 의 것),
+                              "host", "last_read_at", "read_ok", "why"(그 서버 기록을 읽었나 · 못 읽은 까닭 그대로),
+                              "source"(→ log_source), "files_read", "lines_read"}
+               servers 가 없으면 None('서버마다 상태 모름'), 깨진 칸(server 없음)은 빼고 bad_servers 로 센다
+  나머지 줄(최신순, 서버 접속 한 번에 한 줄): {"at", "server", "gw", "service", "account", "kind", "who", "serial",
+               "issued_at" · "env" · "role"(같은 serial 의 발급 기록에서 옮김, 못 찾으면 null — gw-logins 와 같은 규칙)}
+               ★ 이 env 도 '도장의 환경' — 서버의 환경은 (gw, server) 로 servers 에서 찾는다.
+  gw 자신의 읽기 접속 · 수집기 접속은 IdP 가 이미 뺐다. IP · 열쇠 지문 · 인증서 ID 원문은 없다.
 """
 from __future__ import annotations
 
@@ -160,6 +173,58 @@ def _gw_login(d: Any) -> dict[str, Any] | None:
     }
 
 
+def _srv(d: Any) -> dict[str, Any] | None:
+    """머리의 servers 한 칸 → gw · 서버마다 마지막 읽기. 서버 이름이 없으면 깨진 칸."""
+    if not isinstance(d, dict) or not d.get("server"):
+        return None
+    return {
+        "server": str(d["server"]),
+        "gw": _str(d.get("gw")) or None,
+        "env": _str(d.get("env")) or None,          # 그 gw 의 금고 목록 키 — 없으면 중앙이 '목록과 못 이음'
+        "service": _str(d.get("service")) or None,
+        "host": _str(d.get("host")),
+        "last_read_at": _at(d.get("last_read_at")),  # 못 읽으면 None — 중앙이 '모름'
+        "read_ok": d["read_ok"] if isinstance(d.get("read_ok"), bool) else None,  # 거짓이면 '못 읽음', 없으면 '모름'
+        "why": _str(d.get("why")),
+        "log_source": _str(d.get("source")),  # 올리는 source 와 섞이지 않게 이름을 바꿈(#72)
+        "files_read": _int(d.get("files_read")),
+        "lines_read": _int(d.get("lines_read")),
+    }
+
+
+def _srv_header(d: Any) -> dict[str, Any] | None:
+    head = _header(d)
+    if head is None:
+        return None
+    raw = d.get("servers")
+    servers = [s for s in map(_srv, raw) if s] if isinstance(raw, list) else None
+    return {**head, "reports": _int(d.get("reports")), "servers": servers,
+            "bad_servers": len(raw) - len(servers) if servers is not None else 0}
+
+
+def _srv_login(d: Any) -> dict[str, Any] | None:
+    """서버 접속 한 줄 → 올릴 모양. 시각 · 서버가 없거나 시각을 못 읽으면 깨진 줄로 본다."""
+    if not isinstance(d, dict) or not d.get("server"):
+        return None
+    at = _at(d.get("at"))
+    if at is None:
+        return None
+    kind = d.get("kind")
+    return {
+        "at": at,
+        "server": str(d["server"]),
+        "gw": _str(d.get("gw")) or None,
+        "service": _str(d.get("service")) or None,
+        "account": _str(d.get("account")),
+        "kind": kind if kind in KINDS else "other",
+        "who": _str(d.get("who")) or None,
+        "serial": _str(d.get("serial")) or None,
+        "issued_at": _at(d.get("issued_at")),  # 발급 기록을 못 찾았으면 None(번호 기록 설정 전 발급 · 14일 넘음 등)
+        "env": _str(d.get("env")),
+        "role": _str(d.get("role")),
+    }
+
+
 def read_access(path: str) -> dict[str, Any]:
     """access.jsonl(인증서 발급 기록) → 중앙에 올릴 모양."""
     return _read(path, _header, _event)
@@ -168,6 +233,11 @@ def read_access(path: str) -> dict[str, Any]:
 def read_gw_logins(path: str) -> dict[str, Any]:
     """gw-logins.jsonl(gw 에 실제로 들어간 기록) → 중앙에 올릴 모양. 파일이 없으면(IdP 반영 전) 못 봄 + 이유."""
     return _read(path, _gw_header, _gw_login)
+
+
+def read_server_logins(path: str) -> dict[str, Any]:
+    """server-logins.jsonl(gw 뒤 서버에 실제로 들어간 기록) → 중앙에 올릴 모양. 파일이 없으면 못 봄 + 이유."""
+    return _read(path, _srv_header, _srv_login)
 
 
 def _read(path: str, header: Any, event: Any) -> dict[str, Any]:
@@ -239,3 +309,12 @@ def gw_summary(snap: dict[str, Any]) -> str:
     gws = snap.get("gws")
     bad = f" · 깨진 줄 {snap['bad_lines']}" if snap.get("bad_lines") else ""
     return f"{len(snap['events'])}번 · 보고한 gw {'모름' if gws is None else f'{len(gws)}대'}{bad}"
+
+
+def server_summary(snap: dict[str, Any]) -> str:
+    """서버 접속 기록 — 수집기 로그 한 줄."""
+    if not snap.get("read_ok") or not snap.get("audit_ok"):
+        return summary(snap)
+    srvs = snap.get("servers")
+    bad = f" · 깨진 줄 {snap['bad_lines']}" if snap.get("bad_lines") else ""
+    return f"{len(snap['events'])}번 · 읽은 서버 {'모름' if srvs is None else f'{len(srvs)}곳'}{bad}"

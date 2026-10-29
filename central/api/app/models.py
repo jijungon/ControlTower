@@ -293,7 +293,8 @@ class AccessLogSnapshot(Base):
     """금고(IdP) 접속 기록 요약 파일을 수집기가 읽어 올린 마지막 모습 — source 마다 한 줄, 올 때마다 통째로 바꾼다.
 
     source 'idp' = access.jsonl(인증서 발급 기록), 'idp-gw' = gw-logins.jsonl(gw 에 실제로 들어간 기록 — events 가
-    gw 접속 한 번씩, reports · gws · bad_gws 는 이 줄만 씀). 두 파일은 머리 모양이 같아 한 표에 둔다.
+    gw 접속 한 번씩, gws · bad_gws 는 이 줄만 씀), 'idp-server' = server-logins.jsonl(gw 뒤 서버에 실제로 들어간 기록 —
+    events 가 서버 접속 한 번씩, servers · bad_servers 는 이 줄만 씀). reports 는 두 줄이 같이 씀. 세 파일은 머리 모양이 같아 한 표에 둔다.
     파일 자체가 '최근 14일치' 라 쌓지 않는다(보존은 IdP 쪽 원본 몫). 정상/못 봄/멈춤 판정은 조회할 때 지금 시각으로.
     파일이 없으면(IdP 반영 전 포함) '못 봄' — 빈 표로 보이지 않게.
     """
@@ -318,9 +319,11 @@ class AccessLogSnapshot(Base):
     bad_lines: Mapped[int] = mapped_column(Integer, default=0)                # 수집기가 깨져서 뺀 줄 수
     truncated: Mapped[bool] = mapped_column(Boolean, default=False)           # 최근 몇천 건까지만 넘겼나
     events: Mapped[str | None] = mapped_column(Text, nullable=True)           # JSON 목록 — 인증서 발급 · 거부(idp-gw: gw 접속)
-    reports: Mapped[int | None] = mapped_column(Integer, nullable=True)       # (idp-gw) IdP 가 읽은 gw 보고 수
+    reports: Mapped[int | None] = mapped_column(Integer, nullable=True)       # (idp-gw · idp-server) IdP 가 읽은 gw 보고 수
     gws: Mapped[str | None] = mapped_column(Text, nullable=True)              # (idp-gw) JSON 목록 — gw 마다 마지막 보고. NULL = 모름
     bad_gws: Mapped[int | None] = mapped_column(Integer, nullable=True)       # (idp-gw) 깨져서 뺀 gw 보고 칸
+    servers: Mapped[str | None] = mapped_column(Text, nullable=True)          # (idp-server) JSON 목록 — gw · 서버마다 마지막 읽기. NULL = 모름
+    bad_servers: Mapped[int | None] = mapped_column(Integer, nullable=True)   # (idp-server) 깨져서 뺀 서버 읽기 칸
 
 
 # ── 작업이력 / 감사 로그 ─────────────────────────────────────────────

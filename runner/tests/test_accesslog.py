@@ -291,3 +291,121 @@ def test_gw_upload_keeps_our_source_even_if_the_file_has_one():
     api.upload_gw_logins("idp-gw", "collector-1", {"source": "openbao-audit", "reader": "file", "read_ok": True, "digest": "x"})
     assert [(p, b["source"], b["reader"]) for p, b in sent] == [("/api/access-log/gw-logins", "idp-gw", "collector-1")]
     assert "digest" not in sent[0][1]
+
+
+# ── 3단계: server-logins.jsonl — gw 뒤 서버에 실제로 들어간 기록(IdP 11번) ─────────────
+
+from runner.accesslog import read_server_logins, server_summary  # noqa: E402
+
+SRV_HEAD = {**HEAD, "events": 3, "reports": 173,
+            "servers": [{"server": "srv-a", "gw": "gw-a", "env": "dev", "service": "svc-a", "host": "host-a",  # IdP 가 보낸 모양 그대로
+                         "last_read_at": "2026-10-29T00:01:58.018595764Z", "read_ok": True, "why": None, "source": "files",
+                         "files_read": 3, "lines_read": 128221},
+                        {"server": "srv-b", "gw": "gw-a", "env": "dev", "service": "svc-a", "host": "host-b",
+                         "last_read_at": "2026-10-29T00:01:58Z", "read_ok": False, "why": "닿지 않는다 (시간 초과)", "source": None,
+                         "files_read": 0, "lines_read": 0},
+                        {"server": "srv-c", "gw": "gw-b", "host": "host-c", "last_read_at": "어제쯤",  # env · service 없음 · 시각 깨짐
+                         "source": "journal"},                                                        # read_ok 칸 없음
+                        {"gw": "서버 이름 없음"}, "깨진 칸"]}
+SRV_LOGIN = {"at": "2026-10-28T23:59:01.652873Z", "server": "srv-a", "gw": "gw-a", "service": "svc-a", "account": "ubuntu",
+             "kind": "person", "who": "person@example.com", "serial": "3560879729764d4",
+             "issued_at": "2026-10-28T23:58:56.834689981Z", "env": "dev", "role": "dev-ubuntu"}
+SRV_LOGIN_NO_ISSUE = {"at": "2026-10-28T10:00:00Z", "server": "srv-a", "gw": "gw-a", "service": "svc-a", "account": "ubuntu",
+                      "kind": "robot", "who": None, "serial": "0a0b0c0d", "issued_at": None, "env": None, "role": None}
+
+
+def test_server_logins_reads_header_servers_and_logins_as_the_idp_writes_them(tmp_path):
+    s = read_server_logins(_write(tmp_path, [SRV_HEAD, SRV_LOGIN, "{깨진 줄", {**SRV_LOGIN, "server": ""}, SRV_LOGIN_NO_ISSUE],
+                                  "server-logins.jsonl"))
+    assert s["read_ok"] is True and s["audit_ok"] is True and (s["files_read"], s["lines_read"], s["reports"]) == (3, 812, 173)
+    assert "source" not in s  # 머리의 source('openbao-audit')는 안 싣는다 — 올리는 이름을 덮지 않게(#72)
+    assert s["servers"] == [
+        {"server": "srv-a", "gw": "gw-a", "env": "dev", "service": "svc-a", "host": "host-a",
+         "last_read_at": "2026-10-29T00:01:58.018595Z", "read_ok": True, "why": None, "log_source": "files",
+         "files_read": 3, "lines_read": 128221},
+        {"server": "srv-b", "gw": "gw-a", "env": "dev", "service": "svc-a", "host": "host-b",
+         "last_read_at": "2026-10-29T00:01:58Z", "read_ok": False, "why": "닿지 않는다 (시간 초과)", "log_source": None,
+         "files_read": 0, "lines_read": 0},
+        {"server": "srv-c", "gw": "gw-b", "env": None, "service": None, "host": "host-c", "last_read_at": None,
+         "read_ok": None, "why": None, "log_source": "journal", "files_read": None, "lines_read": None},
+    ]  # 칸이 없으면 None — 중앙이 '모름' · '목록과 못 이음'(이름으로 짐작하지 않음)
+    assert all("source" not in x for x in s["servers"])
+    assert s["bad_servers"] == 2  # 서버 이름 없는 칸 · 깨진 칸 — 버리지 않고 셈
+    assert s["events"] == [
+        {"at": "2026-10-28T23:59:01.652873Z", "server": "srv-a", "gw": "gw-a", "service": "svc-a", "account": "ubuntu",
+         "kind": "person", "who": "person@example.com", "serial": "3560879729764d4",
+         "issued_at": "2026-10-28T23:58:56.834689Z", "env": "dev", "role": "dev-ubuntu"},
+        {"at": "2026-10-28T10:00:00Z", "server": "srv-a", "gw": "gw-a", "service": "svc-a", "account": "ubuntu",
+         "kind": "other", "who": None, "serial": "0a0b0c0d", "issued_at": None, "env": None, "role": None},
+    ]
+    assert s["bad_lines"] == 2 and s["event_lines"] == 4  # 깨진 줄 · 서버 없는 줄
+    assert server_summary(s) == "2번 · 읽은 서버 3곳 · 깨진 줄 2"
+
+
+def test_server_logins_header_without_servers_is_unknown_not_empty(tmp_path):
+    old = {k: v for k, v in SRV_HEAD.items() if k != "servers"}
+    s = read_server_logins(_write(tmp_path, [old, SRV_LOGIN], "server-logins.jsonl"))
+    assert len(s["events"]) == 1  # 파일은 실제로 읽었다
+    assert s["servers"] is None and s["bad_servers"] == 0  # 빈 목록([])이 아니라 모름(None)
+    assert server_summary(s) == "1번 · 읽은 서버 모름"
+    s = read_server_logins(_write(tmp_path, [{**SRV_HEAD, "servers": "깨짐"}, SRV_LOGIN], "server-logins.jsonl"))
+    assert len(s["events"]) == 1 and s["servers"] is None
+
+
+def test_server_logins_cannot_read_keeps_reason(tmp_path):
+    s = read_server_logins(str(tmp_path / "server-logins.jsonl"))  # 파일 없음
+    assert s == {"read_ok": False, "read_error": "파일 없음", "events": [], "bad_lines": 0}
+    assert server_summary(s) == "못 봄(파일 없음)"
+    s = read_server_logins(_write(tmp_path, [{**SRV_HEAD, "read_ok": False, "why": "감사 기록 없음"}], "server-logins.jsonl"))
+    assert s["audit_ok"] is False and server_summary(s) == "못 봄(IdP 가 금고 기록을 못 읽음 — 감사 기록 없음)"
+
+
+def _fake_api_srv(sent):
+    class FakeAPI(_fake_api_gw(sent)):
+        def upload_server_logins(self, source, reader, snap):
+            sent.append((source, reader, snap))
+            return {"ok": True}
+
+    return FakeAPI
+
+
+def test_agent_uploads_server_logins_and_reason_when_missing(monkeypatch, tmp_path):
+    import runner.cli as cli
+
+    sent: list = []
+    monkeypatch.setattr(cli, "CentralAPI", _fake_api_srv(sent))
+    cfg = types.SimpleNamespace(central_url="x", api_token="t", runner_name="test-collector", idp_status_file="",
+                                idp_access_file="", idp_gw_logins_file=_write(tmp_path, [GW_HEAD, LOGIN], "gw-logins.jsonl"),
+                                idp_server_logins_file=_write(tmp_path, [SRV_HEAD, SRV_LOGIN], "server-logins.jsonl"))
+    cli.cmd_agent(cfg, once=True)
+    assert [(s[0], s[1], len(s[2]["events"])) for s in sent] == [("idp-gw", "test-collector", 1), ("idp-server", "test-collector", 1)]
+    assert sent[1][2]["servers"][0]["server"] == "srv-a"
+
+    sent.clear()
+    cfg.idp_gw_logins_file = ""
+    cfg.idp_server_logins_file = str(tmp_path / "없는파일.jsonl")  # 건너뛰지 않고 '못 봄' 을 올림
+    cli.cmd_agent(cfg, once=True)
+    assert [(s[0], s[2]["read_ok"], s[2]["read_error"]) for s in sent] == [("idp-server", False, "파일 없음")]
+
+    sent.clear()
+    cfg.idp_server_logins_file = ""
+    cli.cmd_agent(cfg, once=True)
+    assert sent == []  # 꺼짐
+
+
+def test_server_upload_keeps_our_source_even_if_the_file_has_one():
+    import httpx
+
+    from runner.api import CentralAPI
+
+    sent: list = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append((request.url.path, json.loads(request.content)))
+        return httpx.Response(200, json={"ok": True})
+
+    api = CentralAPI("http://central", "t")
+    api._client = httpx.Client(base_url="http://central", transport=httpx.MockTransport(handler))
+    api.upload_server_logins("idp-server", "collector-1", {"source": "openbao-audit", "reader": "file", "read_ok": True, "digest": "x"})
+    assert [(p, b["source"], b["reader"]) for p, b in sent] == [("/api/access-log/server-logins", "idp-server", "collector-1")]
+    assert "digest" not in sent[0][1]

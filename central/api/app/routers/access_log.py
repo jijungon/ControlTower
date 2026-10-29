@@ -6,6 +6,10 @@
        gw 가 5분마다 자기 sshd 기록을 금고에 보고 → IdP 가 모아 gw-logins.jsonl. 인증서 번호(serial)로 1단계와 잇는 건 화면.
        '보고 안 하는 gw 가 있다' 를 '거기엔 아무도 안 들어갔다' 로 보이지 않게 gw 마다 보고 상태를 같이 준다(gw_status).
        금고 목록과 잇는 건 gw 가 스스로 적어 보낸 (env, service) 뿐 — 출입증 이름(gw)은 관리자가 지은 별칭이라 짐작하지 않는다.
+3단계(GET /api/access-log/server-logins, source 'idp-server'): 그 인증서로 gw 뒤 어느 서버에 · 언제 · 어떤 계정으로 들어갔나.
+       gw 가 5분마다 '기록 읽기만 되는 2분짜리 도장' 으로 자기 뒤 서버의 sshd 기록을 받아 금고에 보냄 → IdP 가 모아
+       server-logins.jsonl. 인증서 번호로 1 · 2단계와 잇는 건 화면. '안 읽는 서버' 를 '거기엔 아무도 안 들어갔다' 로 보이지 않게
+       gw · 서버마다 읽기 상태를 같이 준다(server_status). 금고 목록과 잇는 건 (env, service, server) 뿐 — 이름으로 짐작하지 않는다.
 
 판정은 조회할 때 지금 시각으로 한다. 규칙은 하나 — '못 봤다' 를 '아무도 안 들어왔다' 로 보이지 않는다.
 - 아무것도 안 올라왔으면 연결 전(off) — 수집기가 이 기능을 안 켬
@@ -40,6 +44,8 @@ router = APIRouter(prefix="/api/access-log", tags=["access-log"])
 GW_SOURCE = "idp-gw"  # gw-logins.jsonl 줄 — 발급 기록('idp')과 같은 표, 다른 줄
 GW_EVERY = 300        # gw 보고 주기(초) — 칸이 없을 때
 GW_STALE_FACTOR = 3   # 마지막 보고가 주기 × 3(보통 15분)보다 오래면 '보고 끊김'(IdP 와 정한 값)
+SRV_SOURCE = "idp-server"  # server-logins.jsonl 줄 — 같은 표, 또 다른 줄
+SRV_STALE_SECONDS = 600    # 서버를 마지막으로 읽은 게 10분(gw 읽기 주기 5분 × 2)보다 오래면 '끊김'(IdP 와 정한 값)
 
 
 class AccessIn(BaseModel):
@@ -69,6 +75,12 @@ class GwLoginsIn(AccessIn):
     bad_gws: int = 0
 
 
+class ServerLoginsIn(AccessIn):
+    reports: int | None = None
+    servers: list[dict] | None = None  # None = 파일 머리에 servers 가 없음(서버마다 상태 모름)
+    bad_servers: int = 0
+
+
 def _viewer(user: Principal) -> str | None:
     """'admin' · 'denied' · None(누군지 모름)."""
     if auth_mode() not in ("oidc", "proxy"):
@@ -90,6 +102,8 @@ def _notes(r: AccessLogSnapshot, shown: int) -> list[str]:
         notes.append(f"파일 머리에는 {r.header_events}건인데 {r.event_lines}줄을 받았어요")
     if r.bad_gws:
         notes.append(f"깨져서 뺀 gw 보고 칸 {r.bad_gws}개")
+    if r.bad_servers:
+        notes.append(f"깨져서 뺀 서버 읽기 칸 {r.bad_servers}개")
     return notes
 
 
@@ -202,6 +216,82 @@ def gw_logins_view(r: AccessLogSnapshot | None, now: datetime, factor: float) ->
             "reporting": sum(g["state"] == "ok" for g in gws), "inventory": {"state": inv["state"], "reason": inv.get("reason")}}
 
 
+def server_status(s: dict, now: datetime) -> dict:
+    """gw · 서버 한 곳의 마지막 읽기 → {state: ok(읽는 중) | failed(못 읽음) | stale(끊김) | unknown(모름), reason}.
+    안 읽음(silent · maybe_silent — 목록에만 있음)은 server_logins_view 가 금고 목록과 견줘 더한다."""
+    last = _parse(s.get("last_read_at"))
+    age = int((now - last).total_seconds()) if last else None
+    out = {"server": s.get("server"), "gw": s.get("gw"), "env": s.get("env"), "service": s.get("service"), "host": s.get("host"),
+           "last_read_at": s.get("last_read_at"), "age_seconds": age, "files_read": s.get("files_read"),
+           "lines_read": s.get("lines_read")}
+    if s.get("read_ok") is False:  # gw 가 그 서버 기록을 못 받아 옴 — 까닭(why)을 고치지 않고 그대로
+        late = f" · 마지막 시도도 {_ago(age)} 전(끊김)" if age is not None and age > SRV_STALE_SECONDS else ""
+        return {**out, "state": "failed", "reason": f"그 서버 기록 못 읽음 — {s.get('why') or '까닭 모름'}{late}"}
+    if s.get("read_ok") is not True:
+        return {**out, "state": "unknown", "reason": "모름 — 그 서버 기록을 읽었는지 안 적혀 있어요"}
+    if age is None:
+        return {**out, "state": "unknown", "reason": "모름 — 마지막으로 읽은 시각을 못 읽음"}
+    if age > SRV_STALE_SECONDS:
+        return {**out, "state": "stale", "reason": f"끊김 — 마지막으로 읽은 게 {_ago(age)} 전이에요(gw 타이머 · 출입증 확인)"}
+    return {**out, "state": "ok", "reason": None}
+
+
+def _listed_servers() -> dict:
+    """금고 목록(서버 탭)에서 gw 가 있는 항목의 서버 → {"state": "ok", "keys": [(env, service, server), …]}.
+    gw 가 없는 항목은 읽을 gw 가 없어 견주지 않는다. 못 읽으면 {"state": "off" | "error", "reason"} — 그땐 '안 읽음' 을 못 가린다."""
+    try:
+        inv = fetch_inventory()
+    except InventoryError as exc:
+        if str(exc) == "off":
+            return {"state": "off", "reason": "금고 목록(서버 탭)에 연결 전이라 안 읽는 서버가 있는지 몰라요"}
+        return {"state": "error", "reason": f"금고 목록을 못 읽어 안 읽는 서버가 있는지 몰라요: {exc}"}
+    keys = [(env, svc, name) for env, services in sorted(inv.items()) for svc, v in sorted((services or {}).items())
+            if isinstance(v, dict) and isinstance(v.get("gw"), dict) and v["gw"].get("host") and isinstance(v.get("servers"), dict)
+            for name in sorted(v["servers"])]
+    return {"state": "ok", "keys": keys}
+
+
+def server_logins_view(r: AccessLogSnapshot | None, now: datetime, factor: float) -> dict:
+    """server-logins 한 줄 → judge(파일 상태) + gw · 서버마다 읽기 상태. 파일이 ok 일 때만 읽기 상태 · 금고 목록을 본다.
+
+    link(금고 목록과): listed · not_listed(보낸 env · service · server 가 목록에 없음) · unlinked(env · service 없음 — 목록과 못 이음)
+    · unknown(목록을 못 읽음). 목록에 있는데 이어지는 읽기가 없는 서버는 줄을 더한다: 못 잇는 읽기가 0개면 silent(안 읽음 —
+    그 gw 에서 report on 을 안 했거나 목록이 바뀐 뒤 다시 안 함), 1개라도 있으면 maybe_silent(단정하지 않음)."""
+    out = {**judge(r, now, factor, "서버 접속 기록"), "reports": None, "servers": [], "servers_known": False, "reading": 0,
+           "unlinked": 0, "inventory": {"state": "skipped", "reason": None}}
+    if out["state"] != "ok":
+        return out
+    try:
+        raw = None if r.servers is None else json.loads(r.servers)
+    except ValueError:
+        raw = None
+    if not isinstance(raw, list):  # 머리에 servers 가 없었음 — 서버마다 상태를 모름(안 읽음과 구분 못 함)
+        return {**out, "reports": r.reports,
+                "notes": out["notes"] + ["서버마다 읽기 상태가 파일에 없어요 — 안 읽는 서버를 가릴 수 없어요"]}
+    srvs = [server_status(s, now) for s in raw if isinstance(s, dict)]
+    unlinked = sum(not (s["env"] and s["service"]) for s in srvs)
+    inv = _listed_servers()
+    keys = set(inv.get("keys", []))
+    for s in srvs:
+        if not (s["env"] and s["service"]):
+            s["link"] = "unlinked"
+        else:
+            s["link"] = ("unknown" if inv["state"] != "ok"
+                         else "listed" if (s["env"], s["service"], s["server"]) in keys else "not_listed")
+    if inv["state"] == "ok":
+        seen = {(s["env"], s["service"], s["server"]) for s in srvs if s["link"] == "listed"}
+        if unlinked:
+            state, why = "maybe_silent", f"안 읽음일 수 있음 — 목록과 못 잇는 읽기 {unlinked}개"
+        else:
+            state, why = "silent", "안 읽음 — 금고 목록에 있는 서버인데 그 gw 가 읽지 않아요(gw 에서 보고 켜기를 안 했거나 목록이 바뀐 뒤 다시 안 함)"
+        srvs += [{"server": name, "gw": None, "env": env, "service": svc, "host": None, "last_read_at": None, "age_seconds": None,
+                  "files_read": None, "lines_read": None, "link": "listed", "state": state, "reason": why}
+                 for env, svc, name in inv["keys"] if (env, svc, name) not in seen]
+    srvs.sort(key=lambda s: (s["gw"] is None, str(s["gw"] or ""), str(s["env"] or ""), str(s["service"] or ""), str(s["server"])))
+    return {**out, "reports": r.reports, "servers": srvs, "servers_known": True, "unlinked": unlinked,
+            "reading": sum(s["state"] == "ok" for s in srvs), "inventory": {"state": inv["state"], "reason": inv.get("reason")}}
+
+
 def _save(db: Session, body: AccessIn) -> AccessLogSnapshot:
     r = db.query(AccessLogSnapshot).filter(AccessLogSnapshot.source == body.source).first()
     if r is None:
@@ -224,6 +314,8 @@ def _save(db: Session, body: AccessIn) -> AccessLogSnapshot:
 def upload(body: AccessIn, db: Session = Depends(get_db)) -> dict:
     if body.source == GW_SOURCE:  # gw 줄을 발급 기록 모양으로 덮지 않게
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"{GW_SOURCE} 는 /api/access-log/gw-logins 로 올려요")
+    if body.source == SRV_SOURCE:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"{SRV_SOURCE} 는 /api/access-log/server-logins 로 올려요")
     _save(db, body)
     db.commit()
     return {"ok": True}
@@ -238,6 +330,19 @@ def upload_gw_logins(body: GwLoginsIn, db: Session = Depends(get_db)) -> dict:
     r.reports = body.reports if keep else None
     r.gws = json.dumps(body.gws, ensure_ascii=False) if keep and body.gws is not None else None
     r.bad_gws = body.bad_gws if keep else None
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/server-logins", dependencies=[Depends(require_runner)])
+def upload_server_logins(body: ServerLoginsIn, db: Session = Depends(get_db)) -> dict:
+    if body.source != SRV_SOURCE:  # 다른 줄('idp' · 'idp-gw')을 서버 모양으로 덮지 않게
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"서버 접속 기록의 source 는 {SRV_SOURCE} 여야 해요")
+    r = _save(db, body)
+    keep = body.read_ok
+    r.reports = body.reports if keep else None
+    r.servers = json.dumps(body.servers, ensure_ascii=False) if keep and body.servers is not None else None
+    r.bad_servers = body.bad_servers if keep else None
     db.commit()
     return {"ok": True}
 
@@ -267,3 +372,16 @@ def get_gw_logins(user: Principal = Depends(current_user), db: Session = Depends
                 "reasons": ["로그인 정보(그룹)를 몰라 보여 줄 수 없어요 — 운영자만 보는 기록이에요"]}
     r = db.query(AccessLogSnapshot).filter(AccessLogSnapshot.source == GW_SOURCE).first()
     return gw_logins_view(r, now, settings.ct_host_status_stale_factor)
+
+
+@router.get("/server-logins")
+def get_server_logins(user: Principal = Depends(current_user), db: Session = Depends(get_db)) -> dict:
+    who = _viewer(user)  # 발급 기록과 같은 선 — 운영자만(개발자는 main.py 가 먼저 막음)
+    if who == "denied":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "운영자만 볼 수 있어요")
+    now = _now()
+    if who is None:
+        return {**server_logins_view(None, now, settings.ct_host_status_stale_factor), "state": "no_identity",
+                "reasons": ["로그인 정보(그룹)를 몰라 보여 줄 수 없어요 — 운영자만 보는 기록이에요"]}
+    r = db.query(AccessLogSnapshot).filter(AccessLogSnapshot.source == SRV_SOURCE).first()
+    return server_logins_view(r, now, settings.ct_host_status_stale_factor)

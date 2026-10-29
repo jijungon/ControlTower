@@ -31,7 +31,7 @@ from zoneinfo import ZoneInfo
 import httpx
 
 from . import applier
-from .accesslog import gw_summary, read_access, read_gw_logins
+from .accesslog import gw_summary, read_access, read_gw_logins, read_server_logins, server_summary
 from .accesslog import summary as access_summary
 from .api import CentralAPI
 from .apt import parse_upgradable
@@ -1026,7 +1026,7 @@ STATUS_RESEND_SECONDS = 60  # 서버 상태가 그대로여도 이만큼마다 �
 
 
 class _Feed:
-    """IdP 요약 파일 하나(접속 기록 · gw 접속 기록) — 내용이 바뀌었으면 바로, 아니어도 1분마다 올린다.
+    """IdP 요약 파일 하나(접속 기록 · gw 접속 기록 · 서버 접속 기록) — 내용이 바뀌었으면 바로, 아니어도 1분마다 올린다.
     못 읽어도(파일 없음 등) 그 이유를 올린다 — 건너뛰면 중앙이 '못 봄' 을 모른다. 로그는 바뀔 때만."""
 
     def __init__(self, label: str, path: str, read: Callable[[str], dict], upload: Callable[[CentralAPI, dict], Any],
@@ -1070,12 +1070,14 @@ def cmd_agent(
     people_file = (getattr(cfg, "idp_people_file", "") or "").strip()  # 빈 값이면 이름표 읽기를 끔
     access_file = (getattr(cfg, "idp_access_file", "") or "").strip()  # 빈 값이면 접속 기록 읽기를 끔
     gw_file = (getattr(cfg, "idp_gw_logins_file", "") or "").strip()  # 빈 값이면 gw 접속 기록 읽기를 끔
+    srv_file = (getattr(cfg, "idp_server_logins_file", "") or "").strip()  # 빈 값이면 서버 접속 기록 읽기를 끔
     print(
         f"수집기 시작: {name} ({mode}) — {interval:g}초마다 요청 확인" + (f" · 자동 매일 {schedule}" if schedule else " · 자동 없음(버튼만)")
         + (f" · 서버 상태 파일 {status_file}" if status_file else " · 서버 상태 읽기 꺼짐")
         + (f" · 이름표 파일 {people_file}" if people_file else " · 이름표 읽기 꺼짐")
         + (f" · 접속 기록 파일 {access_file}" if access_file else " · 접속 기록 읽기 꺼짐")
         + (f" · gw 접속 기록 파일 {gw_file}" if gw_file else " · gw 접속 기록 읽기 꺼짐")
+        + (f" · 서버 접속 기록 파일 {srv_file}" if srv_file else " · 서버 접속 기록 읽기 꺼짐")
     )
     asked: str | None = None  # 오늘 자동 요청을 이미 물어봤나(같은 날 반복 호출 줄이기)
     sent: tuple | None = None  # 서버 상태 — 마지막으로 올린 (읽음?, 이유, 기록 시각)
@@ -1088,6 +1090,9 @@ def cmd_agent(
         # 중앙에선 'idp-gw' 한 줄 — 발급 기록('idp')과 섞이지 않게
         gw_file and _Feed("gw 접속 기록", gw_file, read_gw_logins,
                           lambda api, snap: api.upload_gw_logins("idp-gw", name, snap), gw_summary),
+        # 'idp-server' 줄 — gw 뒤 서버에 들어간 기록(위 둘과 인증서 번호로 잇는 건 화면)
+        srv_file and _Feed("서버 접속 기록", srv_file, read_server_logins,
+                           lambda api, snap: api.upload_server_logins("idp-server", name, snap), server_summary),
     ) if f]
     while True:
         api = CentralAPI(cfg.central_url, cfg.api_token)
@@ -1120,7 +1125,7 @@ def cmd_agent(
                         if people_summary(ppl) != ppl_summary:  # 로그는 바뀔 때만
                             print(f"[{time.strftime('%H:%M:%S')}] 이름표: {people_summary(ppl)}")
                         ppl_sent, ppl_at, ppl_summary, ppl_error = key, time.monotonic(), people_summary(ppl), ""
-            for feed in feeds:  # 접속 기록 · gw 접속 기록 요약
+            for feed in feeds:  # 접속 기록 · gw 접속 기록 · 서버 접속 기록 요약
                 feed.tick(api)
             since = _daily_since(datetime.now(timezone.utc), daily_at, tz) if daily_at else None
             if since and since != asked:

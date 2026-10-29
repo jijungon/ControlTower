@@ -28,12 +28,19 @@ const GW_OFF = {
   inventory: { state: 'skipped', reason: null },
 }
 
-// 주소마다 답 — /api/access-log(발급 기록) · /api/access-log/gw-logins(gw 접속 기록)
-function serve(reply: object | number | 'fail', gwReply: object | number | 'fail' = GW_OFF) {
+// 서버 접속 기록(3단계) — 기본은 '연결 전'(1 · 2단계 시험들이 그대로 돌게)
+const SRV_OFF = {
+  ...GW_OFF, reports: null, servers: [], servers_known: false, reading: 0, unlinked: 0,
+}
+
+// 주소마다 답 — /api/access-log(발급 기록) · /gw-logins(gw 접속 기록) · /server-logins(서버 접속 기록)
+type Reply = object | number | 'fail'
+function serve(reply: Reply, gwReply: Reply = GW_OFF, srvReply: Reply = SRV_OFF) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string) => {
-      const r = String(url).endsWith('/gw-logins') ? gwReply : reply
+      const u = String(url)
+      const r = u.endsWith('/gw-logins') ? gwReply : u.endsWith('/server-logins') ? srvReply : reply
       if (r === 'fail') throw new TypeError('Failed to fetch')
       if (typeof r === 'number')
         return new Response(JSON.stringify({ detail: '운영자만 볼 수 있어요' }), { status: r, headers: { 'content-type': 'application/json' } })
@@ -369,4 +376,183 @@ test.each([
   expect(rows().map((r) => r[1])).toEqual(['Dev@Example.com', 'gone@example.com', 'nobody@example.com'])
   expect(screen.getByTestId('names-note')).toHaveTextContent(note)
   expect(screen.queryByRole('alert')).toBeNull()
+})
+
+// ── 3단계: 들어간 서버 · 시각 — gw 가 읽어 보낸 서버 접속을 인증서 번호로 발급 줄에 이어 붙임 ─────────────
+
+const srvLogin = (min: number, server: string, account: string, serial: string, extra = {}) => ({
+  at: iso(min), server, gw: 'gw-a', service: 'svc-a', account, kind: 'person', who: 'ops@example.com', serial,
+  issued_at: null, env: null, role: null, ...extra,
+})
+const SRV_LOGINS = [
+  srvLogin(0.5, 'srv-a', 'ubuntu', '776cb41cedacd9d8'), // gw-shop-dev 를 거쳐 두 번
+  srvLogin(0.7, 'srv-a', 'ubuntu', '776cb41cedacd9d8'),
+  srvLogin(5.5, 'srv-s', 'dev1', '0a0b0c0d0e0f1011', { who: 'dev@example.com', gw: 'gw-s' }), // 발급 줄의 콜론 · 대문자 번호와 이어짐
+  srvLogin(7.5, 'srv-b', 'ubuntu', 'dead0000beef1111'), // 발급 기록 없음 · 같은 번호 gw 접속(8분 전)은 있음
+  srvLogin(8.8, 'srv-c', 'ubuntu', 'beef0000beef9999', { issued_at: iso(9), env: 'dev' }), // 발급 기록 없음 · gw 보고에도 없음
+  srvLogin(8.9, 'srv-a', 'appuser', 'feed0000feed2222', { kind: 'machine', who: 'runner' }), // 기계 — 접어 둠
+]
+const read = (server: string, gw: string | null, state: string, link: string, reason: string | null = null, min: number | null = 1,
+  env: string | null = 'dev', service: string | null = 'svc-a') => ({
+  server, gw, host: gw ? `${server}-host` : null, env, service, state, reason, last_read_at: min == null ? null : iso(min),
+  age_seconds: min == null ? null : min * 60, link,
+})
+const READS = [
+  read('srv-a', 'gw-a', 'ok', 'listed'),
+  read('srv-b', 'gw-a', 'failed', 'listed', '그 서버 기록 못 읽음 — 닿지 않는다 (시간 초과)', 2),
+  read('srv-c', 'gw-a', 'failed', 'listed', '그 서버 기록 못 읽음 — /var/log/auth.log 를 읽을 권한이 없다 (ubuntu 가 adm 그룹인가)', 2),
+  read('srv-d', 'gw-a', 'stale', 'listed', '끊김 — 마지막으로 읽은 게 11분 전이에요(gw 타이머 · 출입증 확인)', 11),
+  read('srv-e', 'gw-a', 'unknown', 'listed', '모름 — 마지막으로 읽은 시각을 못 읽음', null),
+  read('srv-lab', 'gw-b', 'ok', 'unlinked', null, 1, null, null), // gw 가 환경 · 서비스를 안 보냄
+  read('srv-new', null, 'maybe_silent', 'listed', '안 읽음일 수 있음 — 목록과 못 잇는 읽기 1개', null),
+]
+const SRV = {
+  ...SRV_OFF, state: 'ok', reasons: [], written_at: iso(0), host: 'idp-host', window_days: 14, files_read: 3, lines_read: 812,
+  written_age_seconds: 30, stale_after_seconds: 300, events: SRV_LOGINS, reports: 173, servers: READS, servers_known: true,
+  reading: 2, unlinked: 1, inventory: { state: 'ok', reason: null },
+}
+const srvCell = (i: number) => rows()[i][7]
+const srvOrphanRows = () => screen.queryAllByTestId('server-orphan-row').map((r) => within(r).getAllByRole('cell').map((c) => c.textContent))
+const readRows = () =>
+  screen.getAllByTestId('server-read-row').map((r) => within(r).getAllByRole('cell').map((c) => c.textContent)).map((c) => [c[0], c[1], c[2], c[4], c[5]])
+
+test('발급 줄마다 그 인증서로 들어간 서버 · 시각 · 계정 — gw 칸 다음에, 여러 번이면 횟수 · 읽힌 접속 없음 · 거부 · 번호 없음', async () => {
+  serve(ISSUED_OK, GW, SRV)
+  render(<AccessLog />)
+  await screen.findAllByTestId('server-logins-cell')
+  expect(screen.getAllByRole('columnheader').map((h) => h.textContent).slice(6, 8)).toEqual(['들어간 gw · 시각', '들어간 서버 · 시각'])
+  const first = within(screen.getAllByTestId('access-log-row')[0]).getByTestId('server-logins-cell')
+  expect(first.textContent).toMatch(/^2번/)
+  expect(within(first).getAllByText(/^srv-a · \d{4}-\d\d-\d\d \d\d:\d\d · ubuntu$/)).toHaveLength(2)
+  expect(gwCell(0)).toMatch(/^5번/) // 같은 줄 왼쪽 칸 — 그 인증서로 gw 를 거쳐 서버에 들어감
+  expect(srvCell(1)).toMatch(/^srv-s · \d{4}-\d\d-\d\d \d\d:\d\d · dev1$/) // 콜론 · 대문자 번호도 이어짐
+  expect(srvCell(2)).toBe('읽힌 접속 없음') // '안 들어감' 이 아니라 '읽힌 것이 없음'
+  expect(srvCell(3)).toBe('—') // 거부된 인증서
+  expect(srvCell(4)).toBe('번호 없어 못 이음')
+  expect(rows()).toHaveLength(6)
+})
+
+test('서버 읽기 상태 — 읽는 중 · 못 읽음(까닭 그대로) · 끊김 · 모름 · 안 읽음일 수 있음, 금고 목록과 이은 결과', async () => {
+  serve(ISSUED_OK, GW, SRV)
+  render(<AccessLog />)
+  await screen.findAllByTestId('server-read-row')
+  expect(readRows()).toEqual([
+    ['srv-a', 'gw-a', '읽는 중', 'dev/svc-a', 'gw 가 5분마다 읽어 보냄'],
+    ['srv-b', 'gw-a', '못 읽음', 'dev/svc-a', '그 서버 기록 못 읽음 — 닿지 않는다 (시간 초과)'],
+    ['srv-c', 'gw-a', '못 읽음', 'dev/svc-a', '그 서버 기록 못 읽음 — /var/log/auth.log 를 읽을 권한이 없다 (ubuntu 가 adm 그룹인가)'],
+    ['srv-d', 'gw-a', '끊김', 'dev/svc-a', '끊김 — 마지막으로 읽은 게 11분 전이에요(gw 타이머 · 출입증 확인)'],
+    ['srv-e', 'gw-a', '모름', 'dev/svc-a', '모름 — 마지막으로 읽은 시각을 못 읽음'],
+    ['srv-lab', 'gw-b', '읽는 중', '목록과 못 이음', 'gw 가 5분마다 읽어 보냄'],
+    ['srv-new', '—', '안 읽음일 수 있음', 'dev/svc-a', '안 읽음일 수 있음 — 목록과 못 잇는 읽기 1개'],
+  ])
+  expect(screen.getByTestId('server-unlinked').textContent).toBe('목록과 못 이음 — srv-lab(gw-b) (gw 가 환경 · 서비스를 안 보냄 — trust 전이거나 옛 꾸러미)')
+  expect(screen.getByText(/서버 접속 기록 · 최근 14일 · 방금 기록 · 읽는 중 2\/7곳/)).toBeInTheDocument()
+})
+
+test('목록에만 있는 서버는 "안 읽음" — 접속 없음으로 보이지 않음', async () => {
+  const why = '안 읽음 — 금고 목록에 있는 서버인데 그 gw 가 읽지 않아요(gw 에서 보고 켜기를 안 했거나 목록이 바뀐 뒤 다시 안 함)'
+  serve(ISSUED_OK, GW, { ...SRV, servers: [READS[0], read('srv-new', null, 'silent', 'listed', why, null)], reading: 1, unlinked: 0 })
+  render(<AccessLog />)
+  await screen.findAllByTestId('server-read-row')
+  expect(readRows()).toEqual([['srv-a', 'gw-a', '읽는 중', 'dev/svc-a', 'gw 가 5분마다 읽어 보냄'], ['srv-new', '—', '안 읽음', 'dev/svc-a', why]])
+  expect(screen.queryByTestId('server-unlinked')).toBeNull()
+})
+
+test('발급 기록과 못 이은 서버 접속은 따로 — 같은 번호의 gw 접속이 있으면 "거친 gw" 로 이어 보임', async () => {
+  serve(ISSUED_OK, GW, SRV)
+  render(<AccessLog />)
+  expect(await screen.findByText('발급 기록과 못 이은 서버 접속 — 번호 기록 설정 전에 받았거나 14일 넘은 인증서')).toBeInTheDocument()
+  const got = srvOrphanRows()
+  expect(got.map((r) => [r[1], r[2], r[3], r[4], r[5]])).toEqual([
+    ['srv-b', 'gw-a', 'ubuntu', 'ops@example.com', 'dead0000beef1111'],
+    ['srv-c', 'gw-a', 'ubuntu', 'ops@example.com', 'beef0000beef9999'],
+  ]) // 발급 줄에 이어진 srv-a · srv-s 는 여기 없음, 기계 접속은 접어 둠
+  expect(got[0][6]).toBe('못 이음(번호 기록 설정 전 · 14일 넘음 등)')
+  expect(got[0][7]).toMatch(/^gw-shop-dev · \d{4}-\d\d-\d\d \d\d:\d\d$/) // 같은 번호로 gw 를 거쳐 이 서버에 들어감
+  expect(got[1][6]).toMatch(/^\d{4}-\d\d-\d\d \d\d:\d\d · dev$/) // IdP 가 발급 기록과 이었으면 그 값
+  expect(got[1][7]).toBe('gw 보고에 없음')
+  fireEvent.click(screen.getByLabelText(/기계 · 시험\/관리 토큰도 보기 \(3\)/)) // 발급 줄 기계 1 + gw 못 이음 기계 1 + 서버 못 이음 기계 1
+  expect(srvOrphanRows().map((r) => r[1])).toEqual(['srv-b', 'srv-c', 'srv-a'])
+  expect(srvOrphanRows()[2][7]).toMatch(/^gw-shop-dev · /)
+})
+
+test.each([
+  [{ state: 'unknown', reasons: ['못 봄 — 요약 파일이 없어요(IdP 서버가 아직 안 만들었거나 지워짐)'] }, /^모름 — 요약 파일이 없어요\(IdP 서버가 아직 안 만들었거나 지워짐\)\. 들어간 서버 칸도 '모름' 으로 두었어요\.$/],
+  [{ state: 'unknown', reasons: ['못 봄 — IdP 가 금고 기록을 못 읽음: 감사 기록 없음'] }, /^모름 — IdP 가 금고 기록을 못 읽음: 감사 기록 없음\./],
+  [{ state: 'unknown', reasons: ['멈춤 — 요약 기록이 10분째 그대로예요(IdP 쪽 타이머 확인)'] }, /^멈춤 — 요약 기록이 10분째/],
+])('서버 접속 기록을 못 보면 "모름" + 까닭 — 칸 · 읽기 상태 · 못 이은 접속을 안 그림(%#)', async (extra, text) => {
+  serve(ISSUED_OK, GW, { ...SRV, ...extra, events: [], servers: [] })
+  render(<AccessLog />)
+  expect((await screen.findByTestId('server-unknown')).textContent).toMatch(text)
+  expect(rows().every((r) => r[7] === '모름')).toBe(true)
+  expect(gwCell(0)).toMatch(/^5번gw-shop-dev/) // gw 칸은 그대로 — 서버 쪽만 모름
+  expect(screen.queryAllByTestId('server-read-row')).toHaveLength(0)
+  expect(screen.queryAllByTestId('server-orphan-row')).toHaveLength(0)
+  expect(screen.queryByText(/읽힌 접속 없음|들어온 기록이 없어요/)).toBeNull() // 모름을 '안 들어옴' 으로 말하지 않음
+})
+
+test('들어간 기록이 0번이면 읽는 중인 서버만큼만 말함 — 안 읽는 서버는 모른다고', async () => {
+  serve(ISSUED_OK, GW, { ...SRV, events: [] })
+  const { unmount } = render(<AccessLog />)
+  expect(await screen.findByText('읽는 중인 서버 2곳에는 최근 14일 들어온 기록이 없어요 — 안 읽는(못 읽은 · 끊긴 · 목록에만 있는) 서버 5곳은 몰라요')).toBeInTheDocument()
+  unmount()
+  serve(ISSUED_OK, GW, { ...SRV, events: [], servers: [], reading: 0, unlinked: 0, inventory: { state: 'off', reason: '금고 목록(서버 탭)에 연결 전이라 안 읽는 서버가 있는지 몰라요' } })
+  render(<AccessLog />)
+  expect(await screen.findByText('읽는 중인 서버가 없어 들어간 기록을 볼 수 없어요')).toBeInTheDocument()
+  expect(screen.getByText(/아직 서버 기록을 읽는 gw 가 없어요/)).toBeInTheDocument()
+  expect(screen.getByText('금고 목록(서버 탭)에 연결 전이라 안 읽는 서버가 있는지 몰라요')).toBeInTheDocument()
+  expect(srvCell(2)).toBe('읽는 서버 없음')
+  expect(screen.queryByText(/읽힌 접속 없음/)).toBeNull()
+})
+
+test('파일에 서버마다 읽기 상태가 없으면 "안 읽는 서버를 가릴 수 없어요"', async () => {
+  serve(ISSUED_OK, GW, { ...SRV, servers: [], servers_known: false, reading: 0, unlinked: 0 })
+  render(<AccessLog />)
+  expect(await screen.findByText(/서버마다 읽기 상태가 파일에 없어요 — 안 읽는 서버를 가릴 수 없어요/)).toBeInTheDocument()
+  expect(screen.queryAllByTestId('server-read-row')).toHaveLength(0)
+})
+
+test('발급 기록을 못 보면 서버 접속도 이어 붙이지 않고 따로 — 못 이은 까닭도 "못 봐서"', async () => {
+  // 못 봄인데 줄이 딸려 와도 그 줄로 잇지 않음(못 본 기록을 지금 것처럼 쓰지 않게)
+  serve({ ...ISSUED_OK, state: 'unknown', reasons: ['못 봄 — 요약 파일이 없어요'] }, GW, SRV)
+  render(<AccessLog />)
+  expect(await screen.findByText('들어간 서버 · 시각 — 발급 기록을 못 봐서 이어 붙이지 못했어요')).toBeInTheDocument()
+  expect(srvOrphanRows()).toHaveLength(5) // 사람 접속 5번 — 기계 1번은 접어 둠
+  expect(srvOrphanRows()[0][6]).toBe('발급 기록을 못 봐서 못 이음')
+  expect(screen.getByText('기계 · 시험/관리 토큰 서버 접속 1번은 접어 두었어요.')).toBeInTheDocument()
+})
+
+test('gw 접속 기록을 못 보면 "거친 gw" 칸도 "gw 기록 못 봄"', async () => {
+  serve(ISSUED_OK, { ...GW, state: 'unknown', reasons: ['못 봄 — 요약 파일이 없어요'], events: [], gws: [] }, SRV)
+  render(<AccessLog />)
+  await screen.findAllByTestId('server-orphan-row')
+  expect(srvOrphanRows().map((r) => r[7])).toEqual(['gw 기록 못 봄', 'gw 기록 못 봄'])
+  expect(screen.queryByTestId('server-via-gw')).toBeNull()
+})
+
+test('서버 접속 기록만 못 불러오면 그 까닭 — 칸은 "모름"', async () => {
+  serve(ISSUED_OK, GW, 'fail')
+  render(<AccessLog />)
+  expect(await screen.findByText(/서버 접속 기록을 불러오지 못했어요 — Failed to fetch/)).toBeInTheDocument()
+  await screen.findAllByTestId('access-log-row')
+  expect(rows().every((r) => r[7] === '모름')).toBe(true)
+})
+
+test('서버 접속 기록이 403 이면 "운영자만" — 개발자는 이 탭을 못 봄', async () => {
+  serve(403, 403, 403)
+  render(<AccessLog />)
+  expect(await screen.findByText(/운영자만 볼 수 있어요 — 접속 기록은 운영자\(server-admin\)만 봐요/)).toBeInTheDocument()
+  expect(screen.queryByRole('table')).toBeNull()
+})
+
+test('같은 번호로 gw 에 여러 번 들어갔으면 "거친 gw" 는 서버에 들어가기 바로 전의 것', async () => {
+  const more = [
+    login(1, 'gw-later', 'ubuntu', 'dead0000beef1111'), // 서버(7.5분 전)보다 뒤 — 거친 gw 가 아님
+    ...LOGINS,                                          // 8분 전 gw-shop-dev — 바로 전
+    login(12, 'gw-earlier', 'ubuntu', 'dead0000beef1111'), // 더 전
+  ]
+  serve(ISSUED_OK, { ...GW, events: more }, SRV)
+  render(<AccessLog />)
+  await screen.findAllByTestId('server-via-gw')
+  expect(srvOrphanRows()[0][7]).toMatch(/^gw-shop-dev · \d{4}-\d\d-\d\d \d\d:\d\d \(같은 번호 3번\)$/)
 })
